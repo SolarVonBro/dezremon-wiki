@@ -39,7 +39,11 @@ const route = useRoute()
 const router = useRouter()
 const world = useWorld()
 
-const eid = computed(() => route.params.eid as string)
+// The layout re-mounts this view for every article (keyed by eid), so the id is fixed for the
+// lifetime of the instance. It must NOT follow the route: the final autosave runs on unmount,
+// after the route already points at the next article.
+const fixedEid = route.params.eid as string
+const eid = computed(() => fixedEid)
 const entity = computed(() => world.get(eid.value))
 const raw = computed(() => world.getAny(eid.value))
 const def = computed(() => typeDef(entity.value?.type ?? 'note'))

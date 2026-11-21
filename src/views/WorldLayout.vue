@@ -12,6 +12,7 @@ import CreateEntityModal from '@/components/layout/CreateEntityModal.vue'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BookmarksNav from '@/components/layout/BookmarksNav.vue'
 import { createRequest } from '@/components/layout/createRequest'
+import { unsavedEditors } from '@/composables/useAutosave'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,7 +34,7 @@ const roleLabel = computed(() => ({ owner: 'Владелец', master: 'Маст
 
 const saveState = computed(() => {
   if (!online.value) return { cls: 'offline', text: 'Нет сети — изменения сохранятся позже', icon: 'wifi-off' }
-  if (world.pendingWrites > 0) return { cls: 'saving', text: 'Сохранение…', icon: 'refresh-cw' }
+  if (world.pendingWrites > 0 || unsavedEditors.value > 0) return { cls: 'saving', text: 'Сохранение…', icon: 'refresh-cw' }
   if (world.lastSavedAt) return { cls: '', text: 'Сохранено', icon: 'check' }
   return null
 })
