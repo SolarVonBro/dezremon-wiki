@@ -629,7 +629,6 @@ export const useWorld = defineStore('world', () => {
   }
   async function leaveWorld() {
     await track(deleteDoc(docRef(wid.value!, 'members', uid.value!)), 'Выход из мира')
-    close()
   }
   /** Owner: deletes every document of the world (content, images, members), then the world itself. */
   async function deleteWorld(onProgress: (done: number, what: string) => void = () => {}) {
@@ -653,7 +652,6 @@ export const useWorld = defineStore('world', () => {
     await deleteDoc(doc(db, 'worlds', w))
     await deleteDoc(docRef(w, 'members', me))
     void cache.clearWorld(w)
-    close()
   }
   /** Remembers when the member last opened the world (one write per few hours per device). */
   async function touchLastSeen() {

@@ -110,13 +110,16 @@ async function deleteWorld() {
   try {
     await world.deleteWorld((done, what) => { deleteProgress.value = `${what}: удалено ${done}` })
     toast.success('Мир удалён')
-    void router.replace({ name: 'account' })
+    // leave the world's pages first, then drop its state (links would render without a world id otherwise)
+    await router.replace({ name: 'account' })
+    world.close()
   } catch (e: any) { toast.error('Ошибка удаления: ' + (e?.message ?? e)); deleteProgress.value = null }
 }
 async function leave() {
   if (!confirm(`Выйти из мира «${world.world?.name}»? Вернуться можно будет только по новому приглашению.`)) return
   await world.leaveWorld()
-  void router.replace({ name: 'account' })
+  await router.replace({ name: 'account' })
+  world.close()
 }
 
 // Publish everything players can see to guests, or hide it again (all collections at once).
