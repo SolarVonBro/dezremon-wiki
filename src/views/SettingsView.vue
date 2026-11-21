@@ -98,6 +98,20 @@ async function purgeOld() {
   for (const e of old) await world.purgeEntity(e.id)
 }
 const visOptions: Visibility[] = ['public', 'members', 'master']
+
+// Publish everything players can see to guests, or hide it again (all collections at once).
+const publishBusy = ref<string | null>(null)
+async function publishAll(to: 'public' | 'members') {
+  const msg = to === 'public'
+    ? 'Сделать видимым ГОСТЯМ всё, что сейчас видят участники мира: статьи, разделы, связи, метки, хронологии, картинки? Мастерские и выборочные материалы останутся скрытыми.'
+    : 'Скрыть от гостей всё публичное (видимость «всем» → «участникам»)?'
+  if (!confirm(msg)) return
+  publishBusy.value = 'начинаю…'
+  try {
+    const n = await world.setWorldVisibility(to === 'public' ? 'members' : 'public', to, (done, name) => { publishBusy.value = `${name}: ${done}` })
+    toast.success(`Готово, обновлено записей: ${n}`)
+  } catch (e: any) { toast.error('Ошибка: ' + (e?.message ?? e)) } finally { publishBusy.value = null }
+}
 </script>
 
 <template>
@@ -130,6 +144,11 @@ const visOptions: Visibility[] = ['public', 'members', 'master']
         <h3 class="panel-title"><Icon name="globe" /> Доступ</h3>
         <label class="check"><input type="checkbox" :checked="world.world?.isPublic" @change="togglePublic" /> Открытый мир: статьи с видимостью «всем» читаются без входа</label>
         <p v-if="world.world?.isPublic" class="small muted" style="margin: 0">Ссылка для гостей: <code>{{ guestUrl }}</code></p>
+        <div class="row gap wrap">
+          <button v-if="world.world?.isPublic" class="btn btn-sm" :disabled="!!publishBusy" @click="publishAll('public')"><Icon name="globe" :size="14" /> Открыть гостям всё, что видят участники</button>
+          <button class="btn btn-sm btn-ghost" :disabled="!!publishBusy" @click="publishAll('members')"><Icon name="eye-off" :size="14" /> Скрыть от гостей всё публичное</button>
+          <span v-if="publishBusy" class="muted small"><Icon name="refresh-cw" class="spin" :size="13" /> {{ publishBusy }}</span>
+        </div>
         <label class="field"><span>Видимость новых статей по умолчанию</span>
           <select class="input" :value="world.settings.defaultVisibility" @change="world.updateSettings({ defaultVisibility: ($event.target as HTMLSelectElement).value as Visibility })">
             <option v-for="v in visOptions" :key="v" :value="v">{{ VISIBILITY_LABELS[v] }}</option>

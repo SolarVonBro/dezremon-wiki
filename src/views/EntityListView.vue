@@ -11,7 +11,12 @@ import Thumb from '@/components/common/Thumb.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import TreeNode from '@/components/entity/TreeNode.vue'
 import { createRequest } from '@/components/layout/createRequest'
-import type { Entity } from '@/model/types'
+import Dropdown from '@/components/common/Dropdown.vue'
+import Modal from '@/components/common/Modal.vue'
+import EntityPicker from '@/components/common/EntityPicker.vue'
+import VisibilitySelect from '@/components/common/VisibilitySelect.vue'
+import { toast } from '@/components/common/toast'
+import type { Entity, Visibility } from '@/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,6 +54,32 @@ const items = computed(() => {
 const roots = computed(() => items.value.filter((e) => !e.parentId || !all.value.some((p) => p.id === e.parentId)))
 const filtered = computed(() => !!(q.value.trim() || kind.value || tag.value || onlyTemplates.value))
 function open(e: Entity) { void router.push({ name: 'entity', params: { wid: world.wid!, eid: e.id } }) }
+
+// ---------- bulk actions (masters): apply to every article currently shown ----------
+const bulk = ref<null | 'visibility' | 'addTag' | 'removeTag'>(null)
+const bulkVis = ref<{ visibility: Visibility; allowedUids: string[] }>({ visibility: 'members', allowedUids: [] })
+const bulkTag = ref<string | null>(null)
+const bulkBusy = ref<{ done: number; total: number } | null>(null)
+const BULK_LABEL = { visibility: 'Изменить видимость', addTag: 'Добавить тег', removeTag: 'Убрать тег', trash: 'Переместить в корзину' }
+async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
+  const list = items.value
+  if (!list.length) return
+  if (!confirm(`${BULK_LABEL[kind]}: ${list.length} показанных статей?`)) return
+  const tag = bulkTag.value
+  const patchFor = (e: Entity): Partial<Entity> | null => {
+    if (kind === 'visibility') return e.visibility === bulkVis.value.visibility && JSON.stringify(e.allowedUids) === JSON.stringify(bulkVis.value.allowedUids) ? null : { ...bulkVis.value }
+    if (kind === 'addTag') return tag && !e.tagIds.includes(tag) ? { tagIds: [...e.tagIds, tag] } : null
+    if (kind === 'removeTag') return tag && e.tagIds.includes(tag) ? { tagIds: e.tagIds.filter((t) => t !== tag) } : null
+    return { deleted: true, deletedAt: Date.now() }
+  }
+  bulkBusy.value = { done: 0, total: list.length }
+  try {
+    await world.bulkUpdateEntities(list.map((e) => e.id), patchFor, (done, total) => { bulkBusy.value = { done, total } })
+    toast.success('Готово')
+    bulk.value = null
+    bulkTag.value = null
+  } finally { bulkBusy.value = null }
+}
 </script>
 
 <template>
@@ -69,6 +100,17 @@ function open(e: Entity) { void router.push({ name: 'entity', params: { wid: wor
       <select v-model="sort" class="input" style="max-width: 190px"><option value="name">По названию</option><option value="updated">Недавно изменённые</option><option value="created">Недавно созданные</option></select>
       <label class="check small"><input v-model="onlyTemplates" type="checkbox" /> шаблоны</label>
       <span class="grow" />
+      <Dropdown v-if="world.isMaster && items.length" placement="bottom-end">
+        <template #trigger><button class="btn btn-sm" :disabled="!!bulkBusy"><Icon name="list-checks" :size="14" /> {{ bulkBusy ? `${bulkBusy.done} / ${bulkBusy.total}` : `Действия (${items.length})` }}</button></template>
+        <div class="menu">
+          <div class="menu-label">Со всеми показанными статьями</div>
+          <button class="menu-item" @click="bulk = 'visibility'"><Icon name="shield" :size="15" /> Изменить видимость…</button>
+          <button class="menu-item" @click="bulk = 'addTag'"><Icon name="tag" :size="15" /> Добавить тег…</button>
+          <button v-if="tagsInUse.length" class="menu-item" @click="bulk = 'removeTag'"><Icon name="x" :size="15" /> Убрать тег…</button>
+          <div class="menu-sep" />
+          <button class="menu-item danger" @click="runBulk('trash')"><Icon name="trash2" :size="15" /> В корзину</button>
+        </div>
+      </Dropdown>
       <div class="row gap-sm">
         <button class="icon-btn" :class="{ on: view === 'cards' }" title="Карточки" @click="view = 'cards'"><Icon name="layout-grid" /></button>
         <button class="icon-btn" :class="{ on: view === 'table' }" title="Таблица" @click="view = 'table'"><Icon name="layout-list" /></button>
@@ -115,5 +157,19 @@ function open(e: Entity) { void router.push({ name: 'entity', params: { wid: wor
     <div v-else class="card card-pad">
       <ul class="tree"><TreeNode v-for="e in roots" :key="e.id" :entity="e" :pool="items" /></ul>
     </div>
+
+    <Modal v-if="bulk" :title="bulk === 'visibility' ? `Видимость ${items.length} статей` : bulk === 'addTag' ? 'Добавить тег' : 'Убрать тег'" width="520px" @close="bulk = null">
+      <div class="stack">
+        <p class="muted small" style="margin: 0">Действие применится ко всем статьям, которые сейчас показаны в списке с учётом фильтров ({{ items.length }}).</p>
+        <VisibilitySelect v-if="bulk === 'visibility'" v-model="bulkVis" />
+        <EntityPicker v-else-if="bulk === 'addTag'" v-model="bulkTag" :types="['tag']" placeholder="Выберите или создайте тег…" />
+        <select v-else v-model="bulkTag" class="input"><option :value="null">Выберите тег…</option><option v-for="t in tagsInUse" :key="t.id" :value="t.id">{{ t.name }}</option></select>
+        <p v-if="bulk === 'visibility'" class="faint small" style="margin: 0">Разделы (посты) статей сохраняют свою видимость. Картинки в открытых статьях станут видны их читателям.</p>
+      </div>
+      <template #footer>
+        <button class="btn" @click="bulk = null">Отмена</button>
+        <button class="btn btn-primary" :disabled="!!bulkBusy || (bulk !== 'visibility' && !bulkTag)" @click="runBulk(bulk!)">{{ bulkBusy ? `${bulkBusy.done} / ${bulkBusy.total}` : 'Применить' }}</button>
+      </template>
+    </Modal>
   </div>
 </template>

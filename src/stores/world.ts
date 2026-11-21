@@ -297,9 +297,76 @@ export const useWorld = defineStore('world', () => {
       if (narrows(prev, next)) batch.update(doc(db, 'worlds', wid.value!), { aclVersion: increment(1) })
     }
     await track(batch.commit())
-    // Images shown with the entity (avatar, cover, map base image) must be at least as visible as the entity.
-    const imgs = [next.imageId, next.headerImageId, next.fields?.mapImageId].filter((x) => typeof x === 'string' && x) as string[]
-    if (imgs.length && (visChanged || 'imageId' in patch || 'headerImageId' in patch || 'fields' in patch)) void ensureImageAccess(access.value, imgs, next)
+    if (visChanged || 'imageId' in patch || 'headerImageId' in patch || 'fields' in patch) void widenEntityImages(next, visChanged && !narrows(prev, next))
+  }
+
+  /**
+   * Images shown with the entity (avatar, cover, map base image and — when the entity became more visible —
+   * the images inside its readable text) must be at least as visible as the entity.
+   */
+  async function widenEntityImages(e: Entity, includeText: boolean) {
+    const imgs = [e.imageId, e.headerImageId, e.fields?.mapImageId].filter((x) => typeof x === 'string' && x) as string[]
+    if (includeText && e.bodyRev) {
+      const html = await loadText(e.id).catch(() => '')
+      imgs.push(...imageIdsInHtml(stripSecrets(html)))
+    }
+    if (imgs.length) await ensureImageAccess(access.value, imgs, e)
+  }
+
+  /** Same patch logic as updateEntity for many entities at once (batched). Returns the number updated. */
+  async function bulkUpdateEntities(ids: string[], patchFor: (e: Entity) => Partial<Entity> | null, onProgress: (done: number, total: number) => void = () => {}) {
+    const w = wid.value!
+    const todo = ids.map((id) => entities.value.get(id)).filter(Boolean) as Entity[]
+    let done = 0, narrowed = false
+    const widened: Entity[] = []
+    for (let i = 0; i < todo.length; i += 200) {
+      const batch = writeBatch(db)
+      const m = new Map(entities.value)
+      let n = 0
+      for (const prev of todo.slice(i, i + 200)) {
+        const patch = patchFor(prev)
+        if (!patch) continue
+        const next = normalizeEntity({ ...prev, ...patch, updatedAt: now(), updatedBy: uid.value })
+        m.set(prev.id, next)
+        batch.update(docRef(w, 'entities', prev.id), clean({ ...patch, updatedAt: next.updatedAt, updatedBy: next.updatedBy }))
+        if ('visibility' in patch || 'allowedUids' in patch) {
+          batch.set(docRef(w, 'bodies', prev.id), { visibility: next.visibility, allowedUids: next.allowedUids, createdBy: next.createdBy }, { merge: true })
+          if (narrows(prev, next)) narrowed = true
+          else widened.push(next)
+        }
+        n++
+      }
+      if (n) { entities.value = m; await track(batch.commit()) }
+      done += Math.min(200, todo.length - i)
+      onProgress(done, todo.length)
+    }
+    if (narrowed) await bumpAcl()
+    for (const e of widened) await widenEntityImages(e, true)
+    return todo.length
+  }
+
+  /**
+   * Changes visibility `from` → `to` on every record of the world (articles, texts, posts, relations, map marks,
+   * timelines, images…). Used to publish a world to guests ("members" → "public") or hide it again.
+   */
+  async function setWorldVisibility(from: Visibility, to: Visibility, onProgress: (done: number, name: string) => void = () => {}) {
+    const w = wid.value!
+    const names = ['entities', 'bodies', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
+      'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'bookmarks']
+    let done = 0
+    for (const name of names) {
+      const snap = await getDocs(query(coll(w, name), where('visibility', '==', from)))
+      for (let i = 0; i < snap.docs.length; i += 450) {
+        const batch = writeBatch(db)
+        const t = now()
+        snap.docs.slice(i, i + 450).forEach((d) => batch.update(d.ref, name === 'imageChunks' ? { visibility: to } : { visibility: to, updatedAt: t }))
+        await track(batch.commit())
+        done += Math.min(450, snap.docs.length - i)
+        onProgress(done, name)
+      }
+    }
+    if (narrows({ visibility: from, allowedUids: [], createdBy: '' }, { visibility: to, allowedUids: [], createdBy: '' })) await bumpAcl()
+    return done
   }
 
   async function deleteEntity(id: string) {
@@ -534,7 +601,7 @@ export const useWorld = defineStore('world', () => {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
     uid, role, isMaster, isOwner, isMember, access, settings, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
-    createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData,
+    createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,
     watchRows, fetchRows, saveRow, deleteRow,
     saveRelation, deleteRelation, relationsOf, revisionsOf,
