@@ -208,6 +208,8 @@ export const useWorld = defineStore('world', () => {
     status.value = 'denied'
     const u = session.user
     if (!u) return
+    // the failed reads that brought us here remove listen targets; start the new listeners on fresh streams
+    resetStreams()
     unsubs.push(onSnapshot(doc(db, 'worlds', id, 'members', u.uid), (s) => {
       if (token !== openToken || !s.exists()) return
       close()
