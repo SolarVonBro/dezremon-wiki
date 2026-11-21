@@ -2,14 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
-import { typeDef } from '@/model/entityTypes'
+import { typeDef, type FieldDef } from '@/model/entityTypes'
 import { relativeTime } from '@/data/util'
-import { quickSearch } from '@/data/search'
 import { VISIBILITY_SHORT } from '@/data/access'
+import { useListFilters, applyFilters, NONE, type Tri } from '@/composables/useListFilters'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import TreeNode from '@/components/entity/TreeNode.vue'
+import MultiSelect, { type MultiOption } from '@/components/common/MultiSelect.vue'
 import { cropOf } from '@/data/crop'
 import { createRequest } from '@/components/layout/createRequest'
 import Dropdown from '@/components/common/Dropdown.vue'
@@ -26,35 +27,116 @@ const type = computed(() => route.params.type as string)
 const def = computed(() => typeDef(type.value))
 
 function readPref<T>(k: string, d: T): T { try { return (JSON.parse(localStorage.getItem('dw.list.' + k) ?? 'null') as T) ?? d } catch { return d } }
+function writePref(k: string, v: unknown) { try { localStorage.setItem('dw.list.' + k, JSON.stringify(v)) } catch { /* ignore */ } }
 const view = ref<'cards' | 'table' | 'tree'>(readPref('view', 'cards'))
-watch(view, (v) => { try { localStorage.setItem('dw.list.view', JSON.stringify(v)) } catch { /* ignore */ } })
-const q = ref((route.query.q as string) ?? '')
-const tag = ref<string | null>((route.query.tag as string) ?? null)
-const kind = ref<string>('')
-const sort = ref<'name' | 'updated' | 'created'>('name')
-const onlyTemplates = ref(false)
-watch(type, () => { q.value = ''; kind.value = ''; tag.value = null })
+watch(view, (v) => writePref('view', v))
+const panelOpen = ref<boolean>(readPref('panel', false))
+watch(panelOpen, (v) => writePref('panel', v))
+
+// ---------- filters (remembered per world and type) ----------
+const { f, active, clear } = useListFilters(computed(() => world.wid), type)
+// links like ?tag=… or ?q=… (bookmarks, tag pages) override the remembered filters once
+watch(() => [route.query.tag, route.query.q], ([tag, q]) => {
+  if (typeof tag === 'string' && tag) { clear(); f.tags = [tag] }
+  if (typeof q === 'string' && q) f.q = q
+  if (tag || q) void router.replace({ query: {} })
+}, { immediate: true })
 
 const all = computed(() => world.byType.get(type.value) ?? [])
-const kinds = computed(() => [...new Set(all.value.map((e) => e.kind).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')))
+const filterFields = computed<FieldDef[]>(() => def.value.fields.filter((fd) => ['bool', 'entity', 'entities', 'text', 'number', 'textarea'].includes(fd.kind)))
+
+function countBy<T extends string>(values: T[]): Map<T, number> {
+  const m = new Map<T, number>()
+  for (const v of values) m.set(v, (m.get(v) ?? 0) + 1)
+  return m
+}
+const kindOptions = computed<MultiOption[]>(() => {
+  const c = countBy(all.value.map((e) => e.kind || NONE))
+  return [...c.entries()].sort((a, b) => (a[0] === NONE ? 1 : b[0] === NONE ? -1 : a[0].localeCompare(b[0], 'ru')))
+    .map(([k, n]) => ({ value: k, label: k === NONE ? '— не указан —' : k, count: n }))
+})
 const tagsInUse = computed(() => {
   const ids = new Set(all.value.flatMap((e) => e.tagIds))
   return world.tags.filter((t) => ids.has(t.id))
 })
-const items = computed(() => {
-  let list = q.value.trim() ? quickSearch(all.value, q.value, 1000) : [...all.value]
-  if (kind.value) list = list.filter((e) => e.kind === kind.value)
-  if (tag.value) list = list.filter((e) => e.tagIds.includes(tag.value!))
-  if (onlyTemplates.value) list = list.filter((e) => e.isTemplate)
-  if (!q.value.trim()) {
-    if (sort.value === 'updated') list.sort((a, b) => b.updatedAt - a.updatedAt)
-    else if (sort.value === 'created') list.sort((a, b) => b.createdAt - a.createdAt)
-  }
-  return list
+const tagOptions = computed<MultiOption[]>(() => {
+  const c = countBy(all.value.flatMap((e) => e.tagIds))
+  return tagsInUse.value.map((t) => ({ value: t.id, label: t.name, color: t.fields?.colour || 'var(--accent)', count: c.get(t.id) ?? 0 }))
 })
-const roots = computed(() => items.value.filter((e) => !e.parentId || !all.value.some((p) => p.id === e.parentId)))
-const filtered = computed(() => !!(q.value.trim() || kind.value || tag.value || onlyTemplates.value))
+const authorOptions = computed<MultiOption[]>(() => {
+  const c = countBy(all.value.map((e) => e.createdBy))
+  return [...c.entries()].map(([uid, n]) => ({ value: uid, label: world.memberName(uid), count: n })).sort((a, b) => b.count! - a.count!)
+})
+const VIS_LABEL: Record<Visibility, string> = { public: 'Всем (публично)', members: 'Участникам', custom: 'Выбранным игрокам', master: 'Только мастерам' }
+const visOptions = computed<MultiOption[]>(() => {
+  const c = countBy(all.value.map((e) => e.visibility))
+  return (['public', 'members', 'custom', 'master'] as Visibility[]).filter((v) => c.has(v)).map((v) => ({ value: v, label: VIS_LABEL[v], count: c.get(v) }))
+})
+/** Options of an entity-reference field: the entities actually referenced by this list, plus "not set". */
+function refOptions(fd: FieldDef): MultiOption[] {
+  const ids: string[] = []
+  let none = 0
+  for (const e of all.value) {
+    const v = e.fields?.[fd.key]
+    const arr: string[] = Array.isArray(v) ? v : v ? [v] : []
+    if (!arr.length) none++
+    ids.push(...arr)
+  }
+  const c = countBy(ids)
+  const opts = [...c.entries()].map(([id, n]) => {
+    const t = world.get(id)
+    return t ? { value: id, label: t.name, icon: typeDef(t.type).icon, color: typeDef(t.type).color, count: n } : null
+  }).filter(Boolean) as MultiOption[]
+  opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'))
+  if (none) opts.push({ value: NONE, label: '— не указано —', count: none })
+  return opts
+}
+const fieldOptions = computed(() => Object.fromEntries(filterFields.value.filter((fd) => fd.kind === 'entity' || fd.kind === 'entities').map((fd) => [fd.key, refOptions(fd)])))
+
+function ancestorsOf(e: Entity): string[] {
+  const out: string[] = []
+  let p = e.parentId ? world.get(e.parentId) : undefined
+  while (p && !out.includes(p.id) && out.length < 20) { out.push(p.id); p = p.parentId ? world.get(p.parentId) : undefined }
+  return out
+}
+const now = ref(Date.now())
+const items = computed(() => applyFilters(f, { all: all.value, fieldDefs: filterFields.value, ancestorsOf, tagExists: (id) => !!world.get(id), now: now.value }))
+const roots = computed(() => items.value.filter((e) => !e.parentId || !items.value.some((p) => p.id === e.parentId)))
 function open(e: Entity) { void router.push({ name: 'entity', params: { wid: world.wid!, eid: e.id } }) }
+
+function setSort(s: 'name' | 'updated' | 'created') {
+  if (f.sort === s) f.dir = f.dir === 'asc' ? 'desc' : 'asc'
+  else { f.sort = s; f.dir = s === 'name' ? 'asc' : 'desc' }
+}
+const SORT_LABEL = { name: 'По названию', updated: 'По изменению', created: 'По созданию' }
+
+// ---------- active filter chips ----------
+const TRI: Record<Tri, string> = { any: 'любые', yes: 'есть', no: 'нет' }
+const UPDATED = [{ v: 0, l: 'за всё время' }, { v: 1, l: 'за сутки' }, { v: 7, l: 'за неделю' }, { v: 30, l: 'за месяц' }, { v: 365, l: 'за год' }]
+const labelOf = (opts: MultiOption[], vals: string[]) => vals.map((v) => opts.find((o) => o.value === v)?.label ?? '…').join(', ')
+const chips = computed(() => {
+  const out: Array<{ label: string; clear: () => void }> = []
+  if (f.q.trim()) out.push({ label: `«${f.q.trim()}»`, clear: () => (f.q = '') })
+  if (f.kinds.length) out.push({ label: `Подтип: ${labelOf(kindOptions.value, f.kinds)}`, clear: () => (f.kinds = []) })
+  if (f.tags.length) out.push({ label: `Теги (${f.tagMode === 'all' ? 'все' : 'любой'}): ${labelOf(tagOptions.value, f.tags)}`, clear: () => (f.tags = []) })
+  for (const fd of filterFields.value) {
+    const v = f.fields[fd.key]
+    if (!v || (Array.isArray(v) && !v.length) || v === 'any') continue
+    const text = Array.isArray(v) ? labelOf(fieldOptions.value[fd.key] ?? [], v) : fd.kind === 'bool' ? (v === 'yes' ? 'да' : 'нет') : `содержит «${v}»`
+    out.push({ label: `${fd.label}: ${text}`, clear: () => { const n = { ...f.fields }; delete n[fd.key]; f.fields = n } })
+  }
+  if (f.level !== 'any') out.push({ label: f.level === 'root' ? 'Только верхний уровень' : 'Только вложенные', clear: () => (f.level = 'any') })
+  if (f.within) out.push({ label: `Внутри: ${world.get(f.within)?.name ?? '…'}`, clear: () => (f.within = null) })
+  if (f.image !== 'any') out.push({ label: `Изображение: ${TRI[f.image]}`, clear: () => (f.image = 'any') })
+  if (f.text !== 'any') out.push({ label: `Текст: ${TRI[f.text]}`, clear: () => (f.text = 'any') })
+  if (f.updated) out.push({ label: `Изменено ${UPDATED.find((u) => u.v === f.updated)?.l}`, clear: () => (f.updated = 0) })
+  if (f.authors.length) out.push({ label: `Автор: ${labelOf(authorOptions.value, f.authors)}`, clear: () => (f.authors = []) })
+  if (f.visibility.length) out.push({ label: `Видимость: ${labelOf(visOptions.value, f.visibility)}`, clear: () => (f.visibility = []) })
+  if (f.secrets !== 'any') out.push({ label: `Секреты мастера: ${TRI[f.secrets]}`, clear: () => (f.secrets = 'any') })
+  if (f.templates !== 'any') out.push({ label: f.templates === 'yes' ? 'Только шаблоны' : 'Без шаблонов', clear: () => (f.templates = 'any') })
+  return out
+})
+function setField(key: string, v: string[] | string) { f.fields = { ...f.fields, [key]: v } }
 
 // ---------- bulk actions (masters): apply to every article currently shown ----------
 const bulk = ref<null | 'visibility' | 'addTag' | 'removeTag'>(null)
@@ -94,12 +176,26 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
       <h1 class="grow">{{ def.plural }} <span class="faint" style="font-size: 20px">{{ all.length }}</span></h1>
       <button v-if="world.canCreate(type)" class="btn btn-primary" @click="createRequest = { type }"><Icon name="plus" :size="16" /> Создать {{ def.acc }}</button>
     </div>
+
     <div class="list-toolbar">
-      <input v-model="q" class="input" style="max-width: 280px" placeholder="Фильтр по названию…" />
-      <select v-if="kinds.length" v-model="kind" class="input" style="max-width: 200px"><option value="">Все подтипы</option><option v-for="k in kinds" :key="k" :value="k">{{ k }}</option></select>
-      <select v-if="tagsInUse.length" v-model="tag" class="input" style="max-width: 200px"><option :value="null">Все теги</option><option v-for="t in tagsInUse" :key="t.id" :value="t.id">{{ t.name }}</option></select>
-      <select v-model="sort" class="input" style="max-width: 190px"><option value="name">По названию</option><option value="updated">Недавно изменённые</option><option value="created">Недавно созданные</option></select>
-      <label class="check small"><input v-model="onlyTemplates" type="checkbox" /> шаблоны</label>
+      <div class="search-box">
+        <Icon name="search" :size="15" class="faint" />
+        <input v-model="f.q" class="input" placeholder="Поиск по названию и другим именам…" />
+        <button v-if="f.q" class="icon-btn" title="Очистить поиск" @click="f.q = ''"><Icon name="x" :size="14" /></button>
+      </div>
+      <button class="btn" :class="{ 'btn-primary': panelOpen }" @click="panelOpen = !panelOpen">
+        <Icon name="filter" :size="15" /> Фильтры<span v-if="active - (f.q.trim() ? 1 : 0) > 0" class="filter-count">{{ active - (f.q.trim() ? 1 : 0) }}</span>
+      </button>
+      <Dropdown>
+        <template #trigger><button class="btn" title="Сортировка"><Icon :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="15" /> {{ SORT_LABEL[f.sort] }}</button></template>
+        <div class="menu">
+          <button v-for="(l, s) in SORT_LABEL" :key="s" class="menu-item" :class="{ on: f.sort === s }" @click="setSort(s)">
+            {{ l }}<span class="grow" /><Icon v-if="f.sort === s" :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="14" />
+          </button>
+          <div class="menu-label">Повторный выбор меняет направление</div>
+        </div>
+      </Dropdown>
+      <button v-if="active" class="btn btn-ghost" title="Сбросить все фильтры и поиск" @click="clear"><Icon name="x" :size="15" /> Очистить фильтры</button>
       <span class="grow" />
       <Dropdown v-if="world.isMaster && items.length" placement="bottom-end">
         <template #trigger><button class="btn btn-sm" :disabled="!!bulkBusy"><Icon name="list-checks" :size="14" /> {{ bulkBusy ? `${bulkBusy.done} / ${bulkBusy.total}` : `Действия (${items.length})` }}</button></template>
@@ -119,9 +215,64 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
       </div>
     </div>
 
+    <section v-if="panelOpen" class="card card-pad filter-panel">
+      <div v-if="kindOptions.length > 1 || kindOptions[0]?.value !== NONE" class="field"><span>Подтип</span><MultiSelect v-model="f.kinds" :options="kindOptions" placeholder="Любой" /></div>
+      <div v-if="tagOptions.length" class="field">
+        <span class="row">Теги<span class="grow" />
+          <span class="seg"><button :class="{ on: f.tagMode === 'any' }" title="Есть хотя бы один из выбранных" @click="f.tagMode = 'any'">любой</button><button :class="{ on: f.tagMode === 'all' }" title="Есть все выбранные" @click="f.tagMode = 'all'">все</button></span>
+        </span>
+        <MultiSelect v-model="f.tags" :options="tagOptions" placeholder="Любые" />
+      </div>
+      <template v-for="fd in filterFields" :key="fd.key">
+        <div v-if="fd.kind === 'entity' || fd.kind === 'entities'" v-show="(fieldOptions[fd.key] ?? []).length" class="field"><span>{{ fd.label }}</span>
+          <MultiSelect :model-value="(f.fields[fd.key] as string[]) ?? []" :options="fieldOptions[fd.key] ?? []" @update:model-value="(v) => setField(fd.key, v)" />
+        </div>
+        <label v-else-if="fd.kind === 'bool'" class="field"><span>{{ fd.label }}</span>
+          <select class="input" :value="f.fields[fd.key] ?? 'any'" @change="setField(fd.key, ($event.target as HTMLSelectElement).value)">
+            <option value="any">Неважно</option><option value="yes">Да</option><option value="no">Нет</option>
+          </select>
+        </label>
+        <label v-else class="field"><span>{{ fd.label }}</span>
+          <input class="input" :value="(f.fields[fd.key] as string) ?? ''" placeholder="Содержит…" @input="setField(fd.key, ($event.target as HTMLInputElement).value)" />
+        </label>
+      </template>
+      <template v-if="def.parentLabel">
+        <label class="field"><span>Уровень</span>
+          <select v-model="f.level" class="input"><option value="any">Все</option><option value="root">Только верхний уровень</option><option value="child">Только вложенные</option></select>
+        </label>
+        <div class="field"><span>Внутри ({{ def.parentLabel.toLowerCase() }})</span><EntityPicker v-model="f.within" :types="[type]" :allow-create="false" placeholder="Где угодно" /></div>
+      </template>
+      <label class="field"><span>Изображение</span>
+        <select v-model="f.image" class="input"><option value="any">Неважно</option><option value="yes">Есть</option><option value="no">Нет</option></select>
+      </label>
+      <label class="field"><span>Текст статьи</span>
+        <select v-model="f.text" class="input"><option value="any">Неважно</option><option value="yes">Написан</option><option value="no">Пустой</option></select>
+      </label>
+      <label class="field"><span>Изменено</span>
+        <select v-model.number="f.updated" class="input"><option v-for="u in UPDATED" :key="u.v" :value="u.v">{{ u.l[0].toUpperCase() + u.l.slice(1) }}</option></select>
+      </label>
+      <div v-if="authorOptions.length > 1" class="field"><span>Автор</span><MultiSelect v-model="f.authors" :options="authorOptions" placeholder="Любой" /></div>
+      <template v-if="world.isMaster">
+        <div v-if="visOptions.length > 1" class="field"><span>Видимость</span><MultiSelect v-model="f.visibility" :options="visOptions" placeholder="Любая" /></div>
+        <label class="field"><span>Секреты мастера</span>
+          <select v-model="f.secrets" class="input"><option value="any">Неважно</option><option value="yes">Есть</option><option value="no">Нет</option></select>
+        </label>
+      </template>
+      <label class="field"><span>Шаблоны</span>
+        <select v-model="f.templates" class="input"><option value="any">Показывать</option><option value="yes">Только шаблоны</option><option value="no">Скрыть шаблоны</option></select>
+      </label>
+    </section>
+
+    <div v-if="chips.length || active" class="filter-chips">
+      <span class="muted small">Показано {{ items.length }} из {{ all.length }}</span>
+      <button v-for="c in chips" :key="c.label" class="chip filter-chip" :title="'Убрать фильтр: ' + c.label" @click="c.clear()">{{ c.label }} <Icon name="x" :size="12" /></button>
+      <button class="btn btn-ghost btn-sm" @click="clear"><Icon name="x" :size="13" /> Очистить фильтры</button>
+    </div>
+
     <div v-if="!items.length" class="card empty">
       <Icon :name="def.icon" :size="36" />
-      <p>{{ filtered ? 'Ничего не найдено.' : `${def.plural} ещё не созданы.` }}</p>
+      <p>{{ active ? 'По этим фильтрам ничего не найдено.' : `${def.plural} ещё не созданы.` }}</p>
+      <button v-if="active" class="btn" @click="clear"><Icon name="x" :size="14" /> Очистить фильтры</button>
     </div>
 
     <div v-else-if="view === 'cards'" class="card-grid">
@@ -141,7 +292,13 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
 
     <div v-else-if="view === 'table'" class="card" style="overflow-x: auto">
       <table class="table">
-        <thead><tr><th>Название</th><th>Подтип</th><th v-if="def.parentLabel">{{ def.parentLabel }}</th><th>Теги</th><th>Видимость</th><th>Изменено</th></tr></thead>
+        <thead>
+          <tr>
+            <th class="sortable" @click="setSort('name')">Название <Icon v-if="f.sort === 'name'" :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="12" /></th>
+            <th>Подтип</th><th v-if="def.parentLabel">{{ def.parentLabel }}</th><th>Теги</th><th>Видимость</th>
+            <th class="sortable" @click="setSort('updated')">Изменено <Icon v-if="f.sort === 'updated'" :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="12" /></th>
+          </tr>
+        </thead>
         <tbody>
           <tr v-for="e in items" :key="e.id" style="cursor: pointer" @click="open(e)">
             <td><EntityLink :id="e.id" avatar /></td>
@@ -174,3 +331,18 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
     </Modal>
   </div>
 </template>
+
+<style scoped>
+.search-box { position: relative; display: flex; align-items: center; flex: 1 1 260px; max-width: 360px; }
+.search-box > .icon { position: absolute; left: 10px; pointer-events: none; }
+.search-box .input { padding-left: 32px; padding-right: 30px; }
+.search-box .icon-btn { position: absolute; right: 2px; width: 28px; height: 28px; }
+.filter-count { margin-left: 4px; font-size: 11px; font-weight: 700; background: var(--accent-fg); color: var(--accent); border-radius: 8px; padding: 0 6px; }
+.btn:not(.btn-primary) .filter-count { background: var(--accent); color: var(--accent-fg); }
+.filter-panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 14px; margin-bottom: 14px; }
+.filter-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+.filter-chip { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: none; padding: 0 7px; font-size: 11.5px; cursor: pointer; color: var(--text-muted); }
+.seg button.on { background: var(--accent); color: var(--accent-fg); }
+</style>
