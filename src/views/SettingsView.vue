@@ -57,8 +57,8 @@ const guestUrl = computed(() => `${location.origin}${location.pathname}#/w/${wor
 function copyInvite(code: string) { void navigator.clipboard?.writeText(inviteUrl(code)).then(() => toast.success('Скопировано')) }
 async function createInvite() {
   const code = await world.createInvite(invRole.value, invDays.value, invNote.value.trim())
-  await navigator.clipboard?.writeText(inviteUrl(code)).catch(() => {})
-  toast.success('Ссылка-приглашение создана и скопирована')
+  const copied = await navigator.clipboard?.writeText(inviteUrl(code)).then(() => true).catch(() => false)
+  toast.success(copied ? 'Ссылка-приглашение создана и скопирована' : 'Ссылка-приглашение создана — скопируйте её из списка ниже')
   invNote.value = ''
 }
 const ROLE: Record<Role, string> = { owner: 'Владелец', master: 'Мастер', player: 'Игрок' }
@@ -174,7 +174,8 @@ const visOptions: Visibility[] = ['public', 'members', 'master']
         </div>
         <div v-for="i in invites" :key="i.code" class="rel-row">
           <Icon name="mail" :size="15" />
-          <span class="grow ellipsis"><b>{{ i.role === 'master' ? 'Мастер' : 'Игрок' }}</b> {{ i.note }} <span class="faint small">· {{ i.expiresAt ? (i.expiresAt < Date.now() ? 'истекло' : 'до ' + formatDate(i.expiresAt)) : 'бессрочно' }}</span></span>
+          <span class="nowrap"><b>{{ i.role === 'master' ? 'Мастер' : 'Игрок' }}</b> {{ i.note }} <span class="faint small">· {{ i.expiresAt ? (i.expiresAt < Date.now() ? 'истекло' : 'до ' + formatDate(i.expiresAt)) : 'бессрочно' }}</span></span>
+          <input class="input input-sm grow invite-url" readonly :value="inviteUrl(i.code)" title="Ссылка-приглашение" @focus="($event.target as HTMLInputElement).select()" />
           <button class="btn btn-sm" @click="copyInvite(i.code)"><Icon name="copy" :size="13" /> Ссылка</button>
           <button class="icon-btn danger" title="Отозвать" @click="world.deleteInvite(i.code)"><Icon name="trash2" :size="15" /></button>
         </div>

@@ -58,14 +58,19 @@ export const SlashCommands = Extension.create<{ getItems: () => SlashItem[] }>({
         editor: this.editor,
         char: '/',
         pluginKey: new PluginKey('slash'),
-        allowSpaces: false,
+        // spaces allowed so multi-word commands work: "/заголовок 2"
+        allowSpaces: true,
         startOfLine: false,
         items: ({ query }) => {
-          const q = query.toLowerCase()
-          return this.options.getItems().filter((i) => !q || i.title.toLowerCase().includes(q) || i.keywords.includes(q)).slice(0, 40)
+          const q = query.toLowerCase().trim()
+          const words = q.split(/\s+/).filter(Boolean)
+          return this.options.getItems().filter((i) => {
+            const hay = `${i.title.toLowerCase()} ${i.keywords}`
+            return words.every((w) => hay.includes(w))
+          }).slice(0, 40)
         },
         command: ({ editor, range, props }) => props.run(editor, range),
-        render: popupRender(SlashMenu),
+        render: popupRender(SlashMenu, { hideWhenEmptyWithSpace: true }),
       }),
     ]
   },

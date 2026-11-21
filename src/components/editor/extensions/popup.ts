@@ -4,7 +4,7 @@ import type { Component } from 'vue'
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
 
 /** Suggestion `render` implementation: mounts a Vue list component next to the caret. */
-export function popupRender(component: Component) {
+export function popupRender(component: Component, opts: { hideWhenEmptyWithSpace?: boolean } = {}) {
   return () => {
     let renderer: VueRenderer | null = null
     let host: HTMLDivElement | null = null
@@ -17,6 +17,10 @@ export function popupRender(component: Component) {
       void computePosition({ getBoundingClientRect: () => rect }, host, {
         placement: 'bottom-start', strategy: 'fixed', middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
       }).then(({ x, y }) => { if (host) Object.assign(host.style, { left: `${x}px`, top: `${y}px` }) })
+    }
+    // A slash query that already contains a space and matches nothing is just text: hide the popup.
+    const visibility = (props: SuggestionProps) => {
+      if (host) host.style.display = opts.hideWhenEmptyWithSpace && !props.items.length && /\s/.test(props.query) ? 'none' : ''
     }
     const destroy = () => {
       renderer?.destroy()
@@ -35,15 +39,18 @@ export function popupRender(component: Component) {
         host.append(renderer.element as Node)
         document.body.append(host)
         rectFn = props.clientRect
+        visibility(props)
         place()
       },
       onUpdate(props: SuggestionProps) {
         renderer?.updateProps(props)
         rectFn = props.clientRect
+        visibility(props)
         place()
       },
       onKeyDown(props: SuggestionKeyDownProps) {
         if (props.event.key === 'Escape') { destroy(); return true }
+        if (host?.style.display === 'none') return false
         return (renderer?.ref as any)?.onKeyDown?.(props.event) ?? false
       },
       onExit() { destroy() },
