@@ -13,6 +13,7 @@ import {
 } from '@/data/rooms'
 import RoomPlayer from '@/components/rooms/RoomPlayer.vue'
 import RoomQueue from '@/components/rooms/RoomQueue.vue'
+import RoomPlaylists from '@/components/rooms/RoomPlaylists.vue'
 import RoomLayer from '@/components/rooms/RoomLayer.vue'
 import RoomChat from '@/components/rooms/RoomChat.vue'
 import RoomSettings from '@/components/rooms/RoomSettings.vue'
@@ -138,6 +139,7 @@ async function newLayer() {
 }
 function copyLink() { void navigator.clipboard.writeText(roomUrl(rid)).then(() => toast.success('Ссылка на комнату скопирована')) }
 const settingsOpen = ref(false)
+const panel = ref<'queue' | 'playlists'>('queue')
 </script>
 
 <template>
@@ -214,12 +216,17 @@ const settingsOpen = ref(false)
             </div>
           </section>
 
-          <section v-if="main" class="card card-pad stack-sm">
-            <div class="row gap">
-              <h3 class="panel-title grow" style="margin: 0"><Icon name="list-music" /> Очередь <span class="faint small">{{ main.queue.length }}</span></h3>
+          <section v-if="main" class="card card-pad stack-sm queue-card">
+            <div class="tabs" style="margin-bottom: 2px">
+              <button class="tab" :class="{ on: panel === 'queue' }" @click="panel = 'queue'"><Icon name="list-music" :size="16" /> Очередь <span class="count">{{ main.queue.length }}</span></button>
+              <button class="tab" :class="{ on: panel === 'playlists' }" @click="panel = 'playlists'"><Icon name="list-video" :size="16" /> Плейлисты</button>
             </div>
-            <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
-            <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" />
+            <template v-if="panel === 'queue'">
+              <div v-if="main.playlistName" class="faint small"><Icon name="list-video" :size="13" /> загружен плейлист «{{ main.playlistName }}»</div>
+              <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
+              <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" />
+            </template>
+            <RoomPlaylists v-else :rid="rid" :tracks="tracks" :can-control="canControl" :api-key="apiKey" />
           </section>
 
           <section class="stack-sm">

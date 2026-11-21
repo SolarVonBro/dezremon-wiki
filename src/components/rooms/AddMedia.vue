@@ -6,9 +6,19 @@ import { useSession } from '@/stores/session'
 import { addItems, makeItem } from '@/data/rooms'
 import { fetchTitle, fetchTitles, formatTime, parseYouTube, playlistIdsViaPlayer, playlistViaApi, searchYouTube, thumbUrl, type SearchResult } from './youtube'
 import Icon from '@/components/common/Icon.vue'
+import type { QueueItem } from '@/model/types'
 import { toast } from '@/components/common/toast'
 
-const props = withDefaults(defineProps<{ rid: string; tid: string; apiKey: string; compact?: boolean; placeholder?: string }>(), { compact: false, placeholder: '' })
+const props = withDefaults(defineProps<{
+  rid: string
+  /** track whose queue receives the items… */
+  tid?: string
+  /** …or any other receiver (a saved playlist); then there is no "play now" */
+  target?: (items: QueueItem[]) => Promise<void>
+  apiKey: string
+  compact?: boolean
+  placeholder?: string
+}>(), { tid: '', compact: false, placeholder: '' })
 const session = useSession()
 const text = ref('')
 const busy = ref('')
@@ -17,7 +27,9 @@ const results = ref<SearchResult[] | null>(null)
 async function add(list: Array<{ videoId: string; title: string; duration: number }>, playNow = false) {
   const u = session.user
   if (!u || !list.length) return
-  await addItems(props.rid, props.tid, u.uid, list.map((x) => makeItem(x.videoId, x.title, x.duration, u)), playNow)
+  const items = list.map((x) => makeItem(x.videoId, x.title, x.duration, u))
+  if (props.target) await props.target(items)
+  else await addItems(props.rid, props.tid, u.uid, items, playNow)
 }
 
 async function submit() {
@@ -52,7 +64,7 @@ async function submit() {
   } catch (e: any) { toast.error(errorText(e)) } finally { busy.value = '' }
 }
 async function pick(r: SearchResult, playNow: boolean) {
-  try { await add([r], playNow); toast.success(playNow ? 'Включено' : 'Добавлено в очередь') } catch (e: any) { toast.error(errorText(e)) }
+  try { await add([r], playNow); toast.success(playNow ? 'Включено' : props.target ? 'Добавлено в плейлист' : 'Добавлено в очередь') } catch (e: any) { toast.error(errorText(e)) }
 }
 </script>
 
@@ -73,8 +85,8 @@ async function pick(r: SearchResult, playNow: boolean) {
           <div class="res-title">{{ r.title }}</div>
           <div class="faint small">{{ r.channel }}<template v-if="r.duration"> · {{ formatTime(r.duration) }}</template></div>
         </div>
-        <button class="icon-btn" title="Включить сейчас" @click="pick(r, true)"><Icon name="play" :size="16" /></button>
-        <button class="icon-btn" title="В очередь" @click="pick(r, false)"><Icon name="list-plus" :size="16" /></button>
+        <button v-if="!target" class="icon-btn" title="Включить сейчас" @click="pick(r, true)"><Icon name="play" :size="16" /></button>
+        <button class="icon-btn" :title="target ? 'Добавить в плейлист' : 'В очередь'" @click="pick(r, false)"><Icon name="list-plus" :size="16" /></button>
       </div>
     </div>
   </div>

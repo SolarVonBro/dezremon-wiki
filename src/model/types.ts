@@ -520,8 +520,25 @@ export interface RoomTrack {
   shuffle: boolean
   /** bumped on every control change */
   rev: number
+  /** name of the saved playlist the queue was last loaded from ('' = built by hand) */
+  playlistName?: string
   updatedAt: number
   updatedBy: string
+}
+
+/**
+ * rooms/{rid}/playlists/{pid} — a saved, named list of videos in the room ("Бой", "Таверна"…). Loading it copies
+ * its items into a track's queue (replace or append); editing the playlist later does not touch the queue.
+ */
+export interface RoomPlaylist {
+  id: string
+  name: string
+  items: QueueItem[]
+  order: number
+  createdBy: string
+  createdByName: string
+  createdAt: number
+  updatedAt: number
 }
 
 export type RoomAccess = 'link' | 'campaign'

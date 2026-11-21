@@ -361,6 +361,12 @@ service cloud.firestore {
         allow update: if controls() || (canEnter(roomNow()) && advanceOnly());
       }
 
+      // saved playlists of the room: everybody inside sees them, whoever controls the music edits them
+      match /playlists/{pl} {
+        allow read: if canEnter(roomNow());
+        allow write: if isHost(roomNow()) || (canEnter(roomNow()) && roomNow().controlMode == 'everyone');
+      }
+
       match /listeners/{u} {
         allow read: if canEnter(roomNow());
         allow create, update: if signedIn() && u == uid() && request.resource.data.uid == uid() && canEnter(roomNow());

@@ -21,6 +21,7 @@ RUN = str(random.randint(1000, 9999))
 VIDEO = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 VIDEO2 = 'https://youtu.be/9bZkp7q19f0'
 errors, fails = [], []
+PROMPTS = []   # answers for the next prompt() dialogs
 atexit.register(lambda: print('CONSOLE ERRORS (atexit):', *list(dict.fromkeys(errors))[:40], sep=chr(10) + '  '))
 
 
@@ -53,7 +54,7 @@ def check(cond, what):
 def watch(pg, label):
     pg.on('console', lambda m: errors.append(f'[{label}] {m.text[:300]}') if m.type == 'error' and 'youtube' not in m.text.lower() and 'ERR_BLOCKED' not in m.text else None)
     pg.on('pageerror', lambda e: errors.append(f'[{label}] pageerror: {str(e)[:300]}'))
-    pg.on('dialog', lambda d: d.accept())
+    pg.on('dialog', lambda d: d.accept(PROMPTS.pop(0) if d.type == 'prompt' and PROMPTS else '') if d.type == 'prompt' else d.accept())
     pg.on('requestfailed', lambda r: errors.append(f'[{label}] request failed: {r.url[:140]} {r.failure}') if 'youtube' not in r.url and 'google' not in r.url and 'ytimg' not in r.url and 'doubleclick' not in r.url else None)
 
 
@@ -164,8 +165,8 @@ with sync_playwright() as p:
     gm.wait_for_selector('.room-head h1', timeout=20000)
     rid = gm.url.split('/r/')[1].split('?')[0]
     gm.get_by_role('button', name='Подключиться').click()
-    gm.locator('.main-card ~ section input.input, section input[placeholder^="Ссылка"]').first.fill(VIDEO)
-    gm.locator('section:has(h3:has-text("Очередь")) form button').click()
+    gm.locator('.queue-card input[placeholder^="Ссылка"]').fill(VIDEO)
+    gm.locator('.queue-card form button').click()
     gm.wait_for_selector('.now-title:not(.faint)', timeout=20000)
     check('Never Gonna Give You Up' in gm.locator('.now-title').inner_text(), 'title fetched through oEmbed')
 
@@ -220,6 +221,34 @@ with sync_playwright() as p:
     gm.wait_for_selector('.msg-text:has-text("Привет из таверны")', timeout=10000)
     check(True, 'chat message delivered')
     check(gm.locator('.who', has_text='Игрок Один').count() == 1, 'GM sees the player among listeners')
+
+    step('Saved playlists')
+    gm.locator('.queue-card .tab', has_text='Плейлисты').click()
+    gm.get_by_role('button', name='Новый плейлист').click()
+    gm.locator('.pls input[placeholder^="Название"]').fill('Бой')
+    gm.locator('.pls form').get_by_role('button', name='Создать').click()
+    gm.wait_for_selector('.pl-title:has-text("Бой")', timeout=10000)
+    gm.locator('.pls input[placeholder^="Ссылка"]').fill(VIDEO2)
+    gm.locator('.pls form button').first.click()
+    gm.wait_for_selector('.pl-item', timeout=15000)
+    check('GANGNAM' in gm.locator('.pl-item-title').first.inner_text().upper(), 'video added to the playlist with its title')
+    gm.locator('.pls').get_by_role('button', name='Включить').click()
+    gm.wait_for_function("() => /GANGNAM/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
+    pl.wait_for_function("() => /GANGNAM/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
+    check(True, 'playlist replaced the queue for everybody')
+    gm.locator('.queue-card .tab', has_text='Очередь').click()
+    check('загружен плейлист «Бой»' in gm.locator('.queue-card').inner_text(), 'queue shows which playlist is loaded')
+    pl.locator('.queue-card .tab', has_text='Плейлисты').click()
+    pl.wait_for_selector('.pl-row:has-text("Бой")', timeout=10000)
+    check(pl.get_by_role('button', name='Новый плейлист').count() == 0 and pl.locator('.pl-row button[title^="Включить"]').count() == 0, 'listener without control sees playlists read-only')
+    gm.locator('.queue-card .tab', has_text='Плейлисты').click()
+    gm.wait_for_selector('.pls', timeout=10000)
+    if gm.locator('.pls button[title="Ко всем плейлистам"]').count(): gm.locator('.pls button[title="Ко всем плейлистам"]').click()
+    PROMPTS.append('Сохранённая очередь')
+    gm.get_by_role('button', name='Сохранить очередь').click()
+    gm.wait_for_selector('.pl-row:has-text("Сохранённая очередь")', timeout=10000)
+    check(gm.locator('.pl-row').count() == 2, 'current queue saved as a playlist')
+    shot(gm, 'd-room-playlists', full=False)
 
     step('Admin')
     ad = b.new_context(viewport={'width': 1366, 'height': 900}).new_page(); watch(ad, 'admin')

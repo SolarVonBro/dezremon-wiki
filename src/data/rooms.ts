@@ -14,7 +14,7 @@ import {
 import { db } from '@/firebase'
 import { now, randomId } from './util'
 import { deleteRoomTree } from './admin'
-import type { LoopMode, QueueItem, Room, RoomListener, RoomMessage, RoomTrack } from '@/model/types'
+import type { LoopMode, QueueItem, Room, RoomListener, RoomMessage, RoomPlaylist, RoomTrack } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
 const nameOf = (u: UserLike) => u.displayName || u.email || 'Слушатель'
@@ -177,6 +177,62 @@ export const moveItem = (rid: string, tid: string, uid: string, itemId: string, 
   return q
 })
 export const clearQueue = (rid: string, tid: string, uid: string) => editQueue(rid, tid, uid, () => [])
+
+// ---------- saved playlists ----------
+const playlistRef = (rid: string, pid: string) => doc(db, 'rooms', rid, 'playlists', pid)
+
+export function watchPlaylists(rid: string, cb: (rows: RoomPlaylist[]) => void) {
+  return onSnapshot(collection(db, 'rooms', rid, 'playlists'), (s) => cb(s.docs
+    .map((d) => ({ name: '', items: [], order: 0, createdBy: '', createdByName: '', createdAt: 0, updatedAt: 0, ...d.data(), id: d.id }) as RoomPlaylist)
+    .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)), () => cb([]))
+}
+
+/** New playlist (optionally filled, e.g. from the current queue); items get fresh ids. */
+export async function createPlaylist(rid: string, user: UserLike, name: string, items: QueueItem[] = [], order = 0): Promise<string> {
+  const ref = doc(collection(db, 'rooms', rid, 'playlists'))
+  const t = now()
+  await setDoc(ref, { name, items: items.map((x) => ({ ...x, id: randomId(10) })), order, createdBy: user.uid, createdByName: nameOf(user), createdAt: t, updatedAt: t })
+  return ref.id
+}
+export const renamePlaylist = (rid: string, pid: string, name: string) => updateDoc(playlistRef(rid, pid), { name, updatedAt: now() })
+export const deletePlaylist = (rid: string, pid: string) => deleteDoc(playlistRef(rid, pid))
+
+export async function editPlaylist(rid: string, pid: string, fn: (items: QueueItem[]) => QueueItem[]) {
+  await runTransaction(db, async (tx) => {
+    const s = await tx.get(playlistRef(rid, pid))
+    if (!s.exists()) throw new Error('Плейлист удалён')
+    tx.update(playlistRef(rid, pid), { items: fn([...((s.data().items ?? []) as QueueItem[])]), updatedAt: now() })
+  })
+}
+export const addToPlaylist = (rid: string, pid: string, items: QueueItem[]) => editPlaylist(rid, pid, (q) => [...q, ...items])
+export const removeFromPlaylist = (rid: string, pid: string, itemId: string) => editPlaylist(rid, pid, (q) => q.filter((x) => x.id !== itemId))
+export const movePlaylistItem = (rid: string, pid: string, itemId: string, dir: -1 | 1) => editPlaylist(rid, pid, (q) => {
+  const i = q.findIndex((x) => x.id === itemId), j = i + dir
+  if (i < 0 || j < 0 || j >= q.length) return q
+  ;[q[i], q[j]] = [q[j], q[i]]
+  return q
+})
+
+/**
+ * Plays a saved playlist on a track. 'replace' swaps the queue for a copy of the playlist and starts its first
+ * item for everybody; 'append' adds the copy after the current queue (starting it only if nothing plays).
+ */
+export async function loadPlaylist(rid: string, tid: string, uid: string, pl: RoomPlaylist, mode: 'replace' | 'append') {
+  if (!pl.items.length) throw new Error('Плейлист пуст')
+  const copies = pl.items.map((x) => ({ ...x, id: randomId(10) }))
+  await runTransaction(db, async (tx) => {
+    const s = await tx.get(trackRef(rid, tid))
+    if (!s.exists()) throw new Error('Дорожка удалена')
+    const t = normalizeTrack(s.id, s.data())
+    const start = mode === 'replace' || !t.current || !t.queue.some((x) => x.id === t.current)
+    const first = t.shuffle && mode === 'replace' ? copies[Math.floor(Math.random() * copies.length)] : copies[0]
+    tx.update(trackRef(rid, tid), {
+      queue: mode === 'replace' ? copies : [...t.queue, ...copies], playlistName: mode === 'replace' ? pl.name : (t.playlistName ?? ''),
+      updatedAt: now(), updatedBy: uid,
+      ...(start ? { current: first.id, position: 0, playing: true, at: serverTimestamp(), rev: t.rev + 1 } : {}),
+    })
+  })
+}
 
 // ---------- presence & clock ----------
 /**

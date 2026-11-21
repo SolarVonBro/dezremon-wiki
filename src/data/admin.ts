@@ -77,7 +77,7 @@ export async function deleteWorldById(wid: string, onProgress: (done: number, wh
 }
 
 export const CAMPAIGN_COLLECTIONS = ['sessions', 'invites', 'participants'] as const
-export const ROOM_COLLECTIONS = ['tracks', 'listeners', 'messages'] as const
+export const ROOM_COLLECTIONS = ['tracks', 'playlists', 'listeners', 'messages'] as const
 
 /** Deletes a campaign with its journal, invites and participants (owner or admin). */
 export async function deleteCampaignTree(cid: string) {

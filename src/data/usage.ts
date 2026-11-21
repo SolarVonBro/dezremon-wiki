@@ -189,7 +189,7 @@ export async function measureService(onProgress: (name: string) => void = () => 
     const s = await getDocs(collection(db, top))
     s.forEach((d) => add(top, [top, d.id], d.data()))
   }
-  for (const [top, subs] of [['campaigns', ['participants', 'sessions', 'invites']], ['rooms', ['tracks', 'listeners', 'messages']]] as const) {
+  for (const [top, subs] of [['campaigns', ['participants', 'sessions', 'invites']], ['rooms', ['tracks', 'playlists', 'listeners', 'messages']]] as const) {
     onProgress(top)
     const s = await getDocs(collection(db, top))
     for (const d of s.docs) {

@@ -394,6 +394,17 @@ await t('"everyone" mode: listeners control and add layers', async () => {
   await assertSucceeds(updateDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'main'), { playing: false, position: 12, at: now, rev: 2 }))
   await assertSucceeds(setDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'rain'), track({ kind: 'layer', name: 'Дождь' })))
 })
+await t('saved playlists: listeners read them; in hosts mode only hosts write', async () => {
+  const pl = { name: 'Бой', items: [{ id: 'i1', videoId: 'a', title: 'A', duration: 0, addedBy: 'owner', addedByName: 'O' }], order: 0, createdBy: 'owner', createdByName: 'O', createdAt: now, updatedAt: now }
+  await assertSucceeds(updateDoc(doc(owner, 'rooms', 'rLink'), { controlMode: 'hosts' }))
+  await assertSucceeds(setDoc(doc(owner, 'rooms', 'rLink', 'playlists', 'p1'), pl))
+  await assertSucceeds(getDocs(collection(player2, 'rooms', 'rLink', 'playlists')))
+  await assertFails(setDoc(doc(player2, 'rooms', 'rLink', 'playlists', 'p2'), { ...pl, createdBy: 'player2' }))
+  await assertFails(updateDoc(doc(player2, 'rooms', 'rLink', 'playlists', 'p1'), { name: 'Мой' }))
+  await assertFails(getDocs(collection(stranger, 'rooms', 'rCampX', 'playlists')))
+  await assertSucceeds(updateDoc(doc(owner, 'rooms', 'rLink'), { controlMode: 'everyone' }))
+  await assertSucceeds(updateDoc(doc(player2, 'rooms', 'rLink', 'playlists', 'p1'), { name: 'Бой 2' }))
+})
 await t('presence and chat: own listener doc only; messages signed by the author', async () => {
   await assertSucceeds(setDoc(doc(player2, 'rooms', 'rLink', 'listeners', 'player2'), { uid: 'player2', displayName: 'P2', photoURL: null, at: now, joinedAt: now }))
   await assertFails(setDoc(doc(player2, 'rooms', 'rLink', 'listeners', 'owner'), { uid: 'owner', displayName: 'O', photoURL: null, at: now, joinedAt: now }))
@@ -422,7 +433,7 @@ await t('admin lists all rooms and campaigns', async () => {
   await assertSucceeds(getDocs(collection(admin, 'rooms', 'rCamp', 'tracks')))
 })
 await t('the owner deletes his room (subcollections first)', async () => {
-  for (const [c, id] of [['tracks', 'main'], ['tracks', 'rain'], ['listeners', 'player2'], ['messages', 'm1']]) await assertSucceeds(deleteDoc(doc(owner, 'rooms', 'rLink', c, id)))
+  for (const [c, id] of [['tracks', 'main'], ['tracks', 'rain'], ['playlists', 'p1'], ['listeners', 'player2'], ['messages', 'm1']]) await assertSucceeds(deleteDoc(doc(owner, 'rooms', 'rLink', c, id)))
   await assertFails(deleteDoc(doc(player2, 'rooms', 'rLink')))
   await assertSucceeds(deleteDoc(doc(owner, 'rooms', 'rLink')))
 })
