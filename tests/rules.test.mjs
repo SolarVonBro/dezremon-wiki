@@ -237,6 +237,210 @@ await t('a new world gets its usage doc in the creation batch', async () => {
   await assertFails(setDoc(doc(owner, 'usage', 'wNew'), { bytes: 5, docs: 1, at: now }))
 })
 
+// ======================= service administrator =======================
+const ADMIN = 'TRLvfuNmFtR9TByopvMl8yIG1jG2'
+const admin = env.authenticatedContext(ADMIN, { email: 'admin@x.ru' }).firestore()
+const banned = env.authenticatedContext('banned').firestore()
+
+console.log('service admin')
+await t('setup: owner creates a closed world wA with a master-only article', async () => {
+  const b = writeBatch(owner)
+  b.set(doc(owner, 'worlds', 'wA'), { name: 'wA', description: '', ownerId: 'owner', isPublic: false, imageId: null, headerImageId: null, aclVersion: 0, settings, createdAt: now, updatedAt: now })
+  b.set(doc(owner, 'worlds', 'wA', 'members', 'owner'), { uid: 'owner', role: 'owner', displayName: 'O', email: '', photoURL: null, joinedAt: now })
+  b.set(doc(owner, 'usage', 'wA'), { bytes: 0, docs: 0, at: 0 })
+  await assertSucceeds(b.commit())
+  await assertSucceeds(setDoc(doc(owner, 'worlds', 'wA', 'entities', 'secret'), V('master', { type: 'note', name: 'S' })))
+})
+await t('users write their own profile; strangers cannot read or list it', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'users', 'owner'), { uid: 'owner', displayName: 'O', email: 'o@x.ru', photoURL: null, lastSeen: now }))
+  await assertFails(getDoc(doc(stranger, 'users', 'owner')))
+  await assertFails(getDocs(collection(stranger, 'users')))
+})
+await t('admin lists users and worlds, reads a closed world with its secrets and members', async () => {
+  await assertSucceeds(getDocs(collection(admin, 'users')))
+  await assertSucceeds(getDocs(collection(admin, 'worlds')))
+  await assertSucceeds(getDoc(doc(admin, 'worlds', 'wA')))
+  await assertSucceeds(getDocs(collection(admin, 'worlds', 'wA', 'members')))
+  await assertSucceeds(getDocs(collection(admin, 'worlds', 'wA', 'entities')))
+  await assertSucceeds(getDocs(collectionGroup(admin, 'members')))
+})
+await t('nobody else lists worlds or all memberships', async () => {
+  await assertFails(getDocs(collection(owner, 'worlds')))
+  await assertFails(getDocs(collectionGroup(owner, 'members')))
+})
+await t('admin edits a foreign world', () => assertSucceeds(updateDoc(doc(admin, 'worlds', 'wA'), { description: 'checked by admin' })))
+await t('admin writes a usage row', () => assertSucceeds(setDoc(doc(admin, 'usage', 'wA'), { bytes: 1, docs: 1, at: now })))
+await t('service config: everyone signed in reads, only admin writes', async () => {
+  await assertSucceeds(setDoc(doc(admin, 'service', 'config'), { youtubeApiKey: 'k' }))
+  await assertSucceeds(getDoc(doc(stranger, 'service', 'config')))
+  await assertFails(setDoc(doc(owner, 'service', 'config'), { youtubeApiKey: 'x' }))
+})
+await t('only admin bans; the banned user sees his ban', async () => {
+  await assertFails(setDoc(doc(owner, 'serviceBans', 'banned'), { uid: 'banned', reason: '', createdAt: now, createdBy: 'owner' }))
+  await assertSucceeds(setDoc(doc(admin, 'serviceBans', 'banned'), { uid: 'banned', reason: 'spam', createdAt: now, createdBy: ADMIN }))
+  await assertSucceeds(getDoc(doc(banned, 'serviceBans', 'banned')))
+  await assertFails(getDoc(doc(stranger, 'serviceBans', 'banned')))
+})
+await t('a banned user cannot create worlds, campaigns or rooms', async () => {
+  const b = writeBatch(banned)
+  b.set(doc(banned, 'worlds', 'wBan'), { name: 'B', ownerId: 'banned', isPublic: false, aclVersion: 0, settings: {}, createdAt: now, updatedAt: now })
+  b.set(doc(banned, 'worlds', 'wBan', 'members', 'banned'), { uid: 'banned', role: 'owner', displayName: 'B', email: '', photoURL: null, joinedAt: now })
+  await assertFails(b.commit())
+  await assertFails(setDoc(doc(banned, 'rooms', 'rBan'), room('banned')))
+})
+
+// ======================= campaigns =======================
+const camp = (ownerUid, extra = {}) => ({ name: 'C', description: '', cover: null, worldId: 'wA', worldName: 'wA', ownerId: ownerUid, gmUids: [ownerUid], memberUids: [ownerUid], status: 'active', schedule: '', nextSessionAt: null, createdAt: now, updatedAt: now, ...extra })
+const part = (u, role, extra = {}) => ({ uid: u, role, displayName: u, photoURL: null, characterId: null, characterName: '', joinedAt: now, ...extra })
+async function join(ctx, u, cid, code, role = 'player') {
+  const b = writeBatch(ctx)
+  b.set(doc(ctx, 'campaigns', cid, 'participants', u), part(u, role, { inviteCode: code }))
+  const c = (await getDoc(doc(owner, 'campaigns', cid))).data()
+  b.update(doc(ctx, 'campaigns', cid), { memberUids: [...c.memberUids, u], gmUids: role === 'gm' ? [...c.gmUids, u] : c.gmUids, updatedAt: now })
+  return b.commit()
+}
+
+console.log('campaigns')
+await t('a world master creates a campaign bound to his world (campaign + own participant in one batch)', async () => {
+  for (const id of ['c1', 'c2']) {
+    const b = writeBatch(owner)
+    b.set(doc(owner, 'campaigns', id), camp('owner'))
+    b.set(doc(owner, 'campaigns', id, 'participants', 'owner'), part('owner', 'gm'))
+    await assertSucceeds(b.commit())
+  }
+})
+await t('nobody binds a campaign to a world he does not run', async () => {
+  const b = writeBatch(player)
+  b.set(doc(player, 'campaigns', 'cBad'), camp('player'))
+  b.set(doc(player, 'campaigns', 'cBad', 'participants', 'player'), part('player', 'gm'))
+  await assertFails(b.commit())
+})
+await t('a campaign without a world is allowed by the model (detaching later)', async () => {
+  const b = writeBatch(stranger)
+  b.set(doc(stranger, 'campaigns', 'cFree'), camp('stranger', { worldId: null, worldName: '' }))
+  b.set(doc(stranger, 'campaigns', 'cFree', 'participants', 'stranger'), part('stranger', 'gm'))
+  await assertSucceeds(b.commit())
+})
+await t('strangers cannot read a campaign; "my campaigns" query works', async () => {
+  await assertFails(getDoc(doc(stranger, 'campaigns', 'c1')))
+  await assertFails(getDocs(collection(stranger, 'campaigns')))
+  const s = await assertSucceeds(getDocs(query(collection(owner, 'campaigns'), where('memberUids', 'array-contains', 'owner'))))
+  if (s.size !== 2) throw new Error('expected 2, got ' + s.size)
+})
+await t('GM creates invites; a player joins by invite', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'campaigns', 'c1', 'invites', 'ci1'), { code: 'ci1', role: 'player', createdBy: 'owner', createdAt: now, expiresAt: null, campaignName: 'C', worldId: 'wA', worldInviteCode: null }))
+  await assertSucceeds(setDoc(doc(owner, 'campaigns', 'c2', 'invites', 'ci2'), { code: 'ci2', role: 'player', createdBy: 'owner', createdAt: now, expiresAt: null, campaignName: 'C', worldId: 'wA', worldInviteCode: null }))
+  await assertSucceeds(getDoc(doc(stranger, 'campaigns', 'c1', 'invites', 'ci1')))
+  await assertSucceeds(join(stranger, 'stranger', 'c1', 'ci1'))
+  await assertSucceeds(getDoc(doc(stranger, 'campaigns', 'c1')))
+  await assertSucceeds(getDocs(collection(stranger, 'campaigns', 'c1', 'participants')))
+  await assertSucceeds(join(player, 'player', 'c2', 'ci2'))
+})
+await t('a player invite does not make a GM; no joining without a participant doc', async () => {
+  await assertFails(join(player2, 'player2', 'c1', 'ci1', 'gm'))
+  await assertFails(updateDoc(doc(player2, 'campaigns', 'c1'), { memberUids: ['owner', 'stranger', 'player2'], updatedAt: now }))
+  await assertFails(join(player2, 'player2', 'c1', 'nope'))
+})
+await t('players edit their character, not their role or the campaign', async () => {
+  await assertSucceeds(updateDoc(doc(stranger, 'campaigns', 'c1', 'participants', 'stranger'), { characterName: 'Аэлин' }))
+  await assertFails(updateDoc(doc(stranger, 'campaigns', 'c1', 'participants', 'stranger'), { role: 'gm' }))
+  await assertFails(updateDoc(doc(stranger, 'campaigns', 'c1'), { name: 'Мой кампейн' }))
+})
+await t('GM writes sessions; players read them', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'campaigns', 'c1', 'sessions', 's1'), { number: 1, title: 'Начало', date: now, status: 'done', html: '<p>x</p>', createdBy: 'owner', createdAt: now, updatedAt: now }))
+  await assertSucceeds(getDocs(collection(stranger, 'campaigns', 'c1', 'sessions')))
+  await assertFails(setDoc(doc(stranger, 'campaigns', 'c1', 'sessions', 's2'), { number: 2, title: 'x' }))
+})
+await t('GM promotes a player to GM (participant role + gmUids)', async () => {
+  const b = writeBatch(owner)
+  b.update(doc(owner, 'campaigns', 'c2', 'participants', 'player'), { role: 'gm' })
+  b.update(doc(owner, 'campaigns', 'c2'), { gmUids: ['owner', 'player'], updatedAt: now })
+  await assertSucceeds(b.commit())
+})
+await t('GMs cannot take the campaign from its owner', async () => {
+  await assertFails(updateDoc(doc(player, 'campaigns', 'c2'), { ownerId: 'player' }))
+  await assertFails(updateDoc(doc(player, 'campaigns', 'c2'), { gmUids: ['player'] }))
+})
+
+// ======================= music rooms =======================
+function room(ownerUid, extra = {}) {
+  return { name: 'R', ownerId: ownerUid, ownerName: ownerUid, hostUids: [], memberUids: [ownerUid], campaignId: null, campaignName: '', access: 'link', controlMode: 'hosts', createdAt: now, updatedAt: now, lastActiveAt: now, ...extra }
+}
+const track = (extra = {}) => ({ name: 'Музыка', kind: 'main', order: 0, queue: [], current: null, playing: false, position: 0, at: now, volume: 100, loop: 'all', shuffle: false, rev: 0, updatedAt: now, updatedBy: 'owner', ...extra })
+
+console.log('music rooms')
+await t('anyone signed in creates a room with its main track in one batch; a link room opens for anyone signed in', async () => {
+  const b = writeBatch(owner)
+  b.set(doc(owner, 'rooms', 'rLink'), room('owner'))
+  b.set(doc(owner, 'rooms', 'rLink', 'tracks', 'main'), track({ queue: [{ id: 'q1', videoId: 'a' }, { id: 'q2', videoId: 'b' }], current: 'q1' }))
+  await assertSucceeds(b.commit())
+  await assertSucceeds(getDoc(doc(player2, 'rooms', 'rLink')))
+  await assertFails(getDoc(doc(guest, 'rooms', 'rLink')))
+})
+await t('a listener adds himself to the room, not anybody else; cannot rename it', async () => {
+  await assertSucceeds(updateDoc(doc(player2, 'rooms', 'rLink'), { memberUids: ['owner', 'player2'], lastActiveAt: now }))
+  await assertFails(updateDoc(doc(stranger, 'rooms', 'rLink'), { memberUids: ['owner', 'player2', 'stranger', 'player'] }))
+  await assertFails(updateDoc(doc(player2, 'rooms', 'rLink'), { name: 'Моя' }))
+  const s = await assertSucceeds(getDocs(query(collection(player2, 'rooms'), where('memberUids', 'array-contains', 'player2'))))
+  if (s.size !== 1) throw new Error('expected 1, got ' + s.size)
+})
+await t('hosts-only control: a listener cannot pause or seek, but may advance to the next item', async () => {
+  await assertFails(updateDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'main'), { playing: true, position: 30, at: now, rev: 1 }))
+  await assertSucceeds(updateDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'main'), { current: 'q2', position: 0, at: now, playing: true, rev: 1, updatedAt: now, updatedBy: 'player2' }))
+  await assertFails(setDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'rain'), track({ kind: 'layer' })))
+})
+await t('"everyone" mode: listeners control and add layers', async () => {
+  await assertSucceeds(updateDoc(doc(owner, 'rooms', 'rLink'), { controlMode: 'everyone' }))
+  await assertSucceeds(updateDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'main'), { playing: false, position: 12, at: now, rev: 2 }))
+  await assertSucceeds(setDoc(doc(player2, 'rooms', 'rLink', 'tracks', 'rain'), track({ kind: 'layer', name: 'Дождь' })))
+})
+await t('presence and chat: own listener doc only; messages signed by the author', async () => {
+  await assertSucceeds(setDoc(doc(player2, 'rooms', 'rLink', 'listeners', 'player2'), { uid: 'player2', displayName: 'P2', photoURL: null, at: now, joinedAt: now }))
+  await assertFails(setDoc(doc(player2, 'rooms', 'rLink', 'listeners', 'owner'), { uid: 'owner', displayName: 'O', photoURL: null, at: now, joinedAt: now }))
+  await assertSucceeds(setDoc(doc(player2, 'rooms', 'rLink', 'messages', 'm1'), { uid: 'player2', name: 'P2', text: 'привет', at: now }))
+  await assertFails(setDoc(doc(player2, 'rooms', 'rLink', 'messages', 'm2'), { uid: 'owner', name: 'O', text: 'фейк', at: now }))
+  await assertFails(getDocs(collection(guest, 'rooms', 'rLink', 'messages')))
+})
+await t('a campaign room is only for the campaign members', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'rooms', 'rCamp'), room('owner', { campaignId: 'c1', campaignName: 'C', access: 'campaign' })))
+  await assertSucceeds(getDoc(doc(stranger, 'rooms', 'rCamp')))   // joined c1 above
+  await assertFails(getDoc(doc(player2, 'rooms', 'rCamp')))
+  await assertFails(getDocs(collection(player2, 'rooms', 'rCamp', 'tracks')))
+})
+await t('campaign members list the rooms of their campaign', async () => {
+  const s = await assertSucceeds(getDocs(query(collection(stranger, 'rooms'), where('campaignId', '==', 'c1'))))
+  if (s.size !== 1) throw new Error('expected 1, got ' + s.size)
+  await assertFails(getDocs(query(collection(player2, 'rooms'), where('campaignId', '==', 'c1'))))
+})
+await t('nobody binds a room to a campaign he is not in', async () => {
+  await assertFails(setDoc(doc(player2, 'rooms', 'rBad'), room('player2', { campaignId: 'c1', access: 'campaign' })))
+  await assertFails(updateDoc(doc(player2, 'rooms', 'rLink'), { campaignId: 'c1' }))
+})
+await t('admin lists all rooms and campaigns', async () => {
+  await assertSucceeds(getDocs(collection(admin, 'rooms')))
+  await assertSucceeds(getDocs(collection(admin, 'campaigns')))
+  await assertSucceeds(getDocs(collection(admin, 'rooms', 'rCamp', 'tracks')))
+})
+await t('the owner deletes his room (subcollections first)', async () => {
+  for (const [c, id] of [['tracks', 'main'], ['tracks', 'rain'], ['listeners', 'player2'], ['messages', 'm1']]) await assertSucceeds(deleteDoc(doc(owner, 'rooms', 'rLink', c, id)))
+  await assertFails(deleteDoc(doc(player2, 'rooms', 'rLink')))
+  await assertSucceeds(deleteDoc(doc(owner, 'rooms', 'rLink')))
+})
+await t('a player leaves a campaign: participant doc + memberUids in one batch', async () => {
+  const b = writeBatch(stranger)
+  b.delete(doc(stranger, 'campaigns', 'c1', 'participants', 'stranger'))
+  b.update(doc(stranger, 'campaigns', 'c1'), { memberUids: ['owner'], gmUids: ['owner'], updatedAt: now })
+  await assertSucceeds(b.commit())
+  await assertFails(getDoc(doc(stranger, 'campaigns', 'c1')))
+  await assertFails(getDoc(doc(stranger, 'rooms', 'rCamp')))
+})
+await t('the owner deletes his campaign; admin deletes anyone\'s', async () => {
+  await assertSucceeds(deleteDoc(doc(owner, 'campaigns', 'c1', 'sessions', 's1')))
+  await assertSucceeds(deleteDoc(doc(owner, 'campaigns', 'c1')))
+  await assertFails(deleteDoc(doc(owner, 'campaigns', 'cFree')))
+  await assertSucceeds(deleteDoc(doc(admin, 'campaigns', 'cFree')))
+})
+
 await env.cleanup()
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

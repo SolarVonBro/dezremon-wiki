@@ -389,3 +389,175 @@ export interface JoinRequest {
   decidedBy?: string
   decidedAt?: number
 }
+
+// ======================= service level =======================
+
+/** users/{uid} — profile mirror written on every sign-in (readable by the user and service admins). */
+export interface UserProfile {
+  uid: string
+  displayName: string
+  email: string
+  photoURL: string | null
+  lastSeen: number
+  createdAt?: number
+}
+
+/** serviceBans/{uid} — the account was blocked by a service administrator. */
+export interface ServiceBan {
+  uid: string
+  reason: string
+  createdAt: number
+  createdBy: string
+}
+
+/** service/config — settings of the whole service, edited in the admin panel. */
+export interface ServiceConfig {
+  /** YouTube Data API v3 key (search in music rooms). Restrict it to the site's referrer in Google Cloud. */
+  youtubeApiKey: string
+}
+
+// ======================= campaigns =======================
+
+export type CampaignRole = 'gm' | 'player'
+export type CampaignStatus = 'planning' | 'active' | 'paused' | 'finished'
+
+/**
+ * campaigns/{cid}. A campaign exists next to worlds, not inside one: `worldId` only names the setting it is
+ * played in. The UI requires a world for now; the model keeps it nullable so a campaign can be detached later
+ * (nothing else in the campaign points into the world except optional character links of participants).
+ * memberUids/gmUids mirror the participants subcollection so rules and "my campaigns" need no extra reads.
+ */
+export interface Campaign {
+  id: string
+  name: string
+  description: string
+  /** Small cover image as a data URL (kept inside the campaign: no dependency on a world gallery). */
+  cover: string | null
+  worldId: string | null
+  /** Denormalized for display; players may have no access to the world itself. */
+  worldName: string
+  ownerId: string
+  gmUids: string[]
+  memberUids: string[]
+  status: CampaignStatus
+  /** Free text: "по пятницам в 19:00". */
+  schedule: string
+  nextSessionAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** campaigns/{cid}/participants/{uid}. Not "members": that collection group means world membership. */
+export interface CampaignParticipant {
+  uid: string
+  role: CampaignRole
+  displayName: string
+  photoURL: string | null
+  /** Player character: an article of campaign.worldId (optional) and/or just a name. */
+  characterId: string | null
+  characterName: string
+  joinedAt: number
+  inviteCode?: string
+}
+
+/** campaigns/{cid}/sessions/{sid} — the campaign journal, one record per game session. */
+export interface CampaignSession {
+  id: string
+  number: number
+  title: string
+  date: number | null
+  status: 'planned' | 'done'
+  html: string
+  createdBy: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CampaignInvite {
+  code: string
+  role: CampaignRole
+  createdBy: string
+  createdAt: number
+  expiresAt: number | null
+  campaignName: string
+  /** The campaign's world at invite time and a world invite created together with this one (or null). */
+  worldId: string | null
+  worldInviteCode: string | null
+}
+
+// ======================= music rooms =======================
+
+export interface QueueItem {
+  id: string
+  videoId: string
+  title: string
+  /** seconds, 0 = not known yet */
+  duration: number
+  addedBy: string
+  addedByName: string
+}
+
+export type LoopMode = 'off' | 'one' | 'all'
+
+/**
+ * rooms/{rid}/tracks/{tid} — one synchronized YouTube player. Every room has the main track (music, shown as video)
+ * and any number of extra layers (rain, tavern noise…) that play at the same time with their own volume.
+ * Playback state: `position` seconds at server time `at`; while playing, now = position + (serverNow - at).
+ */
+export interface RoomTrack {
+  id: string
+  name: string
+  kind: 'main' | 'layer'
+  order: number
+  queue: QueueItem[]
+  current: string | null
+  playing: boolean
+  position: number
+  at: number
+  /** 0..100, set by whoever controls the room, applies to everybody (each listener also has a local volume) */
+  volume: number
+  loop: LoopMode
+  shuffle: boolean
+  /** bumped on every control change */
+  rev: number
+  updatedAt: number
+  updatedBy: string
+}
+
+export type RoomAccess = 'link' | 'campaign'
+
+/** rooms/{rid} — a Watch2Gether-like listening room. */
+export interface Room {
+  id: string
+  name: string
+  ownerId: string
+  ownerName: string
+  /** may control playback and settings besides the owner */
+  hostUids: string[]
+  /** everybody who has entered (for "my rooms") */
+  memberUids: string[]
+  campaignId: string | null
+  campaignName: string
+  access: RoomAccess
+  controlMode: 'hosts' | 'everyone'
+  createdAt: number
+  updatedAt: number
+  lastActiveAt: number
+}
+
+/** rooms/{rid}/listeners/{uid} — presence, refreshed by a heartbeat while the room is open. */
+export interface RoomListener {
+  uid: string
+  displayName: string
+  photoURL: string | null
+  at: number
+  joinedAt: number
+}
+
+export interface RoomMessage {
+  id: string
+  uid: string
+  name: string
+  text: string
+  at: number
+}

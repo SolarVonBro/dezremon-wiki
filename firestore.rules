@@ -6,16 +6,22 @@ rules_version = '2';
 //                  and their own records; writes their own records and entities they were made editors of;
 //   guest        — reads records with visibility "public" in worlds marked isPublic.
 // Rules are not filters: the client runs one query per branch (see src/data/access.ts).
+//
+// Service administrators (isAdmin) act as owner of every world and may read/manage everything; their uids are
+// listed here and in src/data/admin.ts (keep both in sync). Campaigns and music rooms live next to worlds.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
+    function isAdmin() { return signedIn() && request.auth.uid in ['TRLvfuNmFtR9TByopvMl8yIG1jG2']; }
+    // blocked by a service administrator: may not create or join anything new
+    function serviceBanned() { return exists(/databases/$(database)/documents/serviceBans/$(request.auth.uid)); }
     function worldPath(w) { return /databases/$(database)/documents/worlds/$(w); }
     function memberPath(w) { return /databases/$(database)/documents/worlds/$(w)/members/$(request.auth.uid); }
     function isMember(w) { return signedIn() && exists(memberPath(w)); }
-    function isMaster(w) { return isMember(w) && get(memberPath(w)).data.role in ['owner', 'master']; }
-    function isOwner(w) { return isMember(w) && get(memberPath(w)).data.role == 'owner'; }
+    function isMaster(w) { return isAdmin() || (isMember(w) && get(memberPath(w)).data.role in ['owner', 'master']); }
+    function isOwner(w) { return isAdmin() || (isMember(w) && get(memberPath(w)).data.role == 'owner'); }
     function worldPublic(w) { return get(worldPath(w)).data.isPublic == true; }
     function settings(w) { return get(worldPath(w)).data.settings; }
 
@@ -48,7 +54,20 @@ service cloud.firestore {
     }
 
     match /users/{u} {
-      allow read, write: if signedIn() && uid() == u;
+      allow read: if signedIn() && (uid() == u || isAdmin());
+      allow create, update: if signedIn() && uid() == u;
+      allow delete: if signedIn() && (uid() == u || isAdmin());
+    }
+
+    // ---------------- service level ----------------
+    match /serviceBans/{u} {
+      allow read: if signedIn() && (u == uid() || isAdmin());
+      allow write: if isAdmin();
+    }
+    // service/config: settings of the whole service (e.g. the YouTube Data API key used for search)
+    match /service/{d} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
     // Storage meter: the free 1 GiB is shared by the whole project, so every world publishes its measured size here
@@ -63,7 +82,7 @@ service cloud.firestore {
 
     // "My worlds" is a collection-group query on members(uid == me).
     match /{path=**}/members/{m} {
-      allow read: if signedIn() && resource.data.uid == uid();
+      allow read: if signedIn() && (resource.data.uid == uid() || isAdmin());
     }
     // "My join requests" (personal cabinet) — collection group on joinRequests(uid == me).
     match /{path=**}/joinRequests/{r} {
@@ -71,9 +90,9 @@ service cloud.firestore {
     }
 
     match /worlds/{w} {
-      allow get: if isMember(w) || resource.data.isPublic == true;
-      allow list: if false;
-      allow create: if signedIn() && request.resource.data.ownerId == uid();
+      allow get: if isMember(w) || resource.data.isPublic == true || isAdmin();
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.resource.data.ownerId == uid() && !serviceBanned();
       // ownerId changes only through a transfer: the new owner must be a member promoted to owner in the same batch
       allow update: if isMaster(w) && (
         request.resource.data.ownerId == resource.data.ownerId
@@ -82,12 +101,12 @@ service cloud.firestore {
       allow delete: if isOwner(w);
 
       match /members/{m} {
-        allow get: if signedIn() && (m == uid() || isMember(w));
-        allow list: if isMember(w);
+        allow get: if signedIn() && (m == uid() || isMember(w) || isAdmin());
+        allow list: if isMember(w) || isAdmin();
         allow create: if (signedIn() && m == uid() && request.resource.data.uid == uid() && (
           (request.resource.data.role == 'owner' && getAfter(worldPath(w)).data.ownerId == uid())
           || (request.resource.data.role in ['master', 'player'] && inviteOk(w, request.resource.data.inviteCode, request.resource.data.role)
-              && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid())))
+              && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid())) && !serviceBanned())
         ))
           // a master accepts a join request: players by any master, masters only by the owner
           || (isMaster(w) && m != uid() && request.resource.data.uid == m
@@ -110,7 +129,8 @@ service cloud.firestore {
         );
         allow delete: if (resource.data.role != 'owner' && (isMaster(w) && resource.data.role == 'player' || isOwner(w) || m == uid()))
           // the owner's own membership goes last, after the world itself was deleted
-          || (m == uid() && !exists(worldPath(w)));
+          || (m == uid() && !exists(worldPath(w)))
+          || isAdmin();
       }
 
       // Users removed from the world who must not come back through an old invite link.
@@ -123,7 +143,7 @@ service cloud.firestore {
         allow read: if isMaster(w) || (signedIn() && u == uid());
         allow create: if signedIn() && u == uid() && request.resource.data.uid == uid()
           && request.resource.data.status == 'pending' && !isMember(w)
-          && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid()));
+          && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid())) && !serviceBanned();
         allow update: if (signedIn() && u == uid() && resource.data.status == 'pending' && request.resource.data.status == 'pending'
                           && request.resource.data.uid == uid())
           || (isMaster(w) && request.resource.data.uid == resource.data.uid);
@@ -227,6 +247,131 @@ service cloud.firestore {
           && (resource.data.createdBy == uid() || parentEditable(resource.data))
         ));
         allow delete: if isChild() && (isMaster(w) || (isMember(w) && resource.data.createdBy == uid()));
+      }
+    }
+
+    // ---------------- campaigns ----------------
+    // A campaign exists next to worlds. worldId only names the setting it is played in (optional in the model,
+    // so a campaign can be detached later). memberUids/gmUids mirror the participants subcollection.
+    match /campaigns/{c} {
+      function campPath() { return /databases/$(database)/documents/campaigns/$(c); }
+      function camp() { return get(campPath()).data; }
+      function inCamp(d) { return signedIn() && uid() in d.memberUids; }
+      function isGM(d) { return signedIn() && uid() in d.gmUids; }
+      function partAfter() { return getAfter(/databases/$(database)/documents/campaigns/$(c)/participants/$(uid())).data; }
+      function worldOk(d) { return d.get('worldId', null) == null || isMaster(d.worldId); }
+
+      allow get: if isAdmin() || inCamp(resource.data);
+      allow list: if isAdmin() || (signedIn() && uid() in resource.data.memberUids);
+      allow create: if signedIn() && !serviceBanned() && request.resource.data.ownerId == uid()
+        && request.resource.data.gmUids == [uid()] && request.resource.data.memberUids == [uid()]
+        && worldOk(request.resource.data);
+      allow update: if isAdmin()
+        // GMs edit everything except the owner; GMs stay a subset of members; a new world must be theirs to run
+        || (isGM(resource.data) && request.resource.data.ownerId == resource.data.ownerId
+            && resource.data.ownerId in request.resource.data.gmUids
+            && request.resource.data.memberUids.hasAll(request.resource.data.gmUids)
+            && (request.resource.data.get('worldId', null) == resource.data.get('worldId', null) || worldOk(request.resource.data)))
+        // joining by invite: the user appends only himself, in one batch with his participant doc (invite checked there)
+        || (signedIn() && !(uid() in resource.data.memberUids) && !serviceBanned()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'gmUids', 'updatedAt'])
+            && request.resource.data.memberUids == resource.data.memberUids.concat([uid()])
+            && ((request.resource.data.gmUids == resource.data.gmUids && partAfter().role == 'player')
+                || (request.resource.data.gmUids == resource.data.gmUids.concat([uid()]) && partAfter().role == 'gm')))
+        // leaving: anybody but the owner removes only himself
+        || (signedIn() && uid() in resource.data.memberUids && uid() != resource.data.ownerId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'gmUids', 'updatedAt'])
+            && request.resource.data.memberUids == resource.data.memberUids.removeAll([uid()])
+            && request.resource.data.gmUids == resource.data.gmUids.removeAll([uid()]));
+      allow delete: if isAdmin() || (signedIn() && resource.data.ownerId == uid());
+
+      function cinviteOk(code, role) {
+        let inv = get(/databases/$(database)/documents/campaigns/$(c)/invites/$(code)).data;
+        return inv.role == role && (inv.expiresAt == null || inv.expiresAt > request.time.toMillis());
+      }
+
+      match /participants/{u} {
+        allow read: if isAdmin() || inCamp(camp());
+        allow create: if signedIn() && u == uid() && request.resource.data.uid == uid() && !serviceBanned() && (
+            // the creator, in one batch with the campaign
+            (request.resource.data.role == 'gm' && getAfter(campPath()).data.ownerId == uid())
+            || (request.resource.data.role in ['gm', 'player'] && cinviteOk(request.resource.data.inviteCode, request.resource.data.role))
+          );
+        allow update: if isAdmin()
+          || (isGM(camp()) && request.resource.data.uid == resource.data.uid)
+          // a participant edits his own name/character, not his role
+          || (signedIn() && u == uid() && request.resource.data.uid == uid() && request.resource.data.role == resource.data.role);
+        allow delete: if isAdmin() || (signedIn() && u == uid()) || isGM(camp());
+      }
+
+      match /sessions/{s} {
+        allow read: if isAdmin() || inCamp(camp());
+        allow write: if isAdmin() || isGM(camp());
+      }
+
+      match /invites/{code} {
+        allow get: if signedIn();
+        allow list, create, delete: if isAdmin() || isGM(camp());
+        allow update: if false;
+      }
+    }
+
+    // ---------------- music rooms ----------------
+    // access: 'link' = anyone signed in who has the link; 'campaign' = members of the bound campaign.
+    // controlMode: 'hosts' = only the owner and hosts control playback; 'everyone' = every listener.
+    match /rooms/{r} {
+      function roomNow() { return get(/databases/$(database)/documents/rooms/$(r)).data; }
+      function inCampaign(cid) {
+        return cid is string && cid != '' && exists(/databases/$(database)/documents/campaigns/$(cid))
+          && uid() in get(/databases/$(database)/documents/campaigns/$(cid)).data.memberUids;
+      }
+      function isHost(d) { return isAdmin() || (signedIn() && (d.ownerId == uid() || uid() in d.hostUids)); }
+      function canEnter(d) {
+        return isHost(d) || (signedIn() && (d.access == 'link' || (d.access == 'campaign' && inCampaign(d.get('campaignId', null)))));
+      }
+
+      allow get: if canEnter(resource.data);
+      allow list: if isAdmin() || (signedIn() && uid() in resource.data.memberUids)
+        || (signedIn() && inCampaign(resource.data.get('campaignId', null)));
+      allow create: if signedIn() && !serviceBanned() && request.resource.data.ownerId == uid()
+        && request.resource.data.memberUids == [uid()]
+        && (request.resource.data.get('campaignId', null) == null || inCampaign(request.resource.data.campaignId));
+      allow update: if (isHost(resource.data) && request.resource.data.ownerId == resource.data.ownerId
+            && (request.resource.data.get('campaignId', null) == resource.data.get('campaignId', null)
+                || request.resource.data.get('campaignId', null) == null || inCampaign(request.resource.data.campaignId)))
+        // entering: a listener adds himself to memberUids ("my rooms") and touches lastActiveAt
+        || (canEnter(resource.data) && !serviceBanned()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'lastActiveAt'])
+            && (request.resource.data.memberUids == resource.data.memberUids
+                || request.resource.data.memberUids == resource.data.memberUids.concat([uid()])));
+      allow delete: if isAdmin() || (signedIn() && resource.data.ownerId == uid());
+
+      match /tracks/{t} {
+        // without control a listener may still advance the queue when a video ends (new item from its start)
+        function advanceOnly() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['current', 'position', 'at', 'playing', 'rev', 'updatedAt', 'updatedBy'])
+            && request.resource.data.position == 0 && request.resource.data.current != resource.data.current;
+        }
+        function controls() { return isHost(roomNow()) || (canEnter(roomNow()) && roomNow().controlMode == 'everyone'); }
+        // the main track is created in one batch with the room: look at the room as it will be
+        function roomAfter() { return getAfter(/databases/$(database)/documents/rooms/$(r)).data; }
+        allow read: if canEnter(roomNow());
+        allow create: if isHost(roomAfter()) || (canEnter(roomAfter()) && roomAfter().controlMode == 'everyone');
+        allow delete: if controls();
+        allow update: if controls() || (canEnter(roomNow()) && advanceOnly());
+      }
+
+      match /listeners/{u} {
+        allow read: if canEnter(roomNow());
+        allow create, update: if signedIn() && u == uid() && request.resource.data.uid == uid() && canEnter(roomNow());
+        allow delete: if signedIn() && (u == uid() || isHost(roomNow()));
+      }
+
+      match /messages/{m} {
+        allow read: if canEnter(roomNow());
+        allow create: if canEnter(roomNow()) && request.resource.data.uid == uid()
+          && request.resource.data.text is string && request.resource.data.text.size() <= 2000;
+        allow delete: if signedIn() && (resource.data.uid == uid() || isHost(roomNow()));
       }
     }
   }

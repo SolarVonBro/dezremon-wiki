@@ -28,7 +28,32 @@ worlds/{wid}                                 мир (сеттинг): назва
  ├─ bookmarks/{id}                           закладки в боковом меню
  ├─ images/{iid}                             метаданные изображения + миниатюра (галерея)
  └─ imageChunks/{iid}_{n} N:1 → images       байты изображения кусками ≤ 900 КБ (в Spark нет Cloud Storage)
+
+campaigns/{cid}                              кампейн: живёт РЯДОМ с миром; worldId/worldName — в каком мире идёт игра
+ │                                           (в модели может быть null — кампейн можно будет отвязать), ownerId,
+ │                                           gmUids/memberUids (зеркало участников для правил и запроса «мои кампейны»),
+ │                                           статус, расписание, nextSessionAt, cover (маленькая картинка data: URL)
+ ├─ participants/{uid}                       участник кампейна: роль gm | player, персонаж (characterId в мире + имя)
+ │                                           (не «members»: collection group members = членство в мирах)
+ ├─ sessions/{sid}                           журнал: номер, название, дата, planned | done, HTML (без картинок)
+ └─ invites/{code}                           приглашение; worldInviteCode — заодно приглашение в мир кампейна
+
+rooms/{rid}                                  музыкальная комната (как Watch2Gether): ownerId, hostUids, memberUids
+ │                                           («мои комнаты»), campaignId (необязательная привязка к кампейну),
+ │                                           access link | campaign, controlMode hosts | everyone
+ ├─ tracks/{tid}                             синхронный плеер YouTube: main — основная музыка, layer — доп. дорожки;
+ │                                           queue[], current, playing, position@at (серверное время), volume, loop
+ ├─ listeners/{uid}                          присутствие (пульс раз в минуту) + замер сдвига часов клиента
+ └─ messages/{mid}                           чат комнаты
+
+serviceBans/{uid}                            блокировка аккаунта администратором сервиса
+service/config                               настройки сервиса (ключ YouTube Data API для поиска в комнатах)
+usage/{wid | service}                        замеры объёма: по миру и служебных данных (админка → Ресурсы)
 ```
+
+Администраторы сервиса заданы по uid в `firestore.rules` (`isAdmin()`) и `src/data/admin.ts` — списки держать
+одинаковыми. Администратор в любом мире действует как владелец (видит всё, может удалить) и видит всех пользователей,
+миры, кампейны и комнаты в админке (`/admin`).
 
 ## Статья (`entities`)
 

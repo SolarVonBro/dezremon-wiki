@@ -15,7 +15,6 @@ import WorldImage from '@/components/common/WorldImage.vue'
 import { toast } from '@/components/common/toast'
 import type { JoinRequest, Role } from '@/model/types'
 
-const logo = import.meta.env.BASE_URL + 'favicon.svg'
 const session = useSession()
 const route = useRoute()
 const router = useRouter()
@@ -130,7 +129,6 @@ async function deleteAccount() {
     void router.replace('/')
   } catch (e) { toast.error(authErrorText(e)) } finally { secBusy.value = false }
 }
-async function logout() { await session.signOut(); void router.replace('/') }
 
 // ---------- appearance ----------
 const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accent: string }> = [
@@ -143,12 +141,6 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
 
 <template>
   <div class="account">
-    <header class="acc-top">
-      <RouterLink to="/" class="brand" style="font-size: 22px; color: var(--text)"><img class="brand-mark" :src="logo" alt="" /> Вики сеттинга</RouterLink>
-      <span class="grow" />
-      <button class="btn btn-ghost btn-sm" @click="logout"><Icon name="log-out" :size="15" /> Выйти</button>
-    </header>
-
     <div v-if="session.user" class="acc-wrap">
       <section class="acc-hero card">
         <span class="acc-avatar">
@@ -367,9 +359,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
 </template>
 
 <style scoped>
-.account { min-height: 100vh; background: radial-gradient(ellipse at 15% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 50%), var(--bg); }
-.acc-top { display: flex; align-items: center; gap: 10px; padding: 14px 24px; max-width: 1180px; margin: 0 auto; }
-.acc-wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 60px; }
+.acc-wrap { max-width: 1180px; margin: 0 auto; padding: 20px 24px 60px; }
 .acc-hero { display: flex; align-items: center; gap: 18px; padding: 20px 22px; margin-bottom: 18px; }
 .acc-avatar { width: 84px; height: 84px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; font: 700 30px var(--font-head); }
 .acc-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -393,7 +383,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
 .theme-prev span { position: absolute; left: 8px; top: 8px; width: 22px; height: 6px; border-radius: 3px; }
 .theme-prev i { font: 700 24px var(--font-head); font-style: normal; }
 @media (max-width: 720px) {
-  .acc-top, .acc-wrap { padding-left: 14px; padding-right: 14px; }
+  .acc-wrap { padding-left: 14px; padding-right: 14px; }
   .acc-hero { flex-direction: column; text-align: center; }
 }
 .req-badge { border: 0; cursor: pointer; background: var(--danger); color: #fff; }

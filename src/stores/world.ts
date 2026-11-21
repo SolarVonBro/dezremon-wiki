@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { useSession } from './session'
+import { isServiceAdmin } from '@/data/admin'
 import { cache } from '@/data/cache'
 import { syncCollection, type SyncHandle } from '@/data/sync'
 import { canSee, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
@@ -52,7 +53,9 @@ export const useWorld = defineStore('world', () => {
   let openToken = 0
 
   const uid = computed(() => session.user?.uid ?? null)
-  const role = computed<Role | null>(() => member.value?.role ?? null)
+  /** A service administrator who is not a member: acts as a master of the world (the rules grant the same). */
+  const adminView = computed(() => !member.value && !!world.value && isServiceAdmin(uid.value))
+  const role = computed<Role | null>(() => member.value?.role ?? (adminView.value ? 'master' : null))
   /**
    * "View as player": a master sees the world exactly as a player (or one specific member) would —
    * hidden articles, rows and master secrets disappear, editing is off. Purely client-side.
@@ -185,7 +188,7 @@ export const useWorld = defineStore('world', () => {
       world.value = { ...(ws.data() as World), id }
       member.value = ms?.exists() ? (ms.data() as Member) : null
       setCustomTypes(settings.value.customTypes)
-      if (!member.value && !world.value.isPublic) { deny(id, token); return }
+      if (!member.value && !world.value.isPublic && !isServiceAdmin(u?.uid)) { deny(id, token); return }
       startLive(id, token)
       await startSync(token)
       if (token !== openToken) return
@@ -301,7 +304,7 @@ export const useWorld = defineStore('world', () => {
       const ms = u ? await getDoc(doc(db, 'worlds', wid.value, 'members', u.uid)).catch(() => null) : null
       if (token !== openToken) return
       member.value = ms?.exists() ? (ms.data() as Member) : null
-      if (!member.value && !world.value?.isPublic) {
+      if (!member.value && !world.value?.isPublic && !isServiceAdmin(u?.uid)) {
         syncs.forEach((x) => x.stop())
         syncs = []
         entities.value = new Map()
@@ -782,7 +785,7 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,

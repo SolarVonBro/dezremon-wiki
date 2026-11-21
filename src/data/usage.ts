@@ -169,3 +169,38 @@ export function formatBytes(n: number): string {
   if (n < 1000 * 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} МБ`
   return `${(n / 1024 ** 3).toFixed(2)} ГБ`
 }
+
+/** Row id in usage/ for everything that is not inside a world (campaigns, rooms, profiles, bans, config). */
+export const SERVICE_USAGE_ID = 'service'
+
+/**
+ * Measures the service-level data (admins only): campaigns and rooms with their subcollections, user profiles,
+ * bans and config. Reads every one of those documents once.
+ */
+export async function measureService(onProgress: (name: string) => void = () => {}): Promise<WorldUsage> {
+  const byCollection: Record<string, CollectionUsage> = {}
+  const add = (name: string, segments: string[], data: Record<string, unknown>) => {
+    const c = (byCollection[name] ??= { docs: 0, bytes: 0 })
+    c.docs++
+    c.bytes += documentStorage(name, segments, data)
+  }
+  for (const top of ['users', 'serviceBans', 'service']) {
+    onProgress(top)
+    const s = await getDocs(collection(db, top))
+    s.forEach((d) => add(top, [top, d.id], d.data()))
+  }
+  for (const [top, subs] of [['campaigns', ['participants', 'sessions', 'invites']], ['rooms', ['tracks', 'listeners', 'messages']]] as const) {
+    onProgress(top)
+    const s = await getDocs(collection(db, top))
+    for (const d of s.docs) {
+      add(top, [top, d.id], d.data())
+      for (const sub of subs) {
+        const ss = await getDocs(collection(db, top, d.id, sub))
+        ss.forEach((x) => add(`${top}/${sub}`, [top, d.id, sub, x.id], x.data()))
+      }
+    }
+  }
+  const docs = Object.values(byCollection).reduce((s, c) => s + c.docs, 0)
+  const bytes = Object.values(byCollection).reduce((s, c) => s + c.bytes, 0)
+  return { bytes, docs, at: Date.now(), byCollection }
+}

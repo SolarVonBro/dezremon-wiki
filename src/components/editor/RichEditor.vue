@@ -61,7 +61,9 @@ const props = withDefaults(defineProps<{
   folder?: string
   autofocus?: boolean
   minHeight?: string
-}>(), { allowSecrets: false, placeholder: 'Начните писать… «/» — команды, «@» — ссылка на статью', compact: false, folder: '', autofocus: false, minHeight: '320px' })
+  /** false: no images at all (text that does not live in a world gallery, e.g. a campaign journal) */
+  allowImages?: boolean
+}>(), { allowImages: true, allowSecrets: false, placeholder: 'Начните писать… «/» — команды, «@» — ссылка на статью', compact: false, folder: '', autofocus: false, minHeight: '320px' })
 
 const emit = defineEmits<{ dirty: []; 'save-now': []; uploaded: [imageId: string] }>()
 const world = useWorld()
@@ -76,7 +78,7 @@ const pendingUploads = ref(0)
 const lowlight = createLowlight({ javascript, typescript, json, xml, html: xml, css, python, bash, markdown, yaml, sql, lua, csharp })
 
 function onAction(a: EditorAction | 'find' | 'fullscreen' | 'rawhtml') {
-  if (a === 'image') imageDialog.value = 'insert'
+  if (a === 'image') { if (props.allowImages) imageDialog.value = 'insert' }
   else if (a === 'link') linkDialog.value = true
   else if (a === 'youtube') insertYoutube()
   else if (a === 'html') toggleSource()
@@ -116,7 +118,7 @@ const editor = useEditor({
     handlePaste: (view, event) => {
       const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
       const html = event.clipboardData?.getData('text/html')
-      if (files.length && !html) { void insertFiles(files); return true }
+      if (files.length && !html) { if (props.allowImages) void insertFiles(files); return true }
       return false
     },
     handleDrop: (view, event, _slice, moved) => {
@@ -124,6 +126,7 @@ const editor = useEditor({
       const files = [...(event.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith('image/'))
       if (!files.length) return false
       event.preventDefault()
+      if (!props.allowImages) return true
       const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
       void insertFiles(files, pos)
       return true
@@ -152,6 +155,8 @@ function queueDataImages() {
     if (!ed) return
     ed.state.doc.descendants((node, pos) => {
       if (node.type.name === 'image' && !node.attrs.imageId && typeof node.attrs.src === 'string' && node.attrs.src.startsWith('data:')) {
+        // no gallery to upload into: drop the pasted picture instead of keeping megabytes of data: URL in the text
+        if (!props.allowImages) { ed.chain().command(({ tr }) => { tr.delete(pos, pos + node.nodeSize); return true }).run(); return false }
         const file = dataUrlToFile(node.attrs.src, 'pasted')
         if (!file) return
         const id = randomId()
@@ -300,7 +305,7 @@ defineExpose({
 <template>
   <div class="rich" :class="{ fullscreen, compact, 'is-source': source }">
     <template v-if="editor">
-      <EditorToolbar :editor="editor" :allow-secrets="allowSecrets" :source="source" :fullscreen="fullscreen" :compact="compact" @action="onAction" />
+      <EditorToolbar :editor="editor" :allow-secrets="allowSecrets" :allow-images="allowImages" :source="source" :fullscreen="fullscreen" :compact="compact" @action="onAction" />
       <FindBar v-if="finding && !source" :editor="editor" @close="finding = false" />
       <TableMenu :editor="editor" />
       <ImageMenu :editor="editor" @replace="imageDialog = 'replace'" />

@@ -52,6 +52,8 @@ with sync_playwright() as p:
         pg.locator('input[type=password]').fill('secret123')
         pg.get_by_role('button', name='Зарегистрироваться').click()
         pg.wait_for_selector('text=Новый мир', timeout=20000)
+        if not pg.locator('input[placeholder="Дезремон"]').count():
+            pg.get_by_role('button', name='Новый мир').first.click()
         pg.locator('input[placeholder="Дезремон"]').fill('E2E модули ' + RUN)
         pg.get_by_role('button', name='Создать мир').click()
         pg.wait_for_selector('.dash-hero h1', timeout=20000)

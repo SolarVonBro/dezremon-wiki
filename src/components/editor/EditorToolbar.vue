@@ -6,7 +6,7 @@ import Dropdown from '@/components/common/Dropdown.vue'
 import ColorPalette from './ColorPalette.vue'
 import { CALLOUTS } from './extensions/blocks'
 
-const props = defineProps<{ editor: Editor; allowSecrets: boolean; source: boolean; fullscreen: boolean; compact?: boolean }>()
+const props = withDefaults(defineProps<{ editor: Editor; allowSecrets: boolean; allowImages?: boolean; source: boolean; fullscreen: boolean; compact?: boolean }>(), { allowImages: true })
 const emit = defineEmits<{ action: [name: 'image' | 'youtube' | 'link' | 'html' | 'find' | 'fullscreen' | 'rawhtml'] }>()
 
 const e = computed(() => props.editor)
@@ -146,7 +146,7 @@ const ALIGN_ICON = { left: 'align-left', center: 'align-center', right: 'align-r
 
       <div class="tb-group">
         <button class="tb-btn" :class="{ on: e.isActive('link') }" title="Ссылка (Ctrl+K)" @click="emit('action', 'link')"><Icon name="link" /></button>
-        <button class="tb-btn" title="Изображение: загрузить, вставить из галереи или по ссылке" @click="emit('action', 'image')"><Icon name="image" /></button>
+        <button v-if="allowImages" class="tb-btn" title="Изображение: загрузить, вставить из галереи или по ссылке" @click="emit('action', 'image')"><Icon name="image" /></button>
         <Dropdown>
           <template #trigger><button class="tb-btn" :class="{ on: e.isActive('table') }" title="Таблица"><Icon name="table" /><Icon name="chevron-down" :size="12" /></button></template>
           <div class="table-picker" @mouseleave="hover = [0, 0]">

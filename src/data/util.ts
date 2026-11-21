@@ -52,6 +52,15 @@ export function relativeTime(ts: number): string {
   return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** "через 3 дн." for a moment in the future (or relativeTime for the past). */
+export function untilTime(ts: number): string {
+  const diff = (ts - Date.now()) / 1000
+  if (diff <= 0) return relativeTime(ts)
+  if (diff < 3600) return `через ${Math.max(1, Math.round(diff / 60))} мин`
+  if (diff < 86400) return `через ${Math.round(diff / 3600)} ч`
+  return `через ${Math.round(diff / 86400)} дн.`
+}
+
 export function plural(n: number, one: string, few: string, many: string): string {
   const m10 = n % 10, m100 = n % 100
   if (m10 === 1 && m100 !== 11) return one
@@ -82,4 +91,13 @@ export function slugify(s: string): string {
 /** Strip `undefined` recursively (Firestore rejects them in arrays). */
 export function clean<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
+}
+
+/** Human-readable text for a Firestore/Auth error (raw rule-evaluation messages mean nothing to users). */
+export function errorText(e: unknown): string {
+  const code = String((e as any)?.code ?? '')
+  if (code === 'permission-denied' || code === 'firestore/permission-denied') return 'Нет прав на это действие (или аккаунт заблокирован администратором сервиса)'
+  if (code === 'unavailable' || code === 'firestore/unavailable') return 'Нет связи с сервером — попробуйте ещё раз'
+  if (code === 'not-found' || code === 'firestore/not-found') return 'Не найдено — возможно, это уже удалили'
+  return (e as any)?.message ?? String(e)
 }

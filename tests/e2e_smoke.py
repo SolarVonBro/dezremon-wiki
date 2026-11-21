@@ -64,6 +64,8 @@ with sync_playwright() as p:
     pg.wait_for_selector('text=Новый мир', timeout=20000)
 
     step('create world')
+    if not pg.locator('input[placeholder="Дезремон"]').count():
+        pg.get_by_role('button', name='Новый мир').first.click()
     pg.locator('input[placeholder="Дезремон"]').fill('E2E проверка ' + RUN)
     pg.locator('textarea').first.fill('Тестовый мир для проверки вики.')
     pg.get_by_role('button', name='Создать мир').click()
@@ -163,7 +165,7 @@ with sync_playwright() as p:
 
     step('invite a player')
     pg.goto(world_url.split('#')[0] + '#' + world_url.split('#')[1].rstrip('/') + '/settings/members')
-    pg.wait_for_selector('text=Пригласить', timeout=15000)
+    pg.wait_for_selector('h3:has-text("Приглашения")', timeout=15000)
     gm.grant_permissions(['clipboard-read', 'clipboard-write'])
     pg.get_by_role('button', name='Создать ссылку').click()
     pg.wait_for_selector('.rel-row:has-text("Игрок")', timeout=10000)

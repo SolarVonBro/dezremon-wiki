@@ -11,6 +11,8 @@ import QuickSearch from '@/components/layout/QuickSearch.vue'
 import CreateEntityModal from '@/components/layout/CreateEntityModal.vue'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BookmarksNav from '@/components/layout/BookmarksNav.vue'
+import WorldCampaignsNav from '@/components/layout/WorldCampaignsNav.vue'
+import BanBanner from '@/components/layout/BanBanner.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import JoinBanner from '@/components/layout/JoinBanner.vue'
 import { createRequest } from '@/components/layout/createRequest'
@@ -32,7 +34,7 @@ const counts = computed(() => {
   for (const [k, v] of world.byType) m[k] = v.length
   return m
 })
-const roleLabel = computed(() => ({ owner: 'Владелец', master: 'Мастер', player: 'Игрок' } as Record<string, string>)[world.role ?? ''] ?? 'Гость')
+const roleLabel = computed(() => (world.adminView ? 'Администратор сервиса' : ({ owner: 'Владелец', master: 'Мастер', player: 'Игрок' } as Record<string, string>)[world.role ?? ''] ?? 'Гость'))
 
 const saveState = computed(() => {
   if (!online.value) return { cls: 'offline', text: 'Нет сети — изменения сохранятся позже', icon: 'wifi-off' }
@@ -110,6 +112,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         <RouterLink class="sb-link" :to="{ name: 'gallery', params: { wid: world.wid ?? '' } }"><Icon name="images" :size="17" /> Галерея</RouterLink>
       </nav>
       <BookmarksNav />
+      <WorldCampaignsNav />
       <nav class="sb-section">
         <div class="sb-section-title">Разделы</div>
         <RouterLink v-for="t in types" :key="t.key" class="sb-link" :style="{ '--sb-color': t.color }" :to="{ name: 'list', params: { wid: world.wid ?? '', type: t.key } }">
@@ -121,7 +124,9 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
           <span v-if="world.pendingRequestCount" class="sb-badge" title="Новые заявки на вступление">{{ world.pendingRequestCount }}</span>
         </RouterLink>
       </nav>
-      <div class="sb-foot"><UserMenu /></div>
+      <div class="sb-foot">
+        <RouterLink class="sb-link grow" :to="{ name: 'account' }"><Icon name="arrow-left" :size="16" /> Все миры и кампейны</RouterLink>
+      </div>
     </aside>
 
     <div class="main">
@@ -142,9 +147,14 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
           </div>
         </Dropdown>
         <RouterLink v-if="session.ready && !session.user" class="btn btn-primary btn-sm" :to="{ name: 'login', query: { next: route.fullPath } }"><Icon name="log-in" :size="15" /> Войти</RouterLink>
-        <span v-else-if="session.user" class="mobile-only"><UserMenu compact /></span>
+        <UserMenu v-else-if="session.user" />
       </header>
+      <BanBanner />
       <JoinBanner v-if="world.status === 'ready' && !world.isMember && world.wid" :wid="world.wid" />
+      <div v-if="world.adminView && world.status === 'ready'" class="preview-banner admin-banner">
+        <Icon name="shield-check" :size="16" />
+        <span class="grow">Вы в этом мире как <b>администратор сервиса</b> (не участник): видно и доступно всё, как мастеру. Действуйте аккуратно.</span>
+      </div>
       <div v-if="world.preview" class="preview-banner">
         <Icon name="eye" :size="16" />
         <span class="grow">Вы смотрите на мир глазами: <b>{{ world.preview.name }}</b>. Скрытые статьи, разделы и секреты мастера не показываются, редактирование выключено.</span>

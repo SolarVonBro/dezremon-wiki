@@ -15,7 +15,6 @@ import { toast } from '@/components/common/toast'
 import type { CustomType, Invite, Role, Visibility } from '@/model/types'
 
 const BackupPanel = defineAsyncComponent(() => import('@/components/modules/BackupPanel.vue'))
-const UsagePanel = defineAsyncComponent(() => import('@/components/modules/UsagePanel.vue'))
 const MembersAdmin = defineAsyncComponent(() => import('@/components/admin/MembersAdmin.vue'))
 const route = useRoute()
 const router = useRouter()
@@ -24,7 +23,7 @@ const gallery = useGallery()
 const tab = computed(() => (route.params.tab as string) || 'general')
 const TABS = [
   { k: 'general', label: 'Общие', icon: 'settings' }, { k: 'members', label: 'Участники и права', icon: 'users' }, { k: 'modules', label: 'Разделы', icon: 'layout-grid' },
-  { k: 'usage', label: 'Ресурсы', icon: 'database' }, { k: 'backup', label: 'Бэкап и импорт', icon: 'archive' }, { k: 'trash', label: 'Корзина', icon: 'trash2' },
+  { k: 'backup', label: 'Бэкап и импорт', icon: 'archive' }, { k: 'trash', label: 'Корзина', icon: 'trash2' },
 ]
 
 // general
@@ -246,7 +245,6 @@ async function publishAll(to: 'public' | 'members') {
       </section>
     </div>
 
-    <UsagePanel v-else-if="tab === 'usage'" />
     <BackupPanel v-else-if="tab === 'backup'" />
 
     <div v-else-if="tab === 'trash'" class="card card-pad">

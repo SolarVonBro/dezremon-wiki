@@ -147,7 +147,7 @@ with sync_playwright() as p:
         mp.goto(BASE + '#/login'); mp.locator('input[type=email]').fill(f'e2e-pl-{RUN}@example.com'); mp.locator('input[type=password]').fill('secret123')
         mp.get_by_role('button', name='Войти', exact=True).click(); mp.wait_for_selector('text=Мои миры', timeout=20000)
         mp.goto(state['world']); mp.wait_for_selector('.dash-hero h1', timeout=20000); mp.wait_for_timeout(1500)
-        assert mp.locator('.topbar .mobile-only .avatar').is_visible(), 'no account button on phone'
+        assert mp.locator('.topbar .user-btn .avatar').is_visible(), 'no account button on phone'
         shot(mp, 'a7-mobile-member')
         mc.close()
         # make the world public and visit as a guest on a phone
