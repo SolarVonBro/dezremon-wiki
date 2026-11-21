@@ -4,6 +4,7 @@ import { useWorld } from '@/stores/world'
 import { typeDef } from '@/model/entityTypes'
 import { escapeHtml } from '@/data/util'
 import { imageUrl } from '@/data/images'
+import { cropCss, cropOf } from '@/data/crop'
 
 let card: HTMLDivElement | null = null
 let hideTimer: ReturnType<typeof setTimeout> | null = null
@@ -29,7 +30,7 @@ export function showPreview(anchor: HTMLElement, id: string) {
   const tags = (e.tagIds ?? []).map((tid) => world.get(tid)).filter(Boolean).slice(0, 4)
   c.innerHTML = `
     <div class="pc-head">
-      ${e.imageId ? '<div class="pc-img"><img alt=""></div>' : ''}
+      ${e.imageId ? `<div class="pc-img"><img alt="" style="${cropCss(cropOf(e))}"></div>` : ''}
       <div>
         <div class="pc-type" style="color:${t.color}">${escapeHtml(t.label)}${e.kind ? ' · ' + escapeHtml(e.kind) : ''}</div>
         <div class="pc-name">${escapeHtml(e.name)}</div>

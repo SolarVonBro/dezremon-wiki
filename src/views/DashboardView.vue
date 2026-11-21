@@ -8,6 +8,7 @@ import Thumb from '@/components/common/Thumb.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import { createRequest } from '@/components/layout/createRequest'
+import { cropOf } from '@/data/crop'
 
 const CalendarWidget = defineAsyncComponent(() => import('@/components/modules/CalendarWidget.vue'))
 const world = useWorld()
@@ -51,7 +52,7 @@ function unpin(id: string) { void world.updateSettings({ dashboardPins: world.se
         <div class="card-grid">
           <div v-for="e in pins" :key="e!.id" class="pin-wrap">
             <RouterLink class="ecard" :to="{ name: 'entity', params: { wid: world.wid!, eid: e!.id } }">
-              <div class="ecard-img"><Thumb :id="e!.imageId"><Icon :name="typeDef(e!.type).icon" :size="34" /></Thumb></div>
+              <div class="ecard-img"><Thumb :id="e!.imageId" :crop="cropOf(e)"><Icon :name="typeDef(e!.type).icon" :size="34" /></Thumb></div>
               <div class="ecard-body"><div class="ecard-name">{{ e!.name }}</div><div class="ecard-sub">{{ e!.kind || typeDef(e!.type).label }}</div><div class="ecard-text">{{ e!.tooltip || e!.excerpt }}</div></div>
             </RouterLink>
             <button v-if="world.isMaster" class="icon-btn pin-x" title="Открепить" @click="unpin(e!.id)"><Icon name="x" :size="14" /></button>
@@ -77,7 +78,7 @@ function unpin(id: string) { void world.updateSettings({ dashboardPins: world.se
       <section v-if="random" class="card card-pad">
         <h3 class="panel-title"><Icon name="shuffle" /> Случайная статья <button class="icon-btn" style="margin-left: auto" title="Другая" @click="randomSeed++"><Icon name="refresh-cw" :size="15" /></button></h3>
         <RouterLink class="row gap" style="align-items: flex-start; color: var(--text)" :to="{ name: 'entity', params: { wid: world.wid!, eid: random.id } }">
-          <span class="avatar avatar-lg"><Thumb :id="random.imageId"><Icon :name="typeDef(random.type).icon" /></Thumb></span>
+          <span class="avatar avatar-lg"><Thumb :id="random.imageId" :crop="cropOf(random)"><Icon :name="typeDef(random.type).icon" /></Thumb></span>
           <span><b style="font-family: var(--font-head); font-size: 20px">{{ random.name }}</b><br /><span class="muted small">{{ random.tooltip || random.excerpt || 'Без текста' }}</span></span>
         </RouterLink>
       </section>

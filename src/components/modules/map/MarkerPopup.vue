@@ -7,6 +7,7 @@ import { typeDef } from '@/model/entityTypes'
 import { toast } from '@/components/common/toast'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
+import { cropOf } from '@/data/crop'
 import RichView from '@/components/viewer/RichView.vue'
 import { hasContent, markerTitle } from './mapUtils'
 import type { MapMarker } from '@/model/types'
@@ -38,7 +39,7 @@ async function copyLink() {
   <div class="mp">
     <div v-if="linked && td && to" class="mp-head">
       <RouterLink :to="to" class="mp-img" :style="{ color: td.color }">
-        <Thumb :id="linked.imageId"><Icon :name="td.icon" :size="22" /></Thumb>
+        <Thumb :id="linked.imageId" :crop="cropOf(linked)"><Icon :name="td.icon" :size="22" /></Thumb>
       </RouterLink>
       <div class="mp-titles">
         <div class="mp-type" :style="{ color: td.color }">{{ td.label }}<template v-if="linked.kind"> · {{ linked.kind }}</template></div>

@@ -12,6 +12,8 @@ import Thumb from '@/components/common/Thumb.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import ImageDialog from '@/components/editor/ImageDialog.vue'
 import EntitySettingsModal from './EntitySettingsModal.vue'
+import ImageCropModal from './ImageCropModal.vue'
+import { cropOf, type CropField } from '@/data/crop'
 import { useGallery } from '@/stores/gallery'
 import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
@@ -27,6 +29,7 @@ const name = ref(props.entity.name)
 watch(() => props.entity.name, (n) => { if (document.activeElement?.classList.contains('hero-name-input')) return; name.value = n })
 const imgDialog = ref<false | 'imageId' | 'headerImageId'>(false)
 const settings = ref(false)
+const cropping = ref<CropField | null>(null)
 const isFav = computed(() => (world.member?.favorites ?? []).includes(props.entity.id))
 const tags = computed(() => props.entity.tagIds.map((id) => world.get(id)).filter(Boolean) as Entity[])
 
@@ -46,7 +49,11 @@ function saveName() {
   else name.value = props.entity.name
 }
 async function setImage(field: 'imageId' | 'headerImageId', id: string | null) {
-  await world.updateEntity(props.entity.id, { [field]: id })
+  const cropField: CropField = field === 'imageId' ? 'imageCrop' : 'headerCrop'
+  // a new picture starts centred; the old framing belonged to the previous one
+  const fields = props.entity.fields?.[cropField] ? { fields: { ...props.entity.fields, [cropField]: null } } : {}
+  await world.updateEntity(props.entity.id, { [field]: id, ...fields })
+  if (id) cropping.value = cropField
 }
 async function onFiles(files: File[]) {
   const field = imgDialog.value
@@ -87,11 +94,14 @@ async function remove() {
 
 <template>
   <section class="entity-hero" :class="{ 'has-header': !!entity.headerImageId }">
-    <div v-if="entity.headerImageId" class="hero-img"><Thumb :id="entity.headerImageId" variant="full" /></div>
+    <div v-if="entity.headerImageId" class="hero-img"><Thumb :id="entity.headerImageId" variant="full" :crop="cropOf(entity, 'headerCrop')" /></div>
     <div class="hero-body">
-      <button v-if="entity.imageId || editing" type="button" class="hero-avatar" :title="editing ? 'Сменить изображение' : 'Открыть изображение'" @click="zoomAvatar">
-        <Thumb :id="entity.imageId" variant="full"><Icon :name="editing ? 'image' : def.icon" :size="34" /></Thumb>
-      </button>
+      <div v-if="entity.imageId || editing" class="hero-avatar-wrap">
+        <button type="button" class="hero-avatar" :title="editing ? 'Сменить изображение' : 'Открыть изображение'" @click="zoomAvatar">
+          <Thumb :id="entity.imageId" variant="full" :crop="cropOf(entity)"><Icon :name="editing ? 'image' : def.icon" :size="34" /></Thumb>
+        </button>
+        <button v-if="editing && entity.imageId" type="button" class="hero-crop-btn" title="Кадр: центрирование и масштаб" @click="cropping = 'imageCrop'"><Icon name="crosshair" :size="15" /></button>
+      </div>
       <div class="hero-text">
         <div class="hero-type" :style="{ color: def.color }">
           <Icon :name="def.icon" :size="14" /> {{ def.label }}<span v-if="entity.kind" class="muted">· {{ entity.kind }}</span>
@@ -123,6 +133,8 @@ async function remove() {
               <button class="menu-item" @click="settings = true"><Icon name="shield" :size="15" /> Доступ и настройки</button>
               <button class="menu-item" @click="imgDialog = 'imageId'"><Icon name="image" :size="15" /> {{ entity.imageId ? 'Сменить' : 'Добавить' }} изображение</button>
               <button class="menu-item" @click="imgDialog = 'headerImageId'"><Icon name="panel-right-open" :size="15" /> {{ entity.headerImageId ? 'Сменить' : 'Добавить' }} обложку</button>
+              <button v-if="entity.imageId" class="menu-item" @click="cropping = 'imageCrop'"><Icon name="crosshair" :size="15" /> Кадр изображения…</button>
+              <button v-if="entity.headerImageId" class="menu-item" @click="cropping = 'headerCrop'"><Icon name="crosshair" :size="15" /> Кадр обложки…</button>
               <button v-if="entity.imageId" class="menu-item" @click="setImage('imageId', null)"><Icon name="x" :size="15" /> Убрать изображение</button>
               <button v-if="entity.headerImageId" class="menu-item" @click="setImage('headerImageId', null)"><Icon name="x" :size="15" /> Убрать обложку</button>
               <div class="menu-sep" />
@@ -142,5 +154,6 @@ async function remove() {
     <ImageDialog v-if="imgDialog" :title="imgDialog === 'imageId' ? 'Изображение статьи' : 'Обложка статьи'" :multiple="false"
       @close="imgDialog = false" @files="onFiles" @pick="(id) => setImage(imgDialog as any, id)" @url="() => toast.info('Для изображения статьи загрузите файл или выберите из галереи')" />
     <EntitySettingsModal v-if="settings" :entity="entity" @close="settings = false" />
+    <ImageCropModal v-if="cropping" :entity="entity" :field="cropping" @close="cropping = null" />
   </section>
 </template>

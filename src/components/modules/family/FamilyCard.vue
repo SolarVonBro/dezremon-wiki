@@ -5,6 +5,7 @@ import { typeDef } from '@/model/entityTypes'
 import type { Entity } from '@/model/types'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
+import { cropOf } from '@/data/crop'
 import Dropdown from '@/components/common/Dropdown.vue'
 import type { AddKind, KinLink } from './genealogy'
 
@@ -35,7 +36,7 @@ function otherName(id: string) { return world.get(id)?.name ?? 'скрыто' }
 <template>
   <div class="fc" :class="{ focus, extern, dead, dim, hl }" :title="entity.name + (subtitle ? ' — ' + subtitle : '')" @click="emit('open')">
     <span class="fc-avatar">
-      <Thumb :id="entity.imageId" :alt="entity.name"><Icon :name="typeDef(entity.type).icon" :size="20" /></Thumb>
+      <Thumb :id="entity.imageId" :alt="entity.name" :crop="cropOf(entity)"><Icon :name="typeDef(entity.type).icon" :size="20" /></Thumb>
     </span>
     <div class="fc-text">
       <div class="fc-name">{{ entity.name }}</div>

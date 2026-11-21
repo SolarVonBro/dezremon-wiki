@@ -15,6 +15,7 @@ import Dropdown from '@/components/common/Dropdown.vue'
 import { buildGraph, relationColour, type GLink, type GNode } from './graph/graphData'
 import { GraphRenderer } from './graph/renderer'
 import { usePanZoom, type View } from './graph/panZoom'
+import { cropOf } from '@/data/crop'
 
 const props = withDefaults(defineProps<{ centerId?: string | null; depth?: number; height?: string }>(), { centerId: null, depth: 2, height: '600px' })
 const emit = defineEmits<{ select: [id: string | null] }>()
@@ -497,7 +498,7 @@ onBeforeUnmount(() => {
 
       <aside v-if="selEntity" class="rg-side" @pointerdown.stop @wheel.stop>
         <header class="rg-side-head">
-          <span class="avatar rg-side-avatar"><Thumb :id="selEntity.imageId"><Icon :name="typeDef(selEntity.type).icon" :size="20" /></Thumb></span>
+          <span class="avatar rg-side-avatar"><Thumb :id="selEntity.imageId" :crop="cropOf(selEntity)"><Icon :name="typeDef(selEntity.type).icon" :size="20" /></Thumb></span>
           <div class="grow" style="min-width: 0">
             <EntityLink :id="selEntity.id" :icon="false" class="rg-side-name" />
             <div class="small" :style="{ color: typeDef(selEntity.type).color }">{{ typeDef(selEntity.type).label }}<template v-if="selEntity.kind"> · <span class="muted">{{ selEntity.kind }}</span></template></div>

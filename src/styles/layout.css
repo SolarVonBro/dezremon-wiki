@@ -54,7 +54,10 @@
 .hero-body { position: relative; z-index: 2; display: flex; align-items: flex-end; gap: 18px; padding: 22px 24px 18px; min-height: inherit; }
 .entity-hero.has-header .hero-body { padding-top: 120px; }
 .entity-hero.has-header .hero-type, .entity-hero.has-header .hero-name, .entity-hero.has-header .hero-sub { text-shadow: 0 1px 2px var(--bg), 0 0 12px var(--bg); }
-.hero-avatar { width: 120px; height: 120px; border-radius: 14px; overflow: hidden; flex-shrink: 0; background: var(--surface-3); border: 3px solid var(--surface); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; color: var(--text-faint); cursor: zoom-in; }
+.hero-avatar-wrap { position: relative; flex-shrink: 0; }
+.hero-crop-btn { position: absolute; right: -6px; bottom: -6px; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--surface); background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--shadow); padding: 0; }
+.hero-crop-btn:hover { background: var(--accent-2); }
+.hero-avatar { padding: 0; width: 120px; height: 120px; border-radius: 14px; overflow: hidden; flex-shrink: 0; background: var(--surface-3); border: 3px solid var(--surface); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; color: var(--text-faint); cursor: zoom-in; }
 .hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .hero-text { min-width: 0; flex: 1; }
 .hero-type { font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

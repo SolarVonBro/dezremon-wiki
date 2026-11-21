@@ -545,6 +545,10 @@ export interface PlannedImage {
   size: number
   /** Map entity whose fields.mapWidth/mapHeight must come from this image. */
   mapFor: string | null
+  /** Kanka focal point of the gallery image, in pixels of the original file. */
+  focus?: { x: number; y: number } | null
+  /** Entity framings to derive from `focus` once the original size is known. */
+  cropFor?: Array<{ entityId: string; field: 'imageCrop' | 'headerCrop' }>
 }
 
 export interface PlanReport {
@@ -683,7 +687,11 @@ export function planKankaImport(input: KankaInput, opts: PlanOptions): KankaPlan
     const meta = input.galleryMeta.get(uuid) ?? {}
     const folder = folderNames.get(str(meta.folder_id)) || 'Kanka'
     const name = str(meta.name) || basename(path)
-    return addImage(`zip:${path}`, { kind: 'zip', path }, name, folder, vis, input.sizes.get(path) ?? 0)
+    const id = addImage(`zip:${path}`, { kind: 'zip', path }, name, folder, vis, input.sizes.get(path) ?? 0)
+    const fx = num(meta.focus_x), fy = num(meta.focus_y)
+    const img = images.get(`zip:${path}`)
+    if (img && fx !== null && fy !== null) img.focus = { x: fx, y: fy }
+    return id
   }
   const pathImage = (p: any, vis: Visibility, allowRemote = false): string | null => {
     let s = str(p).trim()
@@ -1146,6 +1154,14 @@ export function planKankaImport(input: KankaInput, opts: PlanOptions): KankaPlan
   }
   for (const { entityId, imageId } of mapNeedsSize) {
     for (const img of images.values()) if (img.id === imageId) img.mapFor = entityId
+  }
+  // Kanka's gallery focal points become the framing of the articles using those pictures
+  const imgById = new Map([...images.values()].map((i) => [i.id, i]))
+  for (const e of entities) {
+    for (const [idField, cropField] of [['imageId', 'imageCrop'], ['headerImageId', 'headerCrop']] as const) {
+      const img = e[idField] ? imgById.get(e[idField] as string) : undefined
+      if (img?.focus) (img.cropFor ??= []).push({ entityId: e.id, field: cropField })
+    }
   }
 
   const customTypes: CustomType[] = [...usedCustom.entries()].sort((a, b) => a[0] - b[0]).map(([cid, dir]) => {

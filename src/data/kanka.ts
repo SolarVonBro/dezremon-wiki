@@ -164,6 +164,14 @@ export async function importKanka(file: Blob, target: KankaTarget, options: Kank
           const map = byId.get(img.mapFor)
           if (dim && map) { map.fields.mapWidth ??= dim.width; map.fields.mapHeight ??= dim.height }
         }
+        if (img.focus && img.cropFor?.length) {
+          // focal point in pixels of the original → % (independent of our downscaling)
+          const dim = await imageSize(blob)
+          if (dim && dim.width && dim.height) {
+            const crop = { x: Math.round(Math.min(100, Math.max(0, (img.focus.x / dim.width) * 100)) * 10) / 10, y: Math.round(Math.min(100, Math.max(0, (img.focus.y / dim.height) * 100)) * 10) / 10, zoom: 1 }
+            for (const t of img.cropFor) { const e = byId.get(t.entityId); if (e) e.fields = { ...e.fields, [t.field]: crop } }
+          }
+        }
         const meta = await uploadImage(access, blob, { id: img.id, name: img.name, folder: img.folder, visibility: img.visibility })
         imageWrites += 1 + meta.chunkCount
         report.images.uploaded++

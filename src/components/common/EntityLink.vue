@@ -5,6 +5,7 @@ import { typeDef } from '@/model/entityTypes'
 import Icon from './Icon.vue'
 import Thumb from './Thumb.vue'
 import { showPreview, hidePreview } from '@/components/viewer/preview'
+import { cropOf } from '@/data/crop'
 
 const props = withDefaults(defineProps<{ id: string | null | undefined; avatar?: boolean; icon?: boolean; fallback?: string }>(), { avatar: false, icon: true, fallback: '' })
 const world = useWorld()
@@ -16,7 +17,7 @@ function out() { if (t) clearTimeout(t); hidePreview(200) }
 
 <template>
   <RouterLink v-if="e" class="entity-link" :to="{ name: 'entity', params: { wid: world.wid!, eid: e.id } }" @mouseenter="over" @mouseleave="out" @click="out">
-    <span v-if="avatar" class="avatar el-avatar"><Thumb :id="e.imageId"><Icon :name="typeDef(e.type).icon" :size="14" /></Thumb></span>
+    <span v-if="avatar" class="avatar el-avatar"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon :name="typeDef(e.type).icon" :size="14" /></Thumb></span>
     <Icon v-else-if="icon" :name="typeDef(e.type).icon" :size="14" :style="{ color: typeDef(e.type).color }" />
     <span class="el-name">{{ e.name }}</span>
   </RouterLink>

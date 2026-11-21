@@ -10,6 +10,7 @@ import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import TreeNode from '@/components/entity/TreeNode.vue'
+import { cropOf } from '@/data/crop'
 import { createRequest } from '@/components/layout/createRequest'
 import Dropdown from '@/components/common/Dropdown.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -125,7 +126,7 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
 
     <div v-else-if="view === 'cards'" class="card-grid">
       <RouterLink v-for="e in items" :key="e.id" class="ecard" :to="{ name: 'entity', params: { wid: world.wid!, eid: e.id } }">
-        <div class="ecard-img"><Thumb :id="e.imageId"><Icon :name="def.icon" :size="38" :style="{ color: def.color, opacity: 0.6 }" /></Thumb></div>
+        <div class="ecard-img"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon :name="def.icon" :size="38" :style="{ color: def.color, opacity: 0.6 }" /></Thumb></div>
         <div class="ecard-body">
           <div class="ecard-name">{{ e.name }}</div>
           <div class="ecard-sub">
