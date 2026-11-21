@@ -166,6 +166,6 @@ export const saveWorldUsage = (wid: string, u: { bytes: number; docs: number; at
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} Б`
   if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} КБ`
-  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} МБ`
+  if (n < 1000 * 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} МБ`
   return `${(n / 1024 ** 3).toFixed(2)} ГБ`
 }
