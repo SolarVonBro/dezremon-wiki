@@ -52,6 +52,6 @@ async function done() { autosave.touch(); await autosave.flush(); emit('done') }
       <button class="icon-btn danger" title="Удалить раздел" @click="remove"><Icon name="trash2" :size="16" /></button>
       <button class="btn btn-sm btn-primary" @click="done"><Icon name="check" :size="14" /> Готово</button>
     </div>
-    <RichEditor ref="editor" :model-value="post.html" compact min-height="180px" :upload-visibility="vis" :folder="entity.name" @dirty="autosave.touch()" @save-now="autosave.flush()" @uploaded="autosave.touch()" />
+    <RichEditor ref="editor" :model-value="post.html" compact min-height="180px" :upload-visibility="vis" :folder="entity.name" @dirty="autosave.touch()" @save-now="autosave.flush()" @uploaded="last = ''; autosave.touch()" />
   </section>
 </template>

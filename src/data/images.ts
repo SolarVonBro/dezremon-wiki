@@ -17,6 +17,8 @@ const urlCache = new Map<string, string>()
 const inflight = new Map<string, Promise<string>>()
 /** Local blob URLs for images still uploading (editor shows them immediately). */
 export const pendingImages = new Map<string, string>()
+/** Upload promises by image id: visibility updates wait for them instead of skipping the image. */
+export const uploadPromises = new Map<string, Promise<unknown>>()
 
 async function canvasBlob(canvas: HTMLCanvasElement | OffscreenCanvas, type: string, q: number): Promise<Blob> {
   if ('convertToBlob' in canvas) return canvas.convertToBlob({ type, quality: q })
@@ -144,7 +146,8 @@ export async function imageBlob(a: Access, id: string): Promise<Blob> {
 /** Make sure every image referenced by readable content is at least as visible as that content. */
 export async function ensureImageAccess(a: Access, ids: string[], target: { visibility: Visibility; allowedUids: string[] }) {
   if (!ids.length || !a.uid) return
-  const unique = [...new Set(ids)].filter((i) => !pendingImages.has(i))
+  const unique = [...new Set(ids)]
+  await Promise.allSettled(unique.map((i) => uploadPromises.get(i)).filter(Boolean))
   const snaps = await Promise.all(unique.map((id) => getDoc(docRef(a.wid, 'images', id)).catch(() => null)))
   const batch = writeBatch(db)
   let n = 0

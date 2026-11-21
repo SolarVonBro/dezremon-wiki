@@ -71,6 +71,8 @@ const headings = ref<Heading[]>([])
 const editorRef = ref<RichEditorInstance | null>(null)
 const draftOffer = ref<string | null>(null)
 let lastSavedHtml = ''
+/** Set after an image upload: save even if the text is unchanged so the image becomes visible to readers. */
+let forceSave = false
 let expectedRev = -1
 
 async function loadText(force = false) {
@@ -95,7 +97,8 @@ const autosave = useAutosave(async () => {
   if (!ed || !e) return
   if (ed.pendingUploads > 0) return false
   const next = ed.getHTML()
-  if (next === lastSavedHtml) return
+  if (next === lastSavedHtml && !forceSave) return
+  forceSave = false
   expectedRev = (e.bodyRev ?? 0) + 1
   await world.saveText(e.id, next)
   lastSavedHtml = next
@@ -209,7 +212,7 @@ watch(() => entity.value?.name, (n) => { if (n) document.title = `${n} — ${wor
         </div>
         <RichEditor
           v-if="editing && !loadingText" ref="editorRef" :model-value="html" :allow-secrets="world.isMaster" :upload-visibility="uploadVis"
-          :folder="entity.name" min-height="420px" autofocus @dirty="onDirty" @save-now="autosave.flush()" @uploaded="autosave.touch()"
+          :folder="entity.name" min-height="420px" autofocus @dirty="onDirty" @save-now="autosave.flush()" @uploaded="forceSave = true; autosave.touch()"
         />
         <div v-else-if="editing" class="card empty"><Icon name="refresh-cw" class="spin" /></div>
         <article v-else class="card article-card">

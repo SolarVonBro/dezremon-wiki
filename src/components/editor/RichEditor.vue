@@ -46,7 +46,7 @@ import { BlockFormat, WikiTableCell, WikiTableHeader } from './extensions/attrs'
 import { FindReplace } from './extensions/findReplace'
 import { cleanPastedHtml, dataUrlToFile } from './extensions/paste'
 import { useWorld } from '@/stores/world'
-import { pendingImages, uploadImage } from '@/data/images'
+import { pendingImages, uploadImage, uploadPromises } from '@/data/images'
 import { randomId } from '@/data/util'
 import { toast } from '@/components/common/toast'
 import type { Visibility } from '@/model/types'
@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<{
   minHeight?: string
 }>(), { allowSecrets: false, placeholder: 'Начните писать… «/» — команды, «@» — ссылка на статью', compact: false, folder: '', autofocus: false, minHeight: '320px' })
 
-const emit = defineEmits<{ dirty: []; 'save-now': []; uploaded: [] }>()
+const emit = defineEmits<{ dirty: []; 'save-now': []; uploaded: [imageId: string] }>()
 const world = useWorld()
 
 const source = ref(false)
@@ -171,8 +171,14 @@ function uploadVis() {
 async function startUpload(file: File, id: string) {
   pendingUploads.value++
   try {
-    await uploadImage(world.access, file, { id, name: file.name || 'image', folder: props.folder, ...uploadVis() })
-    emit('uploaded')
+    const p = uploadImage(world.access, file, { id, name: file.name || 'image', folder: props.folder, ...uploadVis() })
+    uploadPromises.set(id, p)
+    p.finally(() => uploadPromises.delete(id)).catch(() => {})
+    await p
+    // No longer pending: from now on the image is read from the local cache / Firestore, and the next
+    // save widens its visibility to match the article (masters upload as master-only first).
+    pendingImages.delete(id)
+    emit('uploaded', id)
   } catch (e: any) {
     toast.error('Не удалось загрузить изображение: ' + (e?.message ?? e))
   } finally {
