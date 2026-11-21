@@ -19,6 +19,7 @@ import RoomChat from '@/components/rooms/RoomChat.vue'
 import RoomSettings from '@/components/rooms/RoomSettings.vue'
 import AddMedia from '@/components/rooms/AddMedia.vue'
 import { formatTime, watchUrl } from '@/components/rooms/youtube'
+import { expectedTime, itemEnd, itemStart } from '@/components/rooms/timing'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import { toast } from '@/components/common/toast'
@@ -102,22 +103,24 @@ function setMine(tid: string, p: { vol: number; muted: boolean }) { personal.val
 const durations = ref<Record<string, number>>({})
 const mainItem = computed(() => main.value?.queue.find((x) => x.id === main.value!.current) ?? null)
 const mainDuration = computed(() => (mainItem.value ? mainItem.value.duration || durations.value[mainItem.value.videoId] || 0 : 0))
+const mainStart = computed(() => itemStart(mainItem.value))
+const mainEnd = computed(() => itemEnd(mainItem.value, mainDuration.value))
+/** video time everybody hears right now (inside the item's interval) */
 const position = computed(() => {
   void tick.value
   const t = main.value
   if (!t) return 0
-  let p = t.playing ? t.position + Math.max(0, Date.now() + offset.value - t.at) / 1000 : t.position
-  const d = mainDuration.value
-  if (d > 1 && (t.loop === 'one' || (t.loop === 'all' && t.queue.length === 1))) p %= d
-  return d ? Math.min(p, d) : p
+  const loops = t.loop === 'one' || (t.loop === 'all' && t.queue.length === 1)
+  const v = expectedTime(t, mainItem.value, mainDuration.value, Date.now() + offset.value, loops)
+  return mainEnd.value ? Math.min(v, mainEnd.value) : v
 })
 const run = (p: Promise<unknown>) => p.catch((e) => toast.error('Не получилось: ' + errorText(e)))
-function togglePlay() { if (main.value) void run(setPlayback(rid, main.value.id, uid.value, !main.value.playing, position.value)) }
-function seek(v: number) { if (main.value) void run(setPlayback(rid, main.value.id, uid.value, main.value.playing, v)) }
+function togglePlay() { if (main.value) void run(setPlayback(rid, main.value.id, uid.value, !main.value.playing, Math.max(0, position.value - mainStart.value))) }
+function seek(v: number) { if (main.value) void run(setPlayback(rid, main.value.id, uid.value, main.value.playing, Math.max(0, v - mainStart.value))) }
 function skipBy(dir: 1 | -1) {
   const t = main.value
   if (!t) return
-  if (dir === -1 && position.value > 5) { seek(0); return }
+  if (dir === -1 && position.value - mainStart.value > 5) { seek(mainStart.value); return }
   void run(skip(rid, t.id, uid.value, t, dir))
 }
 const LOOPS: LoopMode[] = ['all', 'one', 'off']
@@ -176,6 +179,7 @@ const panel = ref<'queue' | 'playlists'>('queue')
           <section v-if="main" class="card main-card">
             <div class="player-wrap">
               <RoomPlayer v-if="unlocked" ref="mainPlayer" :track="main" :offset="offset" :volume="(main.volume * mine(main.id).vol * personal.master) / 10000" :muted="mine(main.id).muted"
+                :can-control="canControl" @toggle="togglePlay"
                 @ended="(id, rev) => onEnded(main!, id, rev)" @failed="(id, rev, code) => onFailed(main!, id, rev, code)" @duration="(v, d) => (durations = { ...durations, [v]: d })" @blocked="blocked = true">
                 <template #empty>Очередь пуста — добавьте видео или плейлист YouTube ниже.</template>
               </RoomPlayer>
@@ -189,13 +193,13 @@ const panel = ref<'queue' | 'playlists'>('queue')
               <div class="grow" style="min-width: 0">
                 <a v-if="mainItem" class="now-title" :href="watchUrl(mainItem.videoId)" target="_blank" rel="noopener">{{ mainItem.title || mainItem.videoId }}</a>
                 <div v-else class="now-title faint">Ничего не играет</div>
-                <div v-if="mainItem" class="faint small">добавил(а) {{ mainItem.addedByName }}</div>
+                <div v-if="mainItem" class="faint small">добавил(а) {{ mainItem.addedByName }}<template v-if="(mainItem.rate ?? 1) !== 1"> · скорость ×{{ mainItem.rate }}</template></div>
               </div>
             </div>
             <div class="seek">
               <span class="small faint">{{ formatTime(position) }}</span>
-              <input type="range" min="0" :max="Math.max(1, mainDuration)" step="1" :value="mainDuration ? position : 0" :disabled="!canControl || !mainDuration" @change="seek(+($event.target as HTMLInputElement).value)" />
-              <span class="small faint">{{ mainDuration ? formatTime(mainDuration) : '--:--' }}</span>
+              <input type="range" :min="mainStart" :max="Math.max(mainStart + 1, mainEnd)" step="1" :value="mainEnd ? position : mainStart" :disabled="!canControl || !mainEnd" @change="seek(+($event.target as HTMLInputElement).value)" />
+              <span class="small faint">{{ mainEnd ? formatTime(mainEnd) : '--:--' }}</span>
             </div>
             <div class="controls">
               <button class="icon-btn" :disabled="!canControl || !main.queue.length" title="Назад" @click="skipBy(-1)"><Icon name="skip-back" :size="18" /></button>
@@ -224,7 +228,7 @@ const panel = ref<'queue' | 'playlists'>('queue')
             <template v-if="panel === 'queue'">
               <div v-if="main.playlistName" class="faint small"><Icon name="list-video" :size="13" /> загружен плейлист «{{ main.playlistName }}»</div>
               <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
-              <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" />
+              <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" :now-time="() => position" />
             </template>
             <RoomPlaylists v-else :rid="rid" :tracks="tracks" :can-control="canControl" :api-key="apiKey" />
           </section>

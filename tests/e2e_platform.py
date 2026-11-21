@@ -70,7 +70,8 @@ def shot(pg, name, full=True): pg.screenshot(path=os.path.join(OUT, name + '.png
 
 
 YT_TIME = """() => { const f = document.querySelector('.main-card iframe'); if (!f || !window.YT?.get) return null;
-  const p = window.YT.get(f.id); return p && p.getCurrentTime ? { t: p.getCurrentTime(), s: p.getPlayerState(), id: f.id } : null }"""
+  const p = window.YT.get(f.id); return p && p.getCurrentTime ? { t: p.getCurrentTime(), s: p.getPlayerState(), r: p.getPlaybackRate(), id: f.id } : null }"""
+LAYER_STATE = """() => { const f = document.querySelector('.layer iframe'); const p = f && window.YT?.get?.(f.id); return p && p.getPlayerState ? p.getPlayerState() : null }"""
 
 GM, PL = f'gm{RUN}@example.com', f'pl{RUN}@example.com'
 mkuser(GM, 'Мастер Игры')
@@ -249,6 +250,47 @@ with sync_playwright() as p:
     gm.wait_for_selector('.pl-row:has-text("Сохранённая очередь")', timeout=10000)
     check(gm.locator('.pl-row').count() == 2, 'current queue saved as a playlist')
     shot(gm, 'd-room-playlists', full=False)
+
+    step('Click on the video toggles playback for everybody')
+    gm.locator('.main-card .shield').click()
+    pl.wait_for_function(YT_TIME.replace('return p &&', 'return p && p.getPlayerState() === 2 &&'), timeout=10000)
+    check(True, 'click on the main video paused it for the listener')
+    gm.locator('.main-card .shield').click()
+    pl.wait_for_function(YT_TIME.replace('return p &&', 'return p && p.getPlayerState() === 1 &&'), timeout=15000)
+    check(True, 'second click resumed it')
+    check(pl.locator('.main-card .shield.clickable').count() == 0, 'for a listener without control the video is not clickable')
+    before = pl.evaluate(LAYER_STATE)
+    gm.locator('.layer .shield').click()
+    t0 = time.time()
+    while time.time() - t0 < 10 and pl.evaluate(LAYER_STATE) == before: time.sleep(0.5)
+    check(pl.evaluate(LAYER_STATE) != before, f'click on the layer mini player toggled it ({before} -> {pl.evaluate(LAYER_STATE)})')
+
+    step('Rename, interval and speed of a video')
+    gm.locator('.queue-card .tab', has_text='Очередь').click()
+    gm.locator('.queue-card .q-item').first.locator('button[title^="Название"]').click()
+    gm.wait_for_selector('.modal h3:has-text("Настройки трека")')
+    gm.locator('.modal input').first.fill('Боевая тема')
+    gm.locator('.modal input[placeholder="0:00"]').fill('0:20')
+    gm.locator('.modal select').first.select_option('at')
+    gm.locator('.modal input[placeholder="0:10"]').fill('0:26')
+    gm.locator('.modal select').nth(1).select_option('1.5')
+    gm.locator('.modal').get_by_role('button', name='Сохранить').click()
+    pl.wait_for_function("() => document.querySelector('.now-title')?.innerText.includes('Боевая тема')", timeout=10000)
+    check(True, 'renamed title reached the listener')
+    check('0:20–0:26' in gm.locator('.queue-card .q-item').first.inner_text() and '×1.5' in gm.locator('.queue-card .q-item').first.inner_text(), 'queue row shows the interval and speed')
+    samples = []
+    t0 = time.time()
+    while time.time() - t0 < 9:
+        x = pl.evaluate(YT_TIME)
+        if x and x['s'] == 1: samples.append((round(x['t'], 1), x['r']))
+        time.sleep(0.4)
+    ts = [a for a, _ in samples]
+    print('   listener samples:', samples[:6], '...', samples[-4:])
+    check(bool(ts) and min(ts) >= 19.3 and max(ts) <= 26.8, 'listener plays only inside 0:20–0:26')
+    check(any(b < a - 2 for a, b in zip(ts, ts[1:])), 'the single item repeats from 0:20 at the end of the interval')
+    check(bool(samples) and all(r == 1.5 for _, r in samples), 'listener plays at ×1.5')
+    a, c = gm.evaluate(YT_TIME), pl.evaluate(YT_TIME)
+    if a and c and abs(a['t'] - c['t']) < 4: check(abs(a['t'] - c['t']) < 2.0, f'GM and listener agree inside the interval (diff {abs(a["t"] - c["t"]):.2f})')
 
     step('Admin')
     ad = b.new_context(viewport={'width': 1366, 'height': 900}).new_page(); watch(ad, 'admin')

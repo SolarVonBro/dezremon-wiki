@@ -2,7 +2,8 @@
 //
 // Sync model. Each track stores { current, playing, position, at } where `at` is the SERVER time of the last
 // control change (serverTimestamp). Every client computes where playback should be right now:
-//   expected = playing ? position + (serverNow - at) / 1000 : position
+//   video time = item.start + (playing ? position + (serverNow - at) / 1000 × item.rate : position)
+// (position counts video seconds since the item's start; see src/components/rooms/timing.ts)
 // serverNow is the local clock corrected by an offset measured against Firestore's clock (see Presence).
 // Controls write a new { position, at } instead of streaming the playhead, so playing costs no writes at all;
 // only play/pause/seek/skip and queue edits do. When a video ends, the next one is picked in a transaction that
@@ -170,6 +171,38 @@ export async function editQueue(rid: string, tid: string, uid: string, fn: (q: Q
   })
 }
 export const removeItem = (rid: string, tid: string, uid: string, itemId: string) => editQueue(rid, tid, uid, (q) => q.filter((x) => x.id !== itemId))
+
+export type ItemPatch = Partial<Pick<QueueItem, 'title' | 'start' | 'end' | 'rate'>>
+/** Firestore rejects `undefined`: unset optional timing fields are simply left out. */
+function applyPatch(it: QueueItem, patch: ItemPatch): QueueItem {
+  const next: QueueItem = { ...it, ...patch }
+  for (const k of ['start', 'end', 'rate'] as const) if (next[k] === undefined || next[k] === null) delete next[k]
+  return next
+}
+
+/**
+ * Renames an item or changes its interval/speed. If it is the item playing right now, the playback position is
+ * re-anchored at `videoTimeNow` (what everybody hears at this moment) so a new start or speed does not make
+ * listeners jump.
+ */
+export async function editQueueItem(rid: string, tid: string, uid: string, itemId: string, patch: ItemPatch, videoTimeNow?: number) {
+  await runTransaction(db, async (tx) => {
+    const s = await tx.get(trackRef(rid, tid))
+    if (!s.exists()) throw new Error('Дорожка удалена')
+    const t = normalizeTrack(s.id, s.data())
+    const i = t.queue.findIndex((x) => x.id === itemId)
+    if (i < 0) throw new Error('Трека уже нет в очереди')
+    const queue = [...t.queue]
+    const before = queue[i]
+    queue[i] = applyPatch(before, patch)
+    const timingChanged = (before.start ?? 0) !== (queue[i].start ?? 0) || (before.rate ?? 1) !== (queue[i].rate ?? 1)
+    const reanchor = t.current === itemId && timingChanged && typeof videoTimeNow === 'number'
+    tx.update(trackRef(rid, tid), {
+      queue, updatedAt: now(), updatedBy: uid,
+      ...(reanchor ? { position: Math.max(0, videoTimeNow! - (queue[i].start ?? 0)), at: serverTimestamp(), rev: t.rev + 1 } : {}),
+    })
+  })
+}
 export const moveItem = (rid: string, tid: string, uid: string, itemId: string, dir: -1 | 1) => editQueue(rid, tid, uid, (q) => {
   const i = q.findIndex((x) => x.id === itemId), j = i + dir
   if (i < 0 || j < 0 || j >= q.length) return q
@@ -205,6 +238,8 @@ export async function editPlaylist(rid: string, pid: string, fn: (items: QueueIt
   })
 }
 export const addToPlaylist = (rid: string, pid: string, items: QueueItem[]) => editPlaylist(rid, pid, (q) => [...q, ...items])
+export const editPlaylistItem = (rid: string, pid: string, itemId: string, patch: ItemPatch) =>
+  editPlaylist(rid, pid, (q) => q.map((x) => (x.id === itemId ? applyPatch(x, patch) : x)))
 export const removeFromPlaylist = (rid: string, pid: string, itemId: string) => editPlaylist(rid, pid, (q) => q.filter((x) => x.id !== itemId))
 export const movePlaylistItem = (rid: string, pid: string, itemId: string, dir: -1 | 1) => editPlaylist(rid, pid, (q) => {
   const i = q.findIndex((x) => x.id === itemId), j = i + dir

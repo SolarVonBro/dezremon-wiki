@@ -495,6 +495,11 @@ export interface QueueItem {
   duration: number
   addedBy: string
   addedByName: string
+  /** play only a part of the video: start at `start` s; `end` > 0 = stop at that second, < 0 = that many seconds before the end */
+  start?: number
+  end?: number
+  /** playback speed (YouTube supports 0.25…2) */
+  rate?: number
 }
 
 export type LoopMode = 'off' | 'one' | 'all'
@@ -502,7 +507,8 @@ export type LoopMode = 'off' | 'one' | 'all'
 /**
  * rooms/{rid}/tracks/{tid} — one synchronized YouTube player. Every room has the main track (music, shown as video)
  * and any number of extra layers (rain, tavern noise…) that play at the same time with their own volume.
- * Playback state: `position` seconds at server time `at`; while playing, now = position + (serverNow - at).
+ * Playback state: `position` video seconds since the item's start at server time `at`; while playing,
+ * video time now = item.start + position + (serverNow - at) × item.rate.
  */
 export interface RoomTrack {
   id: string
@@ -512,6 +518,7 @@ export interface RoomTrack {
   queue: QueueItem[]
   current: string | null
   playing: boolean
+  /** seconds of VIDEO time since the current item's start (item.start), valid at server time `at` */
   position: number
   at: number
   /** 0..100, set by whoever controls the room, applies to everybody (each listener also has a local volume) */

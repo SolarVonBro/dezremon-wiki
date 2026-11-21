@@ -5,7 +5,10 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useSession } from '@/stores/session'
 import {
   createPlaylist, deletePlaylist, loadPlaylist, movePlaylistItem, removeFromPlaylist, renamePlaylist, addToPlaylist, watchPlaylists,
+  editPlaylistItem, type ItemPatch,
 } from '@/data/rooms'
+import { timingLabel } from './timing'
+import ItemEditor from './ItemEditor.vue'
 import { errorText, plural } from '@/data/util'
 import { formatTime, thumbUrl, watchUrl } from './youtube'
 import AddMedia from './AddMedia.vue'
@@ -63,6 +66,13 @@ function remove(p: RoomPlaylist) {
   void run(deletePlaylist(props.rid, p.id))
 }
 const intoOpen = (items: QueueItem[]) => addToPlaylist(props.rid, openId.value!, items)
+const editing = ref<QueueItem | null>(null)
+function saveItem(patch: ItemPatch) {
+  const it = editing.value
+  if (!it || !openId.value) return
+  editing.value = null
+  void run(editPlaylistItem(props.rid, openId.value, it.id, patch))
+}
 </script>
 
 <template>
@@ -91,14 +101,17 @@ const intoOpen = (items: QueueItem[]) => addToPlaylist(props.rid, openId.value!,
         <img :src="thumbUrl(it.videoId)" alt="" loading="lazy" />
         <div class="grow" style="min-width: 0">
           <a class="pl-item-title" :href="watchUrl(it.videoId)" target="_blank" rel="noopener" :title="it.title">{{ it.title || it.videoId }}</a>
-          <div class="faint small">{{ it.addedByName }}<template v-if="it.duration"> · {{ formatTime(it.duration) }}</template></div>
+          <div class="faint small">{{ it.addedByName }}<template v-if="it.duration"> · {{ formatTime(it.duration) }}</template>
+            <span v-if="timingLabel(it, formatTime)" class="timing">{{ timingLabel(it, formatTime) }}</span></div>
         </div>
         <template v-if="canControl">
           <button class="icon-btn" title="Выше" :disabled="i === 0" @click="run(movePlaylistItem(rid, open.id, it.id, -1))"><Icon name="arrow-up" :size="14" /></button>
           <button class="icon-btn" title="Ниже" :disabled="i === open.items.length - 1" @click="run(movePlaylistItem(rid, open.id, it.id, 1))"><Icon name="arrow-down" :size="14" /></button>
+          <button class="icon-btn" title="Название, интервал и скорость" @click="editing = it"><Icon name="pencil" :size="14" /></button>
           <button class="icon-btn" title="Убрать из плейлиста" @click="run(removeFromPlaylist(rid, open.id, it.id))"><Icon name="x" :size="14" /></button>
         </template>
       </div>
+      <ItemEditor v-if="editing" :item="editing" :duration="editing.duration || 0" @save="saveItem" @close="editing = null" />
     </template>
 
     <!-- ============ all playlists ============ -->
@@ -152,5 +165,6 @@ const intoOpen = (items: QueueItem[]) => addToPlaylist(props.rid, openId.value!,
 .pl-item:hover { background: var(--surface-2); }
 .pl-item img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
 .pl-item .n { width: 20px; text-align: center; flex-shrink: 0; }
+.timing { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--text-muted); font-size: 11.5px; }
 .pl-item-title { display: block; color: var(--text); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

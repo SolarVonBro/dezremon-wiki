@@ -26,7 +26,7 @@ const run = (p: Promise<unknown>) => p.catch((e) => toast.error('Не получ
 const uid = () => session.user!.uid
 
 function togglePlay() {
-  const pos = player.value?.expected() ?? props.track.position
+  const pos = player.value?.expectedRel() ?? props.track.position
   void run(setPlayback(props.rid, props.track.id, uid(), !props.track.playing, pos))
 }
 const LOOPS: LoopMode[] = ['one', 'all', 'off']
@@ -58,7 +58,7 @@ defineExpose({ kick: () => player.value?.kick() })
       <button v-if="canControl" class="icon-btn" title="Удалить дорожку" @click="remove"><Icon name="trash2" :size="14" /></button>
     </header>
     <div class="layer-main">
-      <RoomPlayer ref="player" :track="track" :offset="offset" :volume="effective" :muted="personal.muted" mini class="layer-player"
+      <RoomPlayer ref="player" :track="track" :offset="offset" :volume="effective" :muted="personal.muted" mini class="layer-player" :can-control="canControl" @toggle="togglePlay"
         @ended="(id, rev) => run(advanceAfterEnd(rid, track.id, uid(), id, rev))" @blocked="emit('blocked')" @failed="onFailed">
         <template #empty><span class="small">Пусто</span></template>
       </RoomPlayer>
@@ -81,7 +81,7 @@ defineExpose({ kick: () => player.value?.kick() })
       <input type="range" min="0" max="100" :value="personal.vol" @input="emit('personal', { ...personal, vol: +($event.target as HTMLInputElement).value })" /><span class="faint small">моя</span>
     </label>
     <div v-if="showQueue || !track.queue.length" class="stack-sm" style="margin-top: 4px">
-      <RoomQueue :rid="rid" :track="track" :can-control="canControl" compact />
+      <RoomQueue :rid="rid" :track="track" :can-control="canControl" compact :now-time="() => player?.expected() ?? 0" />
       <AddMedia v-if="canControl" :rid="rid" :tid="track.id" :api-key="apiKey" compact placeholder="Ссылка YouTube для этой дорожки…" />
     </div>
   </article>
