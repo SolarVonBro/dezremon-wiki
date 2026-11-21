@@ -41,9 +41,15 @@ function unpin(id: string) { void world.updateSettings({ dashboardPins: world.se
         <Icon :name="s.t.icon" :size="17" :style="{ color: s.t.color }" /> <b>{{ s.n }}</b> {{ s.t.plural.toLowerCase() }}
       </RouterLink>
       <div v-if="!stats.length" class="card card-pad grow">
-        <h3 style="margin-top: 0">Мир пока пуст</h3>
-        <p class="muted">Начните с ключевых статей: регион, где начнётся игра, пара персонажей, главная фракция. Ссылки между статьями ставятся через «@» прямо в тексте.</p>
-        <button v-if="world.isMember" class="btn btn-primary" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать первую статью</button>
+        <template v-if="world.isMaster">
+          <h3 style="margin-top: 0">Мир пока пуст</h3>
+          <p class="muted">Начните с ключевых статей: регион, где начнётся игра, пара персонажей, главная фракция. Ссылки между статьями ставятся через «@» прямо в тексте.</p>
+          <button class="btn btn-primary" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать первую статью</button>
+        </template>
+        <template v-else>
+          <h3 style="margin-top: 0">Здесь пока нет {{ world.isMember ? 'доступных вам' : 'открытых' }} статей</h3>
+          <p class="muted">{{ world.isMember ? 'Мастер ещё не открыл статьи игрокам.' : 'Мастер ещё не опубликовал статьи для гостей. Если вы участник — войдите.' }}</p>
+        </template>
       </div>
     </div>
 
