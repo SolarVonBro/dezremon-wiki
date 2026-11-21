@@ -29,7 +29,7 @@ with sync_playwright() as p:
 
     pg.goto(wurl + '/settings/usage')
     pg.wait_for_selector('text=на весь проект', timeout=20000)
-    pg.wait_for_selector('text=Другие миры', timeout=15000)
+    pg.wait_for_selector('text=/Другие миры \(/', timeout=15000)
     print('before :', pg.locator('.legend').inner_text().replace('\n', ' | '))
     assert 'ещё не посчитан' in pg.locator('.legend').inner_text()
     pg.screenshot(path=os.path.join(OUT, 'u1-before.png'))

@@ -16,7 +16,7 @@ const gallery = useGallery()
 const busy = ref<'' | 'count' | 'measure'>('')
 const progress = ref<{ done: number; total: number; name: string } | null>(null)
 const others = ref<Array<World & { role: Role }>>([])
-const rows = ref<WorldUsageRow[] | null>(null)
+const rows = ref<WorldUsageRow[] | null | undefined>(undefined) // undefined = loading, null = failed
 
 const usage = computed(() => world.world?.usage ?? null)
 
@@ -120,6 +120,7 @@ const consoleAuth = `https://console.firebase.google.com/project/${firebaseConfi
           <template v-if="otherUnmeasured"> · не посчитано: {{ otherUnmeasured }}</template>
           <template v-if="oldestOther !== Infinity"> · самый старый замер {{ relativeTime(oldestOther) }}</template>
         </span>
+        <span v-else-if="rows === undefined" class="faint"><Icon name="refresh-cw" class="spin" :size="12" /> Другие миры: загружаю…</span>
         <span v-else class="faint">Другие миры: не удалось загрузить</span>
       </div>
 
