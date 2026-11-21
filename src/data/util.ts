@@ -24,7 +24,7 @@ export function htmlToText(html: string): string {
   if (!html) return ''
   const doc = new DOMParser().parseFromString(html, 'text/html')
   doc.querySelectorAll('style,script').forEach((n) => n.remove())
-  doc.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6,tr,br,blockquote').forEach((n) => n.append(' '))
+  doc.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6,tr,td,th,dt,dd,br,blockquote,section,article').forEach((n) => n.append(' '))
   return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim()
 }
 
