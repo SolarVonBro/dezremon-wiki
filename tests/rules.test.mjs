@@ -183,6 +183,40 @@ await t('owner deletes the world, then his own membership', async () => {
   await assertSucceeds(deleteDoc(doc(player, 'worlds', 'w1', 'members', 'player')))
 })
 
+console.log('join requests')
+const visitor = env.authenticatedContext('visitor', { email: 'v@x.ru' }).firestore()
+const req = (u, extra = {}) => ({ uid: u, displayName: u, email: '', photoURL: null, message: 'Пустите', fromPath: '/e/x', status: 'pending', createdAt: now, updatedAt: now, ...extra })
+await t('visitor sends a join request to a public world', () => assertSucceeds(setDoc(doc(visitor, 'worlds', 'w2', 'joinRequests', 'visitor'), req('visitor'))))
+await t('visitor cannot file a request for someone else', () => assertFails(setDoc(doc(visitor, 'worlds', 'w2', 'joinRequests', 'player'), req('player'))))
+await t('visitor cannot self-approve', () => assertFails(updateDoc(doc(visitor, 'worlds', 'w2', 'joinRequests', 'visitor'), { status: 'approved' })))
+await t('visitor reads own request (also via collection group)', async () => {
+  await assertSucceeds(getDoc(doc(visitor, 'worlds', 'w2', 'joinRequests', 'visitor')))
+  await assertSucceeds(getDocs(query(collectionGroup(visitor, 'joinRequests'), where('uid', '==', 'visitor'))))
+})
+await t('members cannot file requests; other users cannot read them', async () => {
+  await assertFails(setDoc(doc(owner, 'worlds', 'w2', 'joinRequests', 'owner'), req('owner')))
+  await assertFails(getDoc(doc(stranger, 'worlds', 'w2', 'joinRequests', 'visitor')))
+})
+await t('master cannot add a user without a request', () => assertFails(setDoc(doc(owner, 'worlds', 'w2', 'members', 'stranger'), { uid: 'stranger', role: 'player', displayName: 'S', email: '', photoURL: null, joinedAt: now })))
+await t('owner accepts the request (member + delete request in one batch)', async () => {
+  await assertSucceeds(getDocs(collection(owner, 'worlds', 'w2', 'joinRequests')))
+  const b = writeBatch(owner)
+  b.set(doc(owner, 'worlds', 'w2', 'members', 'visitor'), { uid: 'visitor', role: 'player', displayName: 'visitor', email: '', photoURL: null, joinedAt: now })
+  b.delete(doc(owner, 'worlds', 'w2', 'joinRequests', 'visitor'))
+  await assertSucceeds(b.commit())
+  await assertSucceeds(getDoc(doc(visitor, 'worlds', 'w2', 'entities', 'm2')))
+})
+await t('banned users cannot request', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'worlds', 'w2', 'bans', 'stranger'), { uid: 'stranger', at: now }))
+  await assertFails(setDoc(doc(stranger, 'worlds', 'w2', 'joinRequests', 'stranger'), req('stranger')))
+})
+await t('master rejects; requester sees status and may withdraw', async () => {
+  await assertSucceeds(setDoc(doc(player2, 'worlds', 'w2', 'joinRequests', 'player2'), req('player2')))
+  await assertSucceeds(updateDoc(doc(owner, 'worlds', 'w2', 'joinRequests', 'player2'), { status: 'rejected', decidedBy: 'owner' }))
+  await assertFails(updateDoc(doc(player2, 'worlds', 'w2', 'joinRequests', 'player2'), { status: 'pending' }))
+  await assertSucceeds(deleteDoc(doc(player2, 'worlds', 'w2', 'joinRequests', 'player2')))
+})
+
 await env.cleanup()
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

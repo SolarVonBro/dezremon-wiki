@@ -71,6 +71,8 @@ export interface Member {
   createTypes?: string[]
   /** Last time the member opened the world (updated at most every few hours). */
   lastSeenAt?: number
+  /** Joined by an accepted join request (not an invite link). */
+  viaRequest?: boolean
 }
 
 export interface Ban {
@@ -369,3 +371,21 @@ export const CHILD_COLLECTIONS = [
   'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages',
 ] as const
 export type ChildCollection = (typeof CHILD_COLLECTIONS)[number]
+
+/** worlds/{w}/joinRequests/{uid} — a signed-in user asks to be let into the world. */
+export interface JoinRequest {
+  uid: string
+  displayName: string
+  email: string
+  photoURL: string | null
+  message: string
+  /** In-app path the user came from (e.g. the article a link pointed to). */
+  fromPath: string
+  /** Known only for open worlds at request time; filled by the master on decision otherwise. */
+  worldName: string
+  status: 'pending' | 'rejected'
+  createdAt: number
+  updatedAt: number
+  decidedBy?: string
+  decidedAt?: number
+}

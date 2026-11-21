@@ -12,6 +12,7 @@ import CreateEntityModal from '@/components/layout/CreateEntityModal.vue'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BookmarksNav from '@/components/layout/BookmarksNav.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
+import JoinBanner from '@/components/layout/JoinBanner.vue'
 import { createRequest } from '@/components/layout/createRequest'
 import { unsavedEditors } from '@/composables/useAutosave'
 
@@ -72,6 +73,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       <Icon name="lock" :size="40" />
       <h2>Нет доступа к миру</h2>
       <p class="muted">Мир не найден, закрыт для гостей, или у вас нет приглашения.</p>
+      <JoinBanner v-if="session.user" :wid="route.params.wid as string" closed />
       <div class="row gap" style="justify-content: center">
         <RouterLink v-if="!session.user" class="btn btn-primary" :to="{ name: 'login', query: { next: route.fullPath } }">Войти</RouterLink>
         <RouterLink class="btn" to="/">На главную</RouterLink>
@@ -115,7 +117,9 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         </RouterLink>
       </nav>
       <nav v-if="world.isMaster" class="sb-section">
-        <RouterLink class="sb-link" :to="{ name: 'settings', params: { wid: world.wid ?? '' } }"><Icon name="settings" :size="17" /> Настройки мира</RouterLink>
+        <RouterLink class="sb-link" :to="{ name: 'settings', params: { wid: world.wid ?? '' } }"><Icon name="settings" :size="17" /> Настройки мира
+          <span v-if="world.pendingRequestCount" class="sb-badge" title="Новые заявки на вступление">{{ world.pendingRequestCount }}</span>
+        </RouterLink>
       </nav>
       <div class="sb-foot"><UserMenu /></div>
     </aside>
@@ -140,6 +144,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         <RouterLink v-if="session.ready && !session.user" class="btn btn-primary btn-sm" :to="{ name: 'login', query: { next: route.fullPath } }"><Icon name="log-in" :size="15" /> Войти</RouterLink>
         <span v-else-if="session.user" class="mobile-only"><UserMenu compact /></span>
       </header>
+      <JoinBanner v-if="world.status === 'ready' && !world.isMember && world.wid" :wid="world.wid" />
       <div v-if="world.preview" class="preview-banner">
         <Icon name="eye" :size="16" />
         <span class="grow">Вы смотрите на мир глазами: <b>{{ world.preview.name }}</b>. Скрытые статьи, разделы и секреты мастера не показываются, редактирование выключено.</span>

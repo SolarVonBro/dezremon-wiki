@@ -5,19 +5,21 @@ import { getCountFromServer } from 'firebase/firestore'
 import { useSession, authErrorText, TEXT_SIZES, type ThemeMode, type TextSize } from '@/stores/session'
 import { createWorld, myWorlds, leaveWorldById, type MyWorld } from '@/stores/world'
 import { coll } from '@/data/access'
+import { cancelJoinRequest, myJoinRequests, pendingRequests } from '@/data/joinRequests'
+import JoinRequestRow from '@/components/admin/JoinRequestRow.vue'
 import { formatDate, relativeTime, plural } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import Modal from '@/components/common/Modal.vue'
 import WorldImage from '@/components/common/WorldImage.vue'
 import { toast } from '@/components/common/toast'
-import type { Role } from '@/model/types'
+import type { JoinRequest, Role } from '@/model/types'
 
 const logo = import.meta.env.BASE_URL + 'favicon.svg'
 const session = useSession()
 const route = useRoute()
 const router = useRouter()
-type Tab = 'worlds' | 'profile' | 'security' | 'appearance'
+type Tab = 'worlds' | 'requests' | 'profile' | 'security' | 'appearance'
 const tab = computed<Tab>(() => (route.query.tab as Tab) || 'worlds')
 function setTab(t: Tab) { void router.replace({ query: { tab: t === 'worlds' ? undefined : t } }) }
 
@@ -37,7 +39,31 @@ async function loadWorlds() {
     for (const w of worlds.value) {
       void getCountFromServer(coll(w.id, 'members')).then((s) => { memberCounts.value = { ...memberCounts.value, [w.id]: s.data().count } }).catch(() => {})
     }
+    void loadRequests()
   } catch (e: any) { toast.error('Не удалось загрузить миры: ' + (e?.message ?? e)) } finally { loading.value = false }
+}
+
+// ---------- join requests: incoming (worlds I run) and my own ----------
+const incoming = ref<Array<{ wid: string; name: string; canMaster: boolean; rows: JoinRequest[] }>>([])
+const mine = ref<Array<JoinRequest & { wid: string }>>([])
+const reqLoading = ref(false)
+async function loadRequests() {
+  if (!session.user) return
+  reqLoading.value = true
+  try {
+    const run = worlds.value.filter((w) => w.role === 'owner' || w.role === 'master')
+    const res = await Promise.all(run.map((w) => pendingRequests(w.id).then((rows) => ({ wid: w.id, name: w.name, canMaster: w.role === 'owner', rows })).catch(() => ({ wid: w.id, name: w.name, canMaster: false, rows: [] as JoinRequest[] }))))
+    incoming.value = res.filter((g) => g.rows.length)
+    mine.value = await myJoinRequests(session.user.uid).catch(() => [])
+  } finally { reqLoading.value = false }
+}
+const incomingCount = computed(() => incoming.value.reduce((n, g) => n + g.rows.length, 0))
+const requestsOf = (wid: string) => incoming.value.find((g) => g.wid === wid)?.rows.length ?? 0
+function requestUrl(r: JoinRequest & { wid: string }) { return `#${r.fromPath && r.fromPath !== '/' ? r.fromPath : `/w/${r.wid}`}` }
+async function withdraw(r: JoinRequest & { wid: string }) {
+  await cancelJoinRequest(r.wid, r.uid)
+  toast.success(r.status === 'rejected' ? 'Заявка удалена' : 'Заявка отменена')
+  mine.value = mine.value.filter((x) => x.wid !== r.wid)
 }
 watch(() => session.user?.uid, (u) => { if (u) void loadWorlds() }, { immediate: true })
 const owned = computed(() => worlds.value.filter((w) => w.role === 'owner'))
@@ -141,6 +167,10 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
 
       <div class="tabs">
         <button class="tab" :class="{ on: tab === 'worlds' }" @click="setTab('worlds')"><Icon name="globe" :size="16" /> Миры <span class="count">{{ worlds.length }}</span></button>
+        <button class="tab" :class="{ on: tab === 'requests' }" @click="setTab('requests')"><Icon name="mail" :size="16" /> Заявки
+          <span v-if="incomingCount" class="count" style="background: var(--danger); color: #fff">{{ incomingCount }}</span>
+          <span v-else-if="mine.length" class="count">{{ mine.length }}</span>
+        </button>
         <button class="tab" :class="{ on: tab === 'profile' }" @click="setTab('profile')"><Icon name="user" :size="16" /> Профиль</button>
         <button class="tab" :class="{ on: tab === 'security' }" @click="setTab('security')"><Icon name="key-round" :size="16" /> Вход и безопасность</button>
         <button class="tab" :class="{ on: tab === 'appearance' }" @click="setTab('appearance')"><Icon name="palette" :size="16" /> Оформление</button>
@@ -167,6 +197,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
                   <span class="badge">{{ w.isPublic ? 'открытый' : 'закрытый' }}</span>
                   <span v-if="memberCounts[w.id]" class="faint small"><Icon name="users" :size="12" /> {{ memberCounts[w.id] }}</span>
                   <span class="faint small">· {{ relativeTime(w.membership.lastSeenAt ?? w.updatedAt) }}</span>
+                  <button v-if="requestsOf(w.id)" class="badge req-badge" @click="setTab('requests')"><Icon name="mail" :size="11" /> {{ requestsOf(w.id) }} {{ plural(requestsOf(w.id), 'заявка', 'заявки', 'заявок') }}</button>
                 </div>
               </div>
               <div class="wcard-actions">
@@ -178,7 +209,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
           </div>
 
           <h2 style="margin: 26px 0 10px">Миры, где я участвую</h2>
-          <div v-if="!joined.length" class="card empty">Пока нет. Мастер может прислать вам ссылку-приглашение — откройте её, и мир появится здесь.</div>
+          <div v-if="!joined.length" class="card empty">Пока нет. Мастер может прислать вам ссылку-приглашение — откройте её, и мир появится здесь. Или откройте ссылку на открытый мир и нажмите «Попросить доступ».</div>
           <div class="world-grid">
             <article v-for="w in joined" :key="w.id" class="wcard">
               <RouterLink class="wcard-img" :to="{ name: 'dashboard', params: { wid: w.id } }">
@@ -208,6 +239,35 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
           </div>
         </template>
       </template>
+
+      <!-- ============ requests ============ -->
+      <div v-else-if="tab === 'requests'" class="stack" style="max-width: 860px">
+        <div class="row gap">
+          <h2 class="grow" style="margin: 0">Заявки в мои миры</h2>
+          <button class="btn btn-sm btn-ghost" :disabled="reqLoading" @click="loadRequests"><Icon name="refresh-cw" :size="14" :class="{ spin: reqLoading }" /> Обновить</button>
+        </div>
+        <div v-if="!incoming.length" class="card empty">Новых заявок нет. Когда кто-то откроет ваш мир и попросит доступ, заявка появится здесь и в настройках мира.</div>
+        <section v-for="g in incoming" :key="g.wid" class="card card-pad">
+          <div class="row gap" style="margin-bottom: 4px">
+            <RouterLink class="grow" :to="{ name: 'settings', params: { wid: g.wid, tab: 'members' } }"><b>{{ g.name }}</b></RouterLink>
+            <span class="faint small">{{ g.rows.length }} {{ plural(g.rows.length, 'заявка', 'заявки', 'заявок') }}</span>
+          </div>
+          <JoinRequestRow v-for="r in g.rows" :key="r.uid" :wid="g.wid" :request="r" :can-master="g.canMaster" :world-name="g.name" @done="loadRequests" />
+        </section>
+
+        <h2 style="margin: 16px 0 0">Мои заявки</h2>
+        <div v-if="!mine.length" class="card empty">Вы ни у кого не просили доступ.</div>
+        <section v-else class="card card-pad stack-sm">
+          <div v-for="r in mine" :key="r.wid" class="rel-row">
+            <Icon :name="r.status === 'pending' ? 'clock' : 'x'" :size="16" :style="{ color: r.status === 'pending' ? 'var(--accent)' : 'var(--danger)' }" />
+            <span class="grow">
+              <a :href="requestUrl(r)"><b>{{ r.worldName || 'Мир' }}</b></a>
+              <span class="faint small"> · {{ r.status === 'pending' ? 'ждёт ответа мастера' : 'отклонена' }} · отправлена {{ formatDate(r.createdAt) }}</span>
+            </span>
+            <button class="btn btn-sm btn-ghost" @click="withdraw(r)">{{ r.status === 'pending' ? 'Отменить' : 'Удалить' }}</button>
+          </div>
+        </section>
+      </div>
 
       <!-- ============ profile ============ -->
       <section v-else-if="tab === 'profile'" class="card card-pad stack" style="max-width: 640px">
@@ -336,4 +396,5 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
   .acc-top, .acc-wrap { padding-left: 14px; padding-right: 14px; }
   .acc-hero { flex-direction: column; text-align: center; }
 }
+.req-badge { border: 0; cursor: pointer; background: var(--danger); color: #fff; }
 </style>

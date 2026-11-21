@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import {
   collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc,
   where, writeBatch, limit as qlimit, type Unsubscribe,
@@ -10,11 +10,12 @@ import { cache } from '@/data/cache'
 import { syncCollection, type SyncHandle } from '@/data/sync'
 import { canSee, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
 import { ensureImageAccess, imageIdsInHtml } from '@/data/images'
+import { watchWorldRequests } from '@/data/joinRequests'
 import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
 import { clean, excerptOf, htmlToText, now, randomId, sortByName } from '@/data/util'
 import { setCustomTypes, typeDef } from '@/model/entityTypes'
 import type {
-  Attribute, Ban, Entity, Invite, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
+  Attribute, Ban, Entity, Invite, JoinRequest, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
 } from '@/model/types'
 import { toast } from '@/components/common/toast'
 
@@ -168,11 +169,11 @@ export const useWorld = defineStore('world', () => {
         u ? getDoc(doc(db, 'worlds', id, 'members', u.uid)) : Promise.resolve(null),
       ])
       if (token !== openToken) return
-      if (!ws.exists()) { status.value = 'denied'; return }
+      if (!ws.exists()) { deny(id, token); return }
       world.value = { ...(ws.data() as World), id }
       member.value = ms?.exists() ? (ms.data() as Member) : null
       setCustomTypes(settings.value.customTypes)
-      if (!member.value && !world.value.isPublic) { status.value = 'denied'; return }
+      if (!member.value && !world.value.isPublic) { deny(id, token); return }
       startLive(id, token)
       await startSync(token)
       if (token !== openToken) return
@@ -181,9 +182,25 @@ export const useWorld = defineStore('world', () => {
     } catch (e: any) {
       if (token !== openToken) return
       console.error(e)
-      status.value = e?.code === 'permission-denied' ? 'denied' : 'error'
+      if (e?.code === 'permission-denied') deny(id, token)
+      else status.value = 'error'
       errorText.value = e?.message ?? String(e)
     }
+  }
+
+  /**
+   * No access to a closed world. A signed-in visitor may have a join request pending: listen to our own
+   * member doc and re-open the world as soon as a master lets us in.
+   */
+  function deny(id: string, token: number) {
+    status.value = 'denied'
+    const u = session.user
+    if (!u) return
+    unsubs.push(onSnapshot(doc(db, 'worlds', id, 'members', u.uid), (s) => {
+      if (token !== openToken || !s.exists()) return
+      close()
+      void open(id)
+    }, () => {}))
   }
 
   function startLive(id: string, token: number) {
@@ -714,6 +731,17 @@ export const useWorld = defineStore('world', () => {
   }
   const players = computed(() => members.value.filter((m) => m.role === 'player'))
 
+  // ---------- join requests (masters see them live: sidebar badge, admin list) ----------
+  const joinRequests = ref<JoinRequest[]>([])
+  let stopRequests: Unsubscribe | null = null
+  watch(() => [wid.value, realMaster.value, status.value] as const, ([w, m, st]) => {
+    stopRequests?.()
+    stopRequests = null
+    joinRequests.value = []
+    if (w && m && st === 'ready') stopRequests = watchWorldRequests(w, (rows) => (joinRequests.value = rows))
+  })
+  const pendingRequestCount = computed(() => joinRequests.value.filter((r) => r.status === 'pending').length)
+
   function toggleFavorite(id: string) {
     const fav = new Set(member.value?.favorites ?? [])
     if (fav.has(id)) fav.delete(id); else fav.add(id)
@@ -729,7 +757,7 @@ export const useWorld = defineStore('world', () => {
     watchRows, fetchRows, saveRow, deleteRow,
     saveRelation, deleteRelation, relationsOf, revisionsOf,
     updateWorld, updateSettings, bumpAcl, createInvite, watchInvites, deleteInvite, setMemberRole, removeMember, updateMyMember, memberName, toggleFavorite,
-    updateMember, banMember, unban, watchBans, transferOwnership, leaveWorld, deleteWorld,
+    updateMember, banMember, unban, watchBans, transferOwnership, leaveWorld, deleteWorld, joinRequests, pendingRequestCount,
     typeDef,
   }
 })

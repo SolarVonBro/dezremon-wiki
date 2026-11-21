@@ -971,6 +971,20 @@
       "fieldPath": "text",
       "ttl": false,
       "indexes": []
+    },
+    {
+      "collectionGroup": "joinRequests",
+      "fieldPath": "uid",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
     }
   ]
 }

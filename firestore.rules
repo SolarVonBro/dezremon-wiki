@@ -55,6 +55,10 @@ service cloud.firestore {
     match /{path=**}/members/{m} {
       allow read: if signedIn() && resource.data.uid == uid();
     }
+    // "My join requests" (personal cabinet) — collection group on joinRequests(uid == me).
+    match /{path=**}/joinRequests/{r} {
+      allow read: if signedIn() && resource.data.uid == uid();
+    }
 
     match /worlds/{w} {
       allow get: if isMember(w) || resource.data.isPublic == true;
@@ -70,11 +74,16 @@ service cloud.firestore {
       match /members/{m} {
         allow get: if signedIn() && (m == uid() || isMember(w));
         allow list: if isMember(w);
-        allow create: if signedIn() && m == uid() && request.resource.data.uid == uid() && (
+        allow create: if (signedIn() && m == uid() && request.resource.data.uid == uid() && (
           (request.resource.data.role == 'owner' && getAfter(worldPath(w)).data.ownerId == uid())
           || (request.resource.data.role in ['master', 'player'] && inviteOk(w, request.resource.data.inviteCode, request.resource.data.role)
               && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid())))
-        );
+        ))
+          // a master accepts a join request: players by any master, masters only by the owner
+          || (isMaster(w) && m != uid() && request.resource.data.uid == m
+              && (request.resource.data.role == 'player' || (isOwner(w) && request.resource.data.role == 'master'))
+              && exists(/databases/$(database)/documents/worlds/$(w)/joinRequests/$(m))
+              && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(m)));
         function sameIdentity() { return request.resource.data.uid == resource.data.uid; }
         function sameRole() { return request.resource.data.role == resource.data.role; }
         allow update: if sameIdentity() && (
@@ -97,6 +106,18 @@ service cloud.firestore {
       // Users removed from the world who must not come back through an old invite link.
       match /bans/{u} {
         allow read, write: if isMaster(w);
+      }
+
+      // "Please let me in": one request per user (doc id = uid), handled by masters.
+      match /joinRequests/{u} {
+        allow read: if isMaster(w) || (signedIn() && u == uid());
+        allow create: if signedIn() && u == uid() && request.resource.data.uid == uid()
+          && request.resource.data.status == 'pending' && !isMember(w)
+          && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid()));
+        allow update: if (signedIn() && u == uid() && resource.data.status == 'pending' && request.resource.data.status == 'pending'
+                          && request.resource.data.uid == uid())
+          || (isMaster(w) && request.resource.data.uid == resource.data.uid);
+        allow delete: if (signedIn() && u == uid()) || isMaster(w);
       }
 
       match /invites/{code} {

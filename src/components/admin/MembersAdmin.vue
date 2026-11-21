@@ -7,6 +7,7 @@ import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import MemberModal from './MemberModal.vue'
+import JoinRequestRow from './JoinRequestRow.vue'
 import { toast } from '@/components/common/toast'
 import type { Ban, Invite, Member, Role } from '@/model/types'
 
@@ -26,6 +27,9 @@ const authoredBy = computed(() => {
 const members = computed(() => world.members
   .filter((m) => (!roleFilter.value || m.role === roleFilter.value) && (!q.value || `${m.displayName} ${m.email}`.toLowerCase().includes(q.value.toLowerCase())))
   .sort((a, b) => RANK[a.role] - RANK[b.role] || a.displayName.localeCompare(b.displayName, 'ru')))
+const pending = computed(() => world.joinRequests.filter((r) => r.status === 'pending'))
+const rejected = computed(() => world.joinRequests.filter((r) => r.status === 'rejected'))
+const showRejected = ref(false)
 const counts = computed(() => ({ owner: world.members.filter((m) => m.role === 'owner').length, master: world.members.filter((m) => m.role === 'master').length, player: world.members.filter((m) => m.role === 'player').length }))
 
 // ---------- invites ----------
@@ -63,6 +67,19 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
       <span class="stat"><Icon name="mail" :size="17" /> <b>{{ activeInvites.length }}</b> активных приглашений</span>
       <span v-if="bans.length" class="stat"><Icon name="lock" :size="17" /> <b>{{ bans.length }}</b> заблокировано</span>
     </div>
+
+    <section v-if="world.joinRequests.length" class="card card-pad requests" :class="{ hot: pending.length }">
+      <div class="row gap" style="margin-bottom: 4px">
+        <h3 class="panel-title grow" style="margin: 0"><Icon name="mail" /> Заявки на вступление <span v-if="pending.length" class="count-pill">{{ pending.length }}</span></h3>
+        <button v-if="rejected.length" class="btn btn-sm btn-ghost" @click="showRejected = !showRejected">{{ showRejected ? 'Скрыть' : 'Показать' }} отклонённые ({{ rejected.length }})</button>
+      </div>
+      <p v-if="!pending.length && !showRejected" class="faint small" style="margin: 0">Новых заявок нет.</p>
+      <JoinRequestRow v-for="r in pending" :key="r.uid" :wid="world.wid!" :request="r" :can-master="world.isOwner" :world-name="world.world?.name" />
+      <template v-if="showRejected">
+        <JoinRequestRow v-for="r in rejected" :key="r.uid" :wid="world.wid!" :request="r" :can-master="world.isOwner" :world-name="world.world?.name" />
+      </template>
+      <p class="faint small" style="margin: 6px 0 0">Заявку присылает вошедший пользователь, открывший ссылку на мир. Принятый сразу видит статьи для участников — страницу обновлять не нужно.</p>
+    </section>
 
     <section class="card card-pad">
       <div class="row gap wrap" style="margin-bottom: 10px">
@@ -147,6 +164,8 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
 .member-btn { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; color: var(--text); }
 .member-btn:hover b { color: var(--accent); }
 .expired { opacity: .55; }
+.requests.hot { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.count-pill { display: inline-flex; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: #fff; font-size: 12px; align-items: center; justify-content: center; margin-left: 4px; }
 .roles-help { margin-top: 12px; }
 .roles-help ul { margin: 6px 0 0; padding-left: 18px; }
 </style>

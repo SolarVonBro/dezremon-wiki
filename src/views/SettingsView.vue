@@ -143,7 +143,9 @@ async function publishAll(to: 'public' | 'members') {
   <div v-else class="content content-narrow">
     <div class="page-head"><Icon name="settings" :size="28" /><h1>Настройки мира</h1></div>
     <div class="tabs">
-      <button v-for="t in TABS" :key="t.k" class="tab" :class="{ on: tab === t.k }" @click="router.replace({ name: 'settings', params: { wid: world.wid!, tab: t.k } })"><Icon :name="t.icon" :size="16" /> {{ t.label }}</button>
+      <button v-for="t in TABS" :key="t.k" class="tab" :class="{ on: tab === t.k }" @click="router.replace({ name: 'settings', params: { wid: world.wid!, tab: t.k } })">
+        <Icon :name="t.icon" :size="16" /> {{ t.label }}<span v-if="t.k === 'members' && world.pendingRequestCount" class="count" style="background: var(--danger); color: #fff">{{ world.pendingRequestCount }}</span>
+      </button>
     </div>
 
     <div v-if="tab === 'general'" class="stack">
