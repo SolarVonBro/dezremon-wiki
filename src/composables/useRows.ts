@@ -12,6 +12,7 @@ export function useRows<T>(collection: string, field: string, value: Ref<string 
   const world = useWorld()
   const out = shallowRef<T[]>([])
   let key: string | null = null
+  let stopInner: (() => void) | null = null
 
   const release = () => {
     if (!key) return
@@ -38,7 +39,6 @@ export function useRows<T>(collection: string, field: string, value: Ref<string 
     stopInner = watch(src, (r) => { out.value = r })
   }, { immediate: true })
 
-  let stopInner: (() => void) | null = null
   onBeforeUnmount(() => { stopInner?.(); release() })
   return out as ShallowRef<T[]>
 }
