@@ -247,7 +247,11 @@ export function convertMentions(html: string, ctx: TextContext): string {
     ctx.stats.mentions++
     return mentionHtml(target, p.text || (decodeEntities(text) === target.name ? '' : text))
   })
-  // 2) raw tokens, only in text nodes (never inside tags/attributes)
+  // 2) tokens whose custom label contains inline tags ("[character:1|Деву<ins></ins>]"): drop the tags first,
+  //    otherwise the split below cuts the token into pieces
+  out = out.replace(/\[([a-z_-]+):(\d+)(\|(?:[^\[\]<]|<[^>]*>)*?)\]/gi, (whole, type: string, id: string, rest: string) =>
+    rest.includes('<') ? `[${type}:${id}${rest.replace(/<[^>]*>/g, '')}]` : whole)
+  // 3) raw tokens, only in text nodes (never inside tags/attributes)
   const parts = out.split(/(<[^>]*>)/)
   for (let i = 0; i < parts.length; i += 2) {
     if (!parts[i] || !parts[i].includes('[')) continue
@@ -296,7 +300,64 @@ export function convertImages(html: string, ctx: TextContext): string {
 }
 
 export function convertText(html: string, ctx: TextContext): string {
-  return convertImages(convertMentions(str(html), ctx), ctx)
+  return convertImages(convertMentions(cleanKankaStyles(str(html)), ctx), ctx)
+}
+
+function parseColor(v: string): [number, number, number] | null {
+  const s = v.trim().toLowerCase()
+  let m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s)
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])]
+  m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(s)
+  if (!m) return s === 'white' ? [255, 255, 255] : null
+  const h = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1]
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+}
+
+/**
+ * Kanka campaigns written in a dark theme carry the theme's text colour (light grey) as inline styles.
+ * On a light page such text is invisible, so: light greys are dropped (they are "default text"), light but
+ * saturated colours are darkened keeping their hue (an accent stays an accent and reads on any theme).
+ * Returns null to drop the colour.
+ */
+export function adaptTextColor(v: string): string | null {
+  const c = parseColor(v)
+  if (!c) return v
+  const [r, g, b] = c
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  if (lum < 0.62) return v
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const sat = max ? (max - min) / max : 0
+  if (sat < 0.22) return null
+  const k = 0.5 / lum
+  return `rgb(${Math.round(r * k)}, ${Math.round(g * k)}, ${Math.round(b * k)})`
+}
+
+/** Removes editor/theme artefacts from Kanka HTML (see adaptTextColor); keeps real formatting. */
+export function cleanKankaStyles(html: string): string {
+  if (!html) return html
+  let out = html.replace(/\sstyle="([^"]*)"/gi, (_w, style: string) => {
+    const decls = style.split(';').map((d) => d.trim()).filter(Boolean).flatMap((d) => {
+      const i = d.indexOf(':')
+      if (i < 0) return []
+      const prop = d.slice(0, i).trim().toLowerCase()
+      const val = d.slice(i + 1).trim()
+      if ((prop === 'background-color' || prop === 'background') && /^(unset|initial|inherit|transparent)$/i.test(val)) return []
+      if (prop === 'border-color') return []
+      if (prop === 'color') { const nv = adaptTextColor(val); return nv ? [`color: ${nv}`] : [] }
+      return [`${prop}: ${val}`]
+    })
+    return decls.length ? ` style="${decls.join('; ')}"` : ''
+  })
+  // <font color> (legacy markup from Kanka's editor) → span with an adapted colour, or nothing
+  const stack: boolean[] = []
+  out = out.replace(/<font\b([^>]*)>|<\/font\s*>/gi, (tag: string, attrs?: string) => {
+    if (tag.startsWith('</')) return stack.pop() ? '</span>' : ''
+    const color = /\bcolor\s*=\s*"([^"]*)"/i.exec(attrs ?? '')?.[1]
+    const nv = color ? adaptTextColor(color) : null
+    stack.push(!!nv)
+    return nv ? `<span style="color: ${nv}">` : ''
+  })
+  return out.replace(/<ins>/gi, '<u>').replace(/<\/ins>/gi, '</u>')
 }
 
 /** Removes images whose upload failed. */
@@ -1066,7 +1127,7 @@ export function planKankaImport(input: KankaInput, opts: PlanOptions): KankaPlan
     entities.push(e)
     bodies[e.id] = html
     if (privAttrs.length) privateAttrs[e.id] = privAttrs
-    if (notes.length) gmNotes[e.id] = notes.map((n) => escapeHtml(n)).join('<br>')
+    if (notes.length) gmNotes[e.id] = notes.join('\n')
     report.byType[type] = (report.byType[type] ?? 0) + 1
   }
 

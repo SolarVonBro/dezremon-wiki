@@ -7,3 +7,6 @@ dist/
 test-results/
 .idea/
 *.tsbuildinfo
+
+# Kanka exports and other world archives (never commit)
+*.zip

@@ -16,6 +16,7 @@ import PostsList from '@/components/entity/PostsList.vue'
 import ChildrenPanel from '@/components/entity/ChildrenPanel.vue'
 import BacklinksPanel from '@/components/entity/BacklinksPanel.vue'
 import PinnedAttributes from '@/components/entity/PinnedAttributes.vue'
+import GmNotesPanel from '@/components/entity/GmNotesPanel.vue'
 import { toast } from '@/components/common/toast'
 
 const AttributesPanel = defineAsyncComponent(() => import('@/components/entity/AttributesPanel.vue'))
@@ -229,6 +230,7 @@ watch(() => entity.value?.name, (n) => { if (n) document.title = `${n} — ${wor
       </div>
       <aside class="entity-side">
         <FactsPanel :entity="entity" :editing="editing" />
+        <GmNotesPanel :entity="entity" :editing="editing" />
         <PinnedAttributes :entity="entity" />
         <div v-if="headings.length > 2 && !editing" class="card card-pad toc">
           <div class="section-title">Содержание</div>

@@ -334,6 +334,9 @@ export const useWorld = defineStore('world', () => {
     const e = entities.value.get(id)
     if (!e) return ''
     const wantSecret = isMaster.value && e.hasSecrets
+    // No text was ever saved (bodyRev 0): there may be no bodies doc at all (e.g. imported articles without
+    // text), and reading a missing doc is denied to players by the rules — so don't read.
+    if (!e.bodyRev && !wantSecret) return ''
     const cached = await cache.getBody(wid.value!, id)
     if (cached && cached.rev === e.bodyRev && cached.secret === wantSecret && (!wantSecret || secretsState.value[id])) return cached.html
     let html = ''
