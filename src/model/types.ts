@@ -527,15 +527,17 @@ export interface RoomTrack {
   shuffle: boolean
   /** bumped on every control change */
   rev: number
-  /** name of the saved playlist the queue was last loaded from ('' = built by hand) */
+  /** set = the track walks through this saved playlist of the room instead of its own queue */
+  playlistId?: string | null
+  /** (older data) name of a playlist once copied into the queue */
   playlistName?: string
   updatedAt: number
   updatedBy: string
 }
 
 /**
- * rooms/{rid}/playlists/{pid} — a saved, named list of videos in the room ("Бой", "Таверна"…). Loading it copies
- * its items into a track's queue (replace or append); editing the playlist later does not touch the queue.
+ * rooms/{rid}/playlists/{pid} — a saved, named list of videos in the room ("Бой", "Таверна"…). A track can play it
+ * directly (track.playlistId) and walk through it like a queue; or its items can be copied to the end of a queue.
  */
 export interface RoomPlaylist {
   id: string

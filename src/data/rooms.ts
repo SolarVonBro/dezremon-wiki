@@ -10,7 +10,7 @@
 // only succeeds if nobody advanced the track already, so N listeners produce one write.
 import {
   arrayUnion, collection, deleteDoc, doc, getDocFromCache, increment, limit, onSnapshot, orderBy, query, runTransaction,
-  serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch,
+  serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch, type Transaction,
 } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { now, randomId } from './util'
@@ -44,7 +44,7 @@ export async function createRoom(user: UserLike, data: Pick<Room, 'name' | 'camp
   const b = writeBatch(db)
   b.set(ref, room)
   b.set(doc(db, 'rooms', ref.id, 'tracks', 'main'), {
-    name: 'Музыка', kind: 'main', order: 0, queue: [], current: null, playing: false, position: 0, at: serverTimestamp(), volume: 100,
+    name: 'Музыка', kind: 'main', order: 0, queue: [], current: null, playlistId: null, playing: false, position: 0, at: serverTimestamp(), volume: 100,
     loop: 'all', shuffle: false, rev: 0, updatedAt: t, updatedBy: user.uid,
   })
   await b.commit()
@@ -76,16 +76,43 @@ export function watchTracks(rid: string, cb: (rows: RoomTrack[]) => void, onErr:
 }
 
 const stamp = (uid: string) => ({ at: serverTimestamp(), rev: increment(1), updatedAt: now(), updatedBy: uid })
+const playlistRef = (rid: string, pid: string) => doc(db, 'rooms', rid, 'playlists', pid)
+
+/**
+ * What a track walks through: its own queue or — when `playlistId` is set — a saved playlist of the room, live
+ * (editing the playlist while it plays changes what comes next; nothing is copied).
+ */
+export function itemsOf(t: Pick<RoomTrack, 'queue' | 'playlistId'>, playlists: RoomPlaylist[]): QueueItem[] {
+  if (!t.playlistId) return t.queue
+  return playlists.find((p) => p.id === t.playlistId)?.items ?? []
+}
+async function itemsInTx(tx: Transaction, rid: string, t: RoomTrack): Promise<QueueItem[]> {
+  if (!t.playlistId) return t.queue
+  const p = await tx.get(playlistRef(rid, t.playlistId))
+  return p.exists() ? ((p.data().items ?? []) as QueueItem[]) : []
+}
+/** Moves the item with `id` to index `to` (splice semantics), in place. */
+function moveTo(list: QueueItem[], id: string, to: number): QueueItem[] {
+  const i = list.findIndex((x) => x.id === id)
+  if (i < 0) return list
+  const [x] = list.splice(i, 1)
+  list.splice(Math.max(0, Math.min(to, list.length)), 0, x)
+  return list
+}
 
 export const setPlayback = (rid: string, tid: string, uid: string, playing: boolean, position: number) =>
   updateDoc(trackRef(rid, tid), { playing, position: Math.max(0, position), ...stamp(uid) })
 
+/** Plays an item of the track's own queue (the track stops walking through a playlist, if it did). */
 export const playItem = (rid: string, tid: string, uid: string, itemId: string) =>
-  updateDoc(trackRef(rid, tid), { current: itemId, position: 0, playing: true, ...stamp(uid) })
+  updateDoc(trackRef(rid, tid), { current: itemId, playlistId: null, position: 0, playing: true, ...stamp(uid) })
 
-/** The item after `fromId` according to loop/shuffle; null = the queue is over. */
-export function nextItemId(t: Pick<RoomTrack, 'queue' | 'loop' | 'shuffle'>, fromId: string | null, dir: 1 | -1 = 1): string | null {
-  const q = t.queue
+/** Plays a saved playlist on the track, from `itemId`; the track then goes through the playlist like a queue. */
+export const playFromPlaylist = (rid: string, tid: string, uid: string, pid: string, itemId: string) =>
+  updateDoc(trackRef(rid, tid), { playlistId: pid, current: itemId, position: 0, playing: true, ...stamp(uid) })
+
+/** The item after `fromId` according to loop/shuffle; null = the list is over. */
+export function nextItemId(t: Pick<RoomTrack, 'loop' | 'shuffle'>, q: QueueItem[], fromId: string | null, dir: 1 | -1 = 1): string | null {
   if (!q.length) return null
   const i = q.findIndex((x) => x.id === fromId)
   if (t.loop === 'one' && dir === 1 && i >= 0) return q[i].id
@@ -110,14 +137,15 @@ export async function advanceAfterEnd(rid: string, tid: string, uid: string, end
     if (!s.exists()) return
     const t = normalizeTrack(s.id, s.data())
     if (t.current !== endedId || t.rev !== seenRev || !t.playing) return
-    const next = nextItemId(t, endedId)
+    const next = nextItemId(t, await itemsInTx(tx, rid, t), endedId)
     if (next === endedId) return // single looping item: every client loops it locally
     tx.update(trackRef(rid, tid), { current: next, position: 0, playing: next !== null, at: serverTimestamp(), rev: t.rev + 1, updatedAt: now(), updatedBy: uid })
   })
 }
 
-export const skip = (rid: string, tid: string, uid: string, t: RoomTrack, dir: 1 | -1) => {
-  const next = nextItemId({ ...t, loop: t.loop === 'one' ? 'all' : t.loop }, t.current, dir)
+/** Previous/next button; `items` = what the track walks through (itemsOf). */
+export const skip = (rid: string, tid: string, uid: string, t: RoomTrack, items: QueueItem[], dir: 1 | -1) => {
+  const next = nextItemId({ ...t, loop: t.loop === 'one' ? 'all' : t.loop }, items, t.current, dir)
   return updateDoc(trackRef(rid, tid), { current: next, position: 0, playing: next !== null, ...stamp(uid) })
 }
 
@@ -127,7 +155,7 @@ export const setTrackProps = (rid: string, tid: string, uid: string, patch: Part
 export async function addTrack(rid: string, uid: string, name: string, order: number): Promise<string> {
   const id = randomId(10)
   await setDoc(trackRef(rid, id), {
-    name, kind: 'layer', order, queue: [], current: null, playing: false, position: 0, at: serverTimestamp(), volume: 60, loop: 'one' as LoopMode,
+    name, kind: 'layer', order, queue: [], current: null, playlistId: null, playing: false, position: 0, at: serverTimestamp(), volume: 60, loop: 'one' as LoopMode,
     shuffle: false, rev: 0, updatedAt: now(), updatedBy: uid,
   })
   return id
@@ -139,17 +167,18 @@ export function makeItem(videoId: string, title: string, duration: number, user:
   return { id: randomId(10), videoId, title, duration, addedBy: user.uid, addedByName: nameOf(user) }
 }
 
-/** Appends items; if nothing is playing, the first new item starts (like dropping a link into Watch2Gether). */
+/** Appends items to the queue; if nothing is playing, the first new item starts (like dropping a link into Watch2Gether). */
 export async function addItems(rid: string, tid: string, uid: string, items: QueueItem[], playNow = false) {
   if (!items.length) return
   await runTransaction(db, async (tx) => {
     const s = await tx.get(trackRef(rid, tid))
     if (!s.exists()) throw new Error('Дорожка удалена')
     const t = normalizeTrack(s.id, s.data())
-    const start = playNow || !t.current || !t.queue.some((x) => x.id === t.current)
+    const playingNow = await itemsInTx(tx, rid, t)
+    const start = playNow || !t.current || !playingNow.some((x) => x.id === t.current)
     tx.update(trackRef(rid, tid), {
       queue: [...t.queue, ...items], updatedAt: now(), updatedBy: uid,
-      ...(start ? { current: items[0].id, position: 0, playing: true, at: serverTimestamp(), rev: t.rev + 1 } : {}),
+      ...(start ? { current: items[0].id, playlistId: null, position: 0, playing: true, at: serverTimestamp(), rev: t.rev + 1 } : {}),
     })
   })
 }
@@ -161,7 +190,7 @@ export async function editQueue(rid: string, tid: string, uid: string, fn: (q: Q
     const t = normalizeTrack(s.id, s.data())
     const queue = fn([...t.queue], t)
     const patch: Record<string, unknown> = { queue, updatedAt: now(), updatedBy: uid }
-    if (t.current && !queue.some((x) => x.id === t.current)) {
+    if (!t.playlistId && t.current && !queue.some((x) => x.id === t.current)) {
       // the playing item was removed: continue with the one that took its place
       const oldIdx = t.queue.findIndex((x) => x.id === t.current)
       const next = queue[Math.min(oldIdx, queue.length - 1)] ?? null
@@ -171,6 +200,8 @@ export async function editQueue(rid: string, tid: string, uid: string, fn: (q: Q
   })
 }
 export const removeItem = (rid: string, tid: string, uid: string, itemId: string) => editQueue(rid, tid, uid, (q) => q.filter((x) => x.id !== itemId))
+export const moveItemTo = (rid: string, tid: string, uid: string, itemId: string, to: number) => editQueue(rid, tid, uid, (q) => moveTo(q, itemId, to))
+export const clearQueue = (rid: string, tid: string, uid: string) => editQueue(rid, tid, uid, () => [])
 
 export type ItemPatch = Partial<Pick<QueueItem, 'title' | 'start' | 'end' | 'rate'>>
 /** Firestore rejects `undefined`: unset optional timing fields are simply left out. */
@@ -179,11 +210,11 @@ function applyPatch(it: QueueItem, patch: ItemPatch): QueueItem {
   for (const k of ['start', 'end', 'rate'] as const) if (next[k] === undefined || next[k] === null) delete next[k]
   return next
 }
+const timingChanged = (a: QueueItem, b: QueueItem) => (a.start ?? 0) !== (b.start ?? 0) || (a.rate ?? 1) !== (b.rate ?? 1)
 
 /**
- * Renames an item or changes its interval/speed. If it is the item playing right now, the playback position is
- * re-anchored at `videoTimeNow` (what everybody hears at this moment) so a new start or speed does not make
- * listeners jump.
+ * Renames a queue item or changes its interval/speed. If it is the item playing right now, the playback position
+ * is re-anchored at `videoTimeNow` (what everybody hears at this moment) so a new start or speed makes nobody jump.
  */
 export async function editQueueItem(rid: string, tid: string, uid: string, itemId: string, patch: ItemPatch, videoTimeNow?: number) {
   await runTransaction(db, async (tx) => {
@@ -195,25 +226,15 @@ export async function editQueueItem(rid: string, tid: string, uid: string, itemI
     const queue = [...t.queue]
     const before = queue[i]
     queue[i] = applyPatch(before, patch)
-    const timingChanged = (before.start ?? 0) !== (queue[i].start ?? 0) || (before.rate ?? 1) !== (queue[i].rate ?? 1)
-    const reanchor = t.current === itemId && timingChanged && typeof videoTimeNow === 'number'
+    const reanchor = !t.playlistId && t.current === itemId && timingChanged(before, queue[i]) && typeof videoTimeNow === 'number'
     tx.update(trackRef(rid, tid), {
       queue, updatedAt: now(), updatedBy: uid,
       ...(reanchor ? { position: Math.max(0, videoTimeNow! - (queue[i].start ?? 0)), at: serverTimestamp(), rev: t.rev + 1 } : {}),
     })
   })
 }
-export const moveItem = (rid: string, tid: string, uid: string, itemId: string, dir: -1 | 1) => editQueue(rid, tid, uid, (q) => {
-  const i = q.findIndex((x) => x.id === itemId), j = i + dir
-  if (i < 0 || j < 0 || j >= q.length) return q
-  ;[q[i], q[j]] = [q[j], q[i]]
-  return q
-})
-export const clearQueue = (rid: string, tid: string, uid: string) => editQueue(rid, tid, uid, () => [])
 
 // ---------- saved playlists ----------
-const playlistRef = (rid: string, pid: string) => doc(db, 'rooms', rid, 'playlists', pid)
-
 export function watchPlaylists(rid: string, cb: (rows: RoomPlaylist[]) => void) {
   return onSnapshot(collection(db, 'rooms', rid, 'playlists'), (s) => cb(s.docs
     .map((d) => ({ name: '', items: [], order: 0, createdBy: '', createdByName: '', createdAt: 0, updatedAt: 0, ...d.data(), id: d.id }) as RoomPlaylist)
@@ -228,45 +249,56 @@ export async function createPlaylist(rid: string, user: UserLike, name: string, 
   return ref.id
 }
 export const renamePlaylist = (rid: string, pid: string, name: string) => updateDoc(playlistRef(rid, pid), { name, updatedAt: now() })
-export const deletePlaylist = (rid: string, pid: string) => deleteDoc(playlistRef(rid, pid))
 
-export async function editPlaylist(rid: string, pid: string, fn: (items: QueueItem[]) => QueueItem[]) {
-  await runTransaction(db, async (tx) => {
-    const s = await tx.get(playlistRef(rid, pid))
-    if (!s.exists()) throw new Error('Плейлист удалён')
-    tx.update(playlistRef(rid, pid), { items: fn([...((s.data().items ?? []) as QueueItem[])]), updatedAt: now() })
-  })
+/** Deletes a playlist; tracks that were playing it stop (their own queues are untouched). */
+export async function deletePlaylist(rid: string, pid: string, uid: string, tracks: RoomTrack[]) {
+  const b = writeBatch(db)
+  b.delete(playlistRef(rid, pid))
+  for (const t of tracks.filter((x) => x.playlistId === pid)) {
+    b.update(trackRef(rid, t.id), { playlistId: null, current: null, playing: false, position: 0, ...stamp(uid) })
+  }
+  await b.commit()
 }
-export const addToPlaylist = (rid: string, pid: string, items: QueueItem[]) => editPlaylist(rid, pid, (q) => [...q, ...items])
-export const editPlaylistItem = (rid: string, pid: string, itemId: string, patch: ItemPatch) =>
-  editPlaylist(rid, pid, (q) => q.map((x) => (x.id === itemId ? applyPatch(x, patch) : x)))
-export const removeFromPlaylist = (rid: string, pid: string, itemId: string) => editPlaylist(rid, pid, (q) => q.filter((x) => x.id !== itemId))
-export const movePlaylistItem = (rid: string, pid: string, itemId: string, dir: -1 | 1) => editPlaylist(rid, pid, (q) => {
-  const i = q.findIndex((x) => x.id === itemId), j = i + dir
-  if (i < 0 || j < 0 || j >= q.length) return q
-  ;[q[i], q[j]] = [q[j], q[i]]
-  return q
-})
 
 /**
- * Plays a saved playlist on a track. 'replace' swaps the queue for a copy of the playlist and starts its first
- * item for everybody; 'append' adds the copy after the current queue (starting it only if nothing plays).
+ * Edits a playlist in a transaction together with the tracks that are walking through it (`trackIds`, as known to
+ * the client): if the playing item disappears they continue with the item that took its place; `reanchor`
+ * keeps the position of a playing item whose start/speed changed.
  */
-export async function loadPlaylist(rid: string, tid: string, uid: string, pl: RoomPlaylist, mode: 'replace' | 'append') {
-  if (!pl.items.length) throw new Error('Плейлист пуст')
-  const copies = pl.items.map((x) => ({ ...x, id: randomId(10) }))
+async function editPlaylistLive(rid: string, pid: string, uid: string, fn: (items: QueueItem[]) => QueueItem[], trackIds: string[] = [],
+  reanchor?: { tid: string; itemId: string; videoTimeNow: number }) {
   await runTransaction(db, async (tx) => {
-    const s = await tx.get(trackRef(rid, tid))
-    if (!s.exists()) throw new Error('Дорожка удалена')
-    const t = normalizeTrack(s.id, s.data())
-    const start = mode === 'replace' || !t.current || !t.queue.some((x) => x.id === t.current)
-    const first = t.shuffle && mode === 'replace' ? copies[Math.floor(Math.random() * copies.length)] : copies[0]
-    tx.update(trackRef(rid, tid), {
-      queue: mode === 'replace' ? copies : [...t.queue, ...copies], playlistName: mode === 'replace' ? pl.name : (t.playlistName ?? ''),
-      updatedAt: now(), updatedBy: uid,
-      ...(start ? { current: first.id, position: 0, playing: true, at: serverTimestamp(), rev: t.rev + 1 } : {}),
-    })
+    const ps = await tx.get(playlistRef(rid, pid))
+    if (!ps.exists()) throw new Error('Плейлист удалён')
+    const tracks = (await Promise.all(trackIds.map((id) => tx.get(trackRef(rid, id))))).filter((x) => x.exists()).map((x) => normalizeTrack(x.id, x.data()))
+    const before = (ps.data().items ?? []) as QueueItem[]
+    const items = fn([...before])
+    tx.update(playlistRef(rid, pid), { items, updatedAt: now() })
+    for (const t of tracks) {
+      if (t.playlistId !== pid || !t.current) continue
+      if (!items.some((x) => x.id === t.current)) {
+        const oldIdx = before.findIndex((x) => x.id === t.current)
+        const next = items[Math.min(oldIdx, items.length - 1)] ?? null
+        tx.update(trackRef(rid, t.id), { current: next?.id ?? null, position: 0, playing: !!next && t.playing, at: serverTimestamp(), rev: t.rev + 1, updatedAt: now(), updatedBy: uid })
+      } else if (reanchor && reanchor.tid === t.id && reanchor.itemId === t.current) {
+        const a = before.find((x) => x.id === t.current)!, b = items.find((x) => x.id === t.current)!
+        if (timingChanged(a, b)) tx.update(trackRef(rid, t.id), { position: Math.max(0, reanchor.videoTimeNow - (b.start ?? 0)), at: serverTimestamp(), rev: t.rev + 1, updatedAt: now(), updatedBy: uid })
+      }
+    }
   })
+}
+export const addToPlaylist = (rid: string, pid: string, uid: string, items: QueueItem[]) => editPlaylistLive(rid, pid, uid, (q) => [...q, ...items])
+export const movePlaylistItemTo = (rid: string, pid: string, uid: string, itemId: string, to: number) => editPlaylistLive(rid, pid, uid, (q) => moveTo(q, itemId, to))
+export const removeFromPlaylist = (rid: string, pid: string, uid: string, itemId: string, trackIds: string[]) =>
+  editPlaylistLive(rid, pid, uid, (q) => q.filter((x) => x.id !== itemId), trackIds)
+export const editPlaylistItem = (rid: string, pid: string, uid: string, itemId: string, patch: ItemPatch, trackIds: string[],
+  reanchor?: { tid: string; itemId: string; videoTimeNow: number }) =>
+  editPlaylistLive(rid, pid, uid, (q) => q.map((x) => (x.id === itemId ? applyPatch(x, patch) : x)), trackIds, reanchor)
+
+/** Copies a playlist's items to the end of a track's queue (starting them only if nothing plays). */
+export async function appendPlaylistToQueue(rid: string, tid: string, uid: string, pl: RoomPlaylist) {
+  if (!pl.items.length) throw new Error('Плейлист пуст')
+  await addItems(rid, tid, uid, pl.items.map((x) => ({ ...x, id: randomId(10) })))
 }
 
 // ---------- presence & clock ----------

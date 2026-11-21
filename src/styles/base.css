@@ -303,3 +303,9 @@ button.avatar { padding: 0; }
 /* long URLs/ids in UI text (e.g. the guest link in settings) wrap instead of widening the page */
 code { overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
+
+/* drag-and-drop reordering (src/components/rooms/dragSort.ts) */
+[data-drag-handle] { cursor: grab; touch-action: none; display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); flex-shrink: 0; }
+[data-drag-handle]:hover { color: var(--text); }
+.sort-dragging { position: relative; z-index: 20; background: var(--surface) !important; box-shadow: var(--shadow-lg); border-radius: 8px; cursor: grabbing; }
+.sort-moving { transition: transform .15s ease; }

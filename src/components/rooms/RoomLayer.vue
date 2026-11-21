@@ -4,15 +4,21 @@
 import { errorText } from '@/data/util'
 import { computed, ref } from 'vue'
 import { useSession } from '@/stores/session'
-import { advanceAfterEnd, removeTrack, setPlayback, setTrackProps } from '@/data/rooms'
+import { advanceAfterEnd, playItem, removeTrack, setPlayback, setTrackProps } from '@/data/rooms'
 import RoomPlayer from './RoomPlayer.vue'
 import RoomQueue from './RoomQueue.vue'
 import AddMedia from './AddMedia.vue'
 import Icon from '@/components/common/Icon.vue'
 import { toast } from '@/components/common/toast'
-import type { LoopMode, RoomTrack } from '@/model/types'
+import type { LoopMode, QueueItem, RoomTrack } from '@/model/types'
 
-const props = defineProps<{ rid: string; track: RoomTrack; canControl: boolean; offset: number; master: number; personal: { vol: number; muted: boolean }; apiKey: string }>()
+const props = defineProps<{
+  rid: string; track: RoomTrack; canControl: boolean; offset: number; master: number; personal: { vol: number; muted: boolean }; apiKey: string
+  /** what the track goes through: its queue or a saved playlist (itemsOf) */
+  items: QueueItem[]
+  /** name of the saved playlist it plays ('' = its own queue) */
+  playlistName: string
+}>()
 const emit = defineEmits<{ personal: [p: { vol: number; muted: boolean }]; blocked: [] }>()
 const session = useSession()
 const player = ref<InstanceType<typeof RoomPlayer> | null>(null)
@@ -20,7 +26,7 @@ const renaming = ref(false)
 const name = ref(props.track.name)
 const showQueue = ref(false)
 
-const item = computed(() => props.track.queue.find((x) => x.id === props.track.current) ?? null)
+const item = computed(() => props.items.find((x) => x.id === props.track.current) ?? null)
 const effective = computed(() => (props.track.volume * props.personal.vol * props.master) / 10000)
 const run = (p: Promise<unknown>) => p.catch((e) => toast.error('Не получилось: ' + errorText(e)))
 const uid = () => session.user!.uid
@@ -58,12 +64,14 @@ defineExpose({ kick: () => player.value?.kick() })
       <button v-if="canControl" class="icon-btn" title="Удалить дорожку" @click="remove"><Icon name="trash2" :size="14" /></button>
     </header>
     <div class="layer-main">
-      <RoomPlayer ref="player" :track="track" :offset="offset" :volume="effective" :muted="personal.muted" mini class="layer-player" :can-control="canControl" @toggle="togglePlay"
+      <RoomPlayer ref="player" :track="track" :items="items" :offset="offset" :volume="effective" :muted="personal.muted" mini class="layer-player" :can-control="canControl" @toggle="togglePlay"
         @ended="(id, rev) => run(advanceAfterEnd(rid, track.id, uid(), id, rev))" @blocked="emit('blocked')" @failed="onFailed">
         <template #empty><span class="small">Пусто</span></template>
       </RoomPlayer>
       <div class="grow layer-ctl" style="min-width: 0">
-        <div class="small ellipsis" :title="item?.title">{{ item?.title || 'Добавьте видео ниже' }}</div>
+        <div class="small ellipsis" :title="item?.title">{{ item?.title || (track.playlistId ? 'Плейлист закончился' : 'Добавьте видео ниже') }}</div>
+        <div v-if="track.playlistId" class="faint small ellipsis"><Icon name="list-video" :size="12" /> плейлист «{{ playlistName || '…' }}»
+          <button v-if="canControl && track.queue.length" class="linkish" title="Играть очередь дорожки" @click="run(playItem(rid, track.id, uid(), track.queue[0].id))">к очереди</button></div>
         <div class="row gap-sm">
           <button class="icon-btn" :disabled="!canControl || !item" :title="track.playing ? 'Пауза для всех' : 'Включить для всех'" @click="togglePlay"><Icon :name="track.playing ? 'pause' : 'play'" :size="17" /></button>
           <button class="icon-btn" :class="{ on: track.loop !== 'off' }" :disabled="!canControl" :title="'Повтор: ' + LOOP_LABEL[track.loop]" @click="cycleLoop"><Icon :name="track.loop === 'one' ? 'repeat-1' : 'repeat'" :size="16" /></button>
@@ -92,6 +100,7 @@ defineExpose({ kick: () => player.value?.kick() })
 .layer-main { display: flex; gap: 10px; align-items: center; }
 .layer-player { width: 128px; flex-shrink: 0; }
 .layer-ctl { display: flex; flex-direction: column; gap: 2px; }
+.linkish { border: 0; background: none; padding: 0 0 0 4px; color: var(--link); cursor: pointer; font: inherit; text-decoration: underline; }
 .vol { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .vol input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
 </style>

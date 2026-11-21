@@ -43,7 +43,8 @@ rooms/{rid}                                  музыкальная комнат
  │                                           access link | campaign, controlMode hosts | everyone
  ├─ tracks/{tid}                             синхронный плеер YouTube: main — основная музыка, layer — доп. дорожки;
  │                                           queue[], current, playing, position@at (серверное время), volume, loop
- ├─ playlists/{pid}                          сохранённые плейлисты комнаты; «включить» копирует их в очередь дорожки
+ ├─ playlists/{pid}                          сохранённые плейлисты комнаты; дорожка может играть плейлист напрямую
+ │                                           (track.playlistId) и идти по нему как по очереди
  ├─ listeners/{uid}                          присутствие (пульс раз в минуту) + замер сдвига часов клиента
  └─ messages/{mid}                           чат комнаты
 

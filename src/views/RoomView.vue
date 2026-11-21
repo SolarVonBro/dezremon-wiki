@@ -8,8 +8,8 @@ import { arrayRemove, arrayUnion } from 'firebase/firestore'
 import { useSession } from '@/stores/session'
 import { isServiceAdmin, readServiceConfig } from '@/data/admin'
 import {
-  PRESENCE_TTL, Presence, addTrack, advanceAfterEnd, enterRoom, roomUrl, setPlayback, setTrackProps, skip, updateRoom,
-  watchListeners, watchRoom, watchTracks,
+  PRESENCE_TTL, Presence, addTrack, advanceAfterEnd, enterRoom, itemsOf, playItem, roomUrl, setPlayback, setTrackProps, skip, updateRoom,
+  watchListeners, watchPlaylists, watchRoom, watchTracks,
 } from '@/data/rooms'
 import RoomPlayer from '@/components/rooms/RoomPlayer.vue'
 import RoomQueue from '@/components/rooms/RoomQueue.vue'
@@ -23,7 +23,7 @@ import { expectedTime, itemEnd, itemStart } from '@/components/rooms/timing'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import { toast } from '@/components/common/toast'
-import type { LoopMode, Room, RoomListener, RoomTrack } from '@/model/types'
+import type { LoopMode, Room, RoomListener, RoomPlaylist, RoomTrack } from '@/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +32,7 @@ const rid = route.params.rid as string
 
 const room = ref<Room | null | undefined>(undefined)
 const tracks = ref<RoomTrack[]>([])
+const playlists = ref<RoomPlaylist[]>([])
 const listeners = ref<RoomListener[]>([])
 const offset = ref(0)
 const apiKey = ref('')
@@ -52,6 +53,7 @@ watch(() => [session.ready, session.user?.uid] as const, ([ready, u]) => {
   }, () => { room.value = null }))
   stops.push(watchTracks(rid, (r) => { tracks.value = r }))
   stops.push(watchListeners(rid, (r) => { listeners.value = r }))
+  stops.push(watchPlaylists(rid, (r) => { playlists.value = r }))
   void readServiceConfig().then((c) => { apiKey.value = c.youtubeApiKey })
 }, { immediate: true })
 function leave() { stops.forEach((s) => s()); stops = []; presence?.stop(); presence = null }
@@ -67,6 +69,9 @@ const isHost = computed(() => !!room.value && (isOwner.value || room.value.hostU
 const canControl = computed(() => isHost.value || room.value?.controlMode === 'everyone')
 const main = computed(() => tracks.value.find((t) => t.kind === 'main') ?? null)
 const layers = computed(() => tracks.value.filter((t) => t.kind !== 'main'))
+/** what a track goes through: its queue, or the saved playlist it plays */
+const itemsOfTrack = (t: RoomTrack) => itemsOf(t, playlists.value)
+const playlistName = (pid: string | null | undefined) => (pid ? playlists.value.find((p) => p.id === pid)?.name ?? '' : '')
 
 // ---------- presence ----------
 const tick = ref(Date.now())
@@ -101,7 +106,8 @@ function setMine(tid: string, p: { vol: number; muted: boolean }) { personal.val
 
 // ---------- main track controls ----------
 const durations = ref<Record<string, number>>({})
-const mainItem = computed(() => main.value?.queue.find((x) => x.id === main.value!.current) ?? null)
+const mainItems = computed(() => (main.value ? itemsOfTrack(main.value) : []))
+const mainItem = computed(() => mainItems.value.find((x) => x.id === main.value!.current) ?? null)
 const mainDuration = computed(() => (mainItem.value ? mainItem.value.duration || durations.value[mainItem.value.videoId] || 0 : 0))
 const mainStart = computed(() => itemStart(mainItem.value))
 const mainEnd = computed(() => itemEnd(mainItem.value, mainDuration.value))
@@ -110,7 +116,7 @@ const position = computed(() => {
   void tick.value
   const t = main.value
   if (!t) return 0
-  const loops = t.loop === 'one' || (t.loop === 'all' && t.queue.length === 1)
+  const loops = t.loop === 'one' || (t.loop === 'all' && mainItems.value.length === 1)
   const v = expectedTime(t, mainItem.value, mainDuration.value, Date.now() + offset.value, loops)
   return mainEnd.value ? Math.min(v, mainEnd.value) : v
 })
@@ -121,7 +127,7 @@ function skipBy(dir: 1 | -1) {
   const t = main.value
   if (!t) return
   if (dir === -1 && position.value - mainStart.value > 5) { seek(mainStart.value); return }
-  void run(skip(rid, t.id, uid.value, t, dir))
+  void run(skip(rid, t.id, uid.value, t, mainItems.value, dir))
 }
 const LOOPS: LoopMode[] = ['all', 'one', 'off']
 const LOOP_LABEL: Record<LoopMode, string> = { all: 'Повтор очереди', one: 'Повтор трека', off: 'Без повтора' }
@@ -142,7 +148,6 @@ async function newLayer() {
 }
 function copyLink() { void navigator.clipboard.writeText(roomUrl(rid)).then(() => toast.success('Ссылка на комнату скопирована')) }
 const settingsOpen = ref(false)
-const panel = ref<'queue' | 'playlists'>('queue')
 </script>
 
 <template>
@@ -174,14 +179,14 @@ const panel = ref<'queue' | 'playlists'>('queue')
       </header>
 
       <div class="room-grid">
-        <div class="stack">
+        <div class="room-main">
           <!-- main track -->
-          <section v-if="main" class="card main-card">
+          <section v-if="main" class="card main-card s-player">
             <div class="player-wrap">
-              <RoomPlayer v-if="unlocked" ref="mainPlayer" :track="main" :offset="offset" :volume="(main.volume * mine(main.id).vol * personal.master) / 10000" :muted="mine(main.id).muted"
+              <RoomPlayer v-if="unlocked" ref="mainPlayer" :track="main" :items="mainItems" :offset="offset" :volume="(main.volume * mine(main.id).vol * personal.master) / 10000" :muted="mine(main.id).muted"
                 :can-control="canControl" @toggle="togglePlay"
                 @ended="(id, rev) => onEnded(main!, id, rev)" @failed="(id, rev, code) => onFailed(main!, id, rev, code)" @duration="(v, d) => (durations = { ...durations, [v]: d })" @blocked="blocked = true">
-                <template #empty>Очередь пуста — добавьте видео или плейлист YouTube ниже.</template>
+                <template #empty>{{ main.playlistId ? 'Плейлист закончился или пуст.' : 'Очередь пуста — добавьте видео ниже или включите плейлист.' }}</template>
               </RoomPlayer>
               <div v-if="!unlocked || blocked" class="gate">
                 <Icon name="headphones" :size="40" />
@@ -202,9 +207,9 @@ const panel = ref<'queue' | 'playlists'>('queue')
               <span class="small faint">{{ mainEnd ? formatTime(mainEnd) : '--:--' }}</span>
             </div>
             <div class="controls">
-              <button class="icon-btn" :disabled="!canControl || !main.queue.length" title="Назад" @click="skipBy(-1)"><Icon name="skip-back" :size="18" /></button>
+              <button class="icon-btn" :disabled="!canControl || !mainItems.length" title="Назад" @click="skipBy(-1)"><Icon name="skip-back" :size="18" /></button>
               <button class="play-btn" :disabled="!canControl || !mainItem" :title="main.playing ? 'Пауза для всех' : 'Играть для всех'" @click="togglePlay"><Icon :name="main.playing ? 'pause' : 'play'" :size="22" /></button>
-              <button class="icon-btn" :disabled="!canControl || !main.queue.length" title="Дальше" @click="skipBy(1)"><Icon name="skip-forward" :size="18" /></button>
+              <button class="icon-btn" :disabled="!canControl || !mainItems.length" title="Дальше" @click="skipBy(1)"><Icon name="skip-forward" :size="18" /></button>
               <button class="icon-btn" :class="{ on: main.loop !== 'off' }" :disabled="!canControl" :title="LOOP_LABEL[main.loop]" @click="cycleLoop"><Icon :name="main.loop === 'one' ? 'repeat-1' : 'repeat'" :size="17" /></button>
               <button class="icon-btn" :class="{ on: main.shuffle }" :disabled="!canControl" title="Перемешивать" @click="run(setTrackProps(rid, main.id, uid, { shuffle: !main.shuffle }))"><Icon name="shuffle" :size="17" /></button>
               <span class="grow" />
@@ -220,20 +225,18 @@ const panel = ref<'queue' | 'playlists'>('queue')
             </div>
           </section>
 
-          <section v-if="main" class="card card-pad stack-sm queue-card">
-            <div class="tabs" style="margin-bottom: 2px">
-              <button class="tab" :class="{ on: panel === 'queue' }" @click="panel = 'queue'"><Icon name="list-music" :size="16" /> Очередь <span class="count">{{ main.queue.length }}</span></button>
-              <button class="tab" :class="{ on: panel === 'playlists' }" @click="panel = 'playlists'"><Icon name="list-video" :size="16" /> Плейлисты</button>
+          <section v-if="main" class="card card-pad stack-sm queue-card s-queue">
+            <h3 class="panel-title" style="margin: 0"><Icon name="list-music" /> Очередь <span class="faint small">{{ main.queue.length }}</span></h3>
+            <div v-if="main.playlistId" class="pl-banner">
+              <Icon name="list-video" :size="16" />
+              <span class="grow">Сейчас музыка идёт по плейлисту <b>«{{ playlistName(main.playlistId) || '…' }}»</b>. Очередь ждёт.</span>
+              <button v-if="canControl && main.queue.length" class="btn btn-sm" @click="run(playItem(rid, main.id, uid, main.queue[0].id))"><Icon name="play" :size="13" /> Играть очередь</button>
             </div>
-            <template v-if="panel === 'queue'">
-              <div v-if="main.playlistName" class="faint small"><Icon name="list-video" :size="13" /> загружен плейлист «{{ main.playlistName }}»</div>
-              <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
-              <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" :now-time="() => position" />
-            </template>
-            <RoomPlaylists v-else :rid="rid" :tracks="tracks" :can-control="canControl" :api-key="apiKey" />
+            <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
+            <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" :now-time="() => position" />
           </section>
 
-          <section class="stack-sm">
+          <section class="stack-sm s-layers">
             <div class="row gap">
               <h3 class="panel-title grow" style="margin: 0"><Icon name="audio-lines" /> Дополнительные дорожки</h3>
               <button v-if="canControl" class="btn btn-sm" @click="newLayer"><Icon name="plus" :size="14" /> Дорожка</button>
@@ -241,15 +244,20 @@ const panel = ref<'queue' | 'playlists'>('queue')
             <p v-if="!layers.length" class="faint small" style="margin: 0">Фон поверх музыки: дождь, шум таверны, битва. Каждая дорожка играет одновременно с основной, со своей громкостью и повтором.</p>
             <div class="layers">
               <template v-if="unlocked">
-                <RoomLayer v-for="t in layers" :key="t.id" ref="layerRefs" :rid="rid" :track="t" :can-control="canControl" :offset="offset" :master="personal.master"
+                <RoomLayer v-for="t in layers" :key="t.id" ref="layerRefs" :rid="rid" :track="t" :items="itemsOfTrack(t)" :playlist-name="playlistName(t.playlistId)" :can-control="canControl" :offset="offset" :master="personal.master"
                   :personal="mine(t.id)" :api-key="apiKey" @personal="(p) => setMine(t.id, p)" @blocked="blocked = true" />
               </template>
               <div v-else-if="layers.length" class="faint small">Дорожек: {{ layers.length }} — появятся после подключения.</div>
             </div>
           </section>
+
+          <section class="card card-pad s-chat">
+            <h3 class="panel-title"><Icon name="messages-square" /> Чат</h3>
+            <RoomChat :rid="rid" :is-host="isHost" />
+          </section>
         </div>
 
-        <aside class="stack">
+        <aside class="room-side">
           <section class="card card-pad">
             <h3 class="panel-title"><Icon name="users" /> Слушают <span class="faint small">{{ present.length }}</span></h3>
             <div v-for="l in present" :key="l.uid" class="who">
@@ -264,8 +272,7 @@ const panel = ref<'queue' | 'playlists'>('queue')
             </div>
           </section>
           <section class="card card-pad">
-            <h3 class="panel-title"><Icon name="messages-square" /> Чат</h3>
-            <RoomChat :rid="rid" :is-host="isHost" />
+            <RoomPlaylists :rid="rid" :playlists="playlists" :tracks="tracks" :can-control="canControl" :api-key="apiKey" :main-now-time="() => position" />
           </section>
         </aside>
       </div>
@@ -279,7 +286,10 @@ const panel = ref<'queue' | 'playlists'>('queue')
 .room-page { max-width: 1280px; margin: 0 auto; padding: 18px 24px 60px; }
 .room-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .room-head h1 { margin: 0; font-size: 32px; display: flex; align-items: center; gap: 10px; }
-.room-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.room-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.room-main, .room-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.pl-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); font-size: 14px; }
+.pl-banner > .icon { color: var(--accent); }
 .main-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .player-wrap { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
 .gate { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 16px;
@@ -296,7 +306,16 @@ const panel = ref<'queue' | 'playlists'>('queue')
 .master input[type=range] { width: 90px; }
 .layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .who { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-@media (max-width: 1000px) { .room-grid { grid-template-columns: minmax(0, 1fr); } }
+/* one column: player, queue, then the side panel (listeners, playlists), extra tracks, chat at the very bottom */
+@media (max-width: 1000px) {
+  .room-grid { display: flex; flex-direction: column; align-items: stretch; gap: 18px; }
+  .room-main { display: contents; }
+  .s-player { order: 1; }
+  .s-queue { order: 2; }
+  .room-side { order: 3; }
+  .s-layers { order: 4; }
+  .s-chat { order: 5; }
+}
 @media (max-width: 720px) {
   .room-page { padding: 12px 12px 50px; }
   .room-head h1 { font-size: 24px; }

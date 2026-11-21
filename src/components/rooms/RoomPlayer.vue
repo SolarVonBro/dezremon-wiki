@@ -7,10 +7,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { loadYouTubeApi, YT_STATE } from './youtube'
 import { expectedTime, itemEnd, itemRate, itemStart } from './timing'
 import Icon from '@/components/common/Icon.vue'
-import type { RoomTrack } from '@/model/types'
+import type { QueueItem, RoomTrack } from '@/model/types'
 
 const props = withDefaults(defineProps<{
   track: RoomTrack
+  /** what the track goes through: its queue or the saved playlist it plays (itemsOf) */
+  items: QueueItem[]
   /** server time = Date.now() + offset */
   offset: number
   /** effective volume 0..100 (track volume × personal volume × master) */
@@ -35,11 +37,11 @@ let loadedVideo: string | null = null
 let reportedFor = ''
 let blockedTimer: ReturnType<typeof setTimeout> | null = null
 const durations = new Map<string, number>()
-const item = computed(() => props.track.queue.find((x) => x.id === props.track.current) ?? null)
+const item = computed(() => props.items.find((x) => x.id === props.track.current) ?? null)
 
-function durationOf(videoId: string | undefined) { return (videoId && (durations.get(videoId) || props.track.queue.find((x) => x.videoId === videoId)?.duration)) || 0 }
+function durationOf(videoId: string | undefined) { return (videoId && (durations.get(videoId) || props.items.find((x) => x.videoId === videoId)?.duration)) || 0 }
 /** a single item that repeats is looped by every client locally, without writes */
-const loopsLocally = computed(() => props.track.loop === 'one' || (props.track.loop === 'all' && props.track.queue.length === 1))
+const loopsLocally = computed(() => props.track.loop === 'one' || (props.track.loop === 'all' && props.items.length === 1))
 const serverNow = () => Date.now() + props.offset
 const endOf = () => itemEnd(item.value, durationOf(item.value?.videoId))
 function expected(): number { return expectedTime(props.track, item.value, durationOf(item.value?.videoId), serverNow(), loopsLocally.value) }
