@@ -8,12 +8,11 @@ import { arrayRemove, arrayUnion } from 'firebase/firestore'
 import { useSession } from '@/stores/session'
 import { isServiceAdmin, readServiceConfig } from '@/data/admin'
 import {
-  PRESENCE_TTL, Presence, addItems, addToPlaylist, addTrack, advanceAfterEnd, ensureDefaultPlaylist, enterRoom, itemsOf, playItem, roomUrl,
+  PRESENCE_TTL, Presence, addToPlaylist, addTrack, advanceAfterEnd, ensureDefaultPlaylist, enterRoom, itemsOf, migrateQueueToPlaylist, playFromPlaylist, roomUrl,
   setPlayback, setTrackProps, skip, updateRoom,
   watchListeners, watchPlaylists, watchRoom, watchTracks,
 } from '@/data/rooms'
 import RoomPlayer from '@/components/rooms/RoomPlayer.vue'
-import RoomQueue from '@/components/rooms/RoomQueue.vue'
 import RoomPlaylists from '@/components/rooms/RoomPlaylists.vue'
 import RoomLayer from '@/components/rooms/RoomLayer.vue'
 import RoomChat from '@/components/rooms/RoomChat.vue'
@@ -25,7 +24,6 @@ import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import { toast } from '@/components/common/toast'
 import type { LoopMode, QueueItem, Room, RoomListener, RoomPlaylist, RoomTrack } from '@/model/types'
-import { randomId } from '@/data/util'
 
 const route = useRoute()
 const router = useRouter()
@@ -89,6 +87,11 @@ function selectPlaylist(pid: string) {
 watch(() => [playlistsLoaded.value, playlists.value.length, canControl.value] as const, ([loaded, n, can]) => {
   if (loaded && !n && can && session.user) void ensureDefaultPlaylist(rid, session.user).catch(() => {})
 }, { immediate: true })
+// rooms made while the music had its own queue: it moves into «Основной» (once, by whoever controls the music)
+let migrated = false
+watch(() => [main.value?.queue.length ?? 0, canControl.value] as const, ([n, can]) => {
+  if (n && can && !migrated && main.value && session.user) { migrated = true; void migrateQueueToPlaylist(rid, main.value.id, session.user).catch(() => { migrated = false }) }
+}, { immediate: true })
 
 // ---------- presence ----------
 const tick = ref(Date.now())
@@ -113,9 +116,9 @@ function connect() {
 }
 
 // ---------- personal volumes (this browser only) ----------
-type Personal = { master: number; tracks: Record<string, { vol: number; muted: boolean }>; addTo: { queue: boolean; playlist: boolean } }
+type Personal = { tracks: Record<string, { vol: number; muted: boolean }> }
 const PKEY = `dw.room.${rid}`
-const DEFAULT_PERSONAL: Personal = { master: 80, tracks: {}, addTo: { queue: true, playlist: true } }
+const DEFAULT_PERSONAL: Personal = { tracks: {} }
 function readPersonal(): Personal { try { return { ...DEFAULT_PERSONAL, ...JSON.parse(localStorage.getItem(PKEY) ?? '{}') } } catch { return { ...DEFAULT_PERSONAL } } }
 const personal = ref<Personal>(readPersonal())
 watch(personal, (p) => { try { localStorage.setItem(PKEY, JSON.stringify(p)) } catch { /* private mode */ } }, { deep: true })
@@ -148,26 +151,21 @@ function skipBy(dir: 1 | -1) {
   void run(skip(rid, t.id, uid.value, t, mainItems.value, dir))
 }
 // ---------- one add field for the open playlist and the queue ----------
-async function addEverywhere(items: QueueItem[], playNow: boolean) {
+/**
+ * The add field above the player: new music goes into the playlist open in the side panel. If nothing is playing
+ * (or "play now" was pressed) the music starts going through that playlist from the new song.
+ */
+async function addMusic(items: QueueItem[], playNow: boolean) {
   const m = main.value
-  if (!m) return
-  const to = personal.value.addTo
   const pl = openPlaylist.value
-  const ops: Promise<unknown>[] = []
-  if (to.queue || playNow) ops.push(addItems(rid, m.id, uid.value, items, playNow))
-  if (to.playlist && pl) ops.push(addToPlaylist(rid, pl.id, uid.value, items.map((x) => ({ ...x, id: randomId(10) }))))
-  if (!ops.length) { toast.info('Отметьте, куда добавлять: в очередь и/или в плейлист'); return }
-  await Promise.all(ops)
+  if (!m || !pl || !items.length) { toast.info('Плейлист ещё создаётся — попробуйте через секунду'); return }
+  await addToPlaylist(rid, pl.id, uid.value, items)
+  if (playNow || !mainItem.value) await playFromPlaylist(rid, m.id, uid.value, pl.id, items[0].id)
 }
-const addLabel = computed(() => {
-  const to = personal.value.addTo
-  const pl = openPlaylist.value ? `в «${openPlaylist.value.name}»` : ''
-  return to.queue && to.playlist && pl ? `в очередь и ${pl}` : to.playlist && pl ? pl : 'в очередь'
-})
-function toggleAddTo(k: 'queue' | 'playlist') { personal.value.addTo = { ...personal.value.addTo, [k]: !personal.value.addTo[k] } }
+const addLabel = computed(() => (openPlaylist.value ? `в «${openPlaylist.value.name}»` : 'в плейлист'))
 
 const LOOPS: LoopMode[] = ['all', 'one', 'off']
-const LOOP_LABEL: Record<LoopMode, string> = { all: 'Повтор очереди', one: 'Повтор трека', off: 'Без повтора' }
+const LOOP_LABEL: Record<LoopMode, string> = { all: 'Повтор плейлиста', one: 'Повтор трека', off: 'Без повтора' }
 function cycleLoop() { if (main.value) void run(setTrackProps(rid, main.value.id, uid.value, { loop: LOOPS[(LOOPS.indexOf(main.value.loop) + 1) % LOOPS.length] })) }
 let volTimer: ReturnType<typeof setTimeout> | null = null
 function roomVolume(v: number) {
@@ -207,33 +205,25 @@ const settingsOpen = ref(false)
             <span v-if="!canControl" class="badge">вы слушатель</span>
           </div>
         </div>
-        <label class="vol master" title="Общая громкость у меня">
-          <Icon name="volume-2" :size="16" />
-          <input v-model.number="personal.master" type="range" min="0" max="100" />
-        </label>
         <button class="btn btn-sm" @click="copyLink"><Icon name="link" :size="14" /><span class="hide-sm"> Пригласить</span></button>
         <button v-if="isHost" class="btn btn-sm btn-ghost" title="Настройки комнаты" @click="settingsOpen = true"><Icon name="settings" :size="15" /></button>
       </header>
 
       <div class="room-grid">
         <div class="room-main">
-          <!-- one field for new music: into the open playlist and/or the queue -->
+          <!-- one field for new music: it goes into the playlist open in the side panel -->
           <section v-if="canControl && main" class="card add-card s-add">
-            <AddMedia :rid="rid" :target="addEverywhere" allow-play-now :target-label="addLabel" :api-key="apiKey"
+            <AddMedia :rid="rid" :target="addMusic" allow-play-now :target-label="addLabel" :api-key="apiKey"
               :placeholder="apiKey ? 'Ссылка YouTube или поиск…' : 'Ссылка на видео или плейлист YouTube…'" />
-            <div class="add-to small">
-              <span class="faint">Добавлять:</span>
-              <button type="button" class="chip" :class="{ on: personal.addTo.queue }" @click="toggleAddTo('queue')"><Icon :name="personal.addTo.queue ? 'check' : 'list-music'" :size="13" /> в очередь</button>
-              <button type="button" class="chip" :class="{ on: personal.addTo.playlist }" :disabled="!openPlaylist" @click="toggleAddTo('playlist')"><Icon :name="personal.addTo.playlist ? 'check' : 'list-video'" :size="13" /> в плейлист «{{ openPlaylist?.name ?? '…' }}»</button>
-            </div>
+            <div class="faint small"><Icon name="list-video" :size="13" /> Добавится в плейлист <b>«{{ openPlaylist?.name ?? '…' }}»</b> — другой выбирается в панели плейлистов.</div>
           </section>
           <!-- main track -->
           <section v-if="main" class="card main-card s-player">
             <div class="player-wrap">
-              <RoomPlayer v-if="unlocked" ref="mainPlayer" :track="main" :items="mainItems" :offset="offset" :volume="(main.volume * mine(main.id).vol * personal.master) / 10000" :muted="mine(main.id).muted"
+              <RoomPlayer v-if="unlocked" ref="mainPlayer" :track="main" :items="mainItems" :offset="offset" :volume="(main.volume * mine(main.id).vol) / 100" :muted="mine(main.id).muted"
                 :can-control="canControl" @toggle="togglePlay"
                 @ended="(id, rev) => onEnded(main!, id, rev)" @failed="(id, rev, code) => onFailed(main!, id, rev, code)" @duration="(v, d) => (durations = { ...durations, [v]: d })" @blocked="blocked = true">
-                <template #empty>{{ main.playlistId ? 'Плейлист закончился или пуст.' : 'Очередь пуста — добавьте видео ниже или включите плейлист.' }}</template>
+                <template #empty>{{ main.playlistId ? 'Плейлист закончился или пуст.' : 'Ничего не играет — добавьте видео выше или выберите трек в плейлисте.' }}</template>
               </RoomPlayer>
               <div v-if="!unlocked || blocked" class="gate">
                 <Icon name="headphones" :size="40" />
@@ -245,7 +235,7 @@ const settingsOpen = ref(false)
               <div class="grow" style="min-width: 0">
                 <a v-if="mainItem" class="now-title" :href="watchUrl(mainItem.videoId)" target="_blank" rel="noopener">{{ mainItem.title || mainItem.videoId }}</a>
                 <div v-else class="now-title faint">Ничего не играет</div>
-                <div v-if="mainItem" class="faint small">добавил(а) {{ mainItem.addedByName }}<template v-if="(mainItem.rate ?? 1) !== 1"> · скорость ×{{ mainItem.rate }}</template></div>
+                <div v-if="mainItem" class="faint small">из плейлиста «{{ playlistName(main.playlistId) || '…' }}» · добавил(а) {{ mainItem.addedByName }}<template v-if="(mainItem.rate ?? 1) !== 1"> · скорость ×{{ mainItem.rate }}</template></div>
               </div>
             </div>
             <div class="seek">
@@ -272,16 +262,6 @@ const settingsOpen = ref(false)
             </div>
           </section>
 
-          <section v-if="main" class="card card-pad stack-sm queue-card s-queue">
-            <h3 class="panel-title" style="margin: 0"><Icon name="list-music" /> Очередь <span class="faint small">{{ main.queue.length }}</span></h3>
-            <div v-if="main.playlistId" class="pl-banner">
-              <Icon name="list-video" :size="16" />
-              <span class="grow">Сейчас музыка идёт по плейлисту <b>«{{ playlistName(main.playlistId) || '…' }}»</b>. Очередь ждёт.</span>
-              <button v-if="canControl && main.queue.length" class="btn btn-sm" @click="run(playItem(rid, main.id, uid, main.queue[0].id))"><Icon name="play" :size="13" /> Играть очередь</button>
-            </div>
-            <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" :now-time="() => position" />
-          </section>
-
           <section class="stack-sm s-layers">
             <div class="row gap">
               <h3 class="panel-title grow" style="margin: 0"><Icon name="audio-lines" /> Дополнительные дорожки</h3>
@@ -290,7 +270,7 @@ const settingsOpen = ref(false)
             <p v-if="!layers.length" class="faint small" style="margin: 0">Фон поверх музыки: дождь, шум таверны, битва. Каждая дорожка играет одновременно с основной, со своей громкостью и повтором.</p>
             <div class="layers">
               <template v-if="unlocked">
-                <RoomLayer v-for="t in layers" :key="t.id" ref="layerRefs" :rid="rid" :track="t" :items="itemsOfTrack(t)" :playlist-name="playlistName(t.playlistId)" :can-control="canControl" :offset="offset" :master="personal.master"
+                <RoomLayer v-for="t in layers" :key="t.id" ref="layerRefs" :rid="rid" :track="t" :items="itemsOfTrack(t)" :playlist-name="playlistName(t.playlistId)" :can-control="canControl" :offset="offset" :master="100"
                   :personal="mine(t.id)" :api-key="apiKey" @personal="(p) => setMine(t.id, p)" @blocked="blocked = true" />
               </template>
               <div v-else-if="layers.length" class="faint small">Дорожек: {{ layers.length }} — появятся после подключения.</div>
@@ -337,8 +317,6 @@ const settingsOpen = ref(false)
 .add-to { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .add-to .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .room-main, .room-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.pl-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); font-size: 14px; }
-.pl-banner > .icon { color: var(--accent); }
 .main-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .player-wrap { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
 .gate { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 16px;
@@ -352,16 +330,14 @@ const settingsOpen = ref(false)
 .play-btn:disabled { opacity: .5; cursor: not-allowed; }
 .vol { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
 .vol input[type=range] { width: 100px; accent-color: var(--accent); }
-.master input[type=range] { width: 90px; }
 .layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .who { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-/* one column: player, queue, then the side panel (listeners, playlists), extra tracks, chat at the very bottom */
+/* one column: add field, player, then the side panel (listeners, playlists), extra tracks, chat at the very bottom */
 @media (max-width: 1000px) {
   .room-grid { display: flex; flex-direction: column; align-items: stretch; gap: 18px; }
   .room-main { display: contents; }
   .s-add { order: 1; }
   .s-player { order: 2; }
-  .s-queue { order: 3; }
   .room-side { order: 4; }
   .s-layers { order: 5; }
   .s-chat { order: 6; }

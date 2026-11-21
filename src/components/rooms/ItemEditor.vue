@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { RATES, parseTime } from './timing'
 import { formatTime, thumbUrl } from './youtube'
 import Modal from '@/components/common/Modal.vue'
+import Icon from '@/components/common/Icon.vue'
 import type { ItemPatch } from '@/data/rooms'
 import type { QueueItem } from '@/model/types'
 
@@ -39,6 +40,13 @@ const summary = computed(() => {
   const len = (e - start.value) / form.value.rate
   return `Будет играть ${formatTime(start.value)}–${formatTime(e)}: ${formatTime(len)}${form.value.rate !== 1 ? ` с учётом скорости ×${form.value.rate}` : ''}`
 })
+/** the item plays the whole video at ×1 already (nothing to reset) */
+const isDefault = computed(() => !(it.start ?? 0) && !(it.end ?? 0) && (it.rate ?? 1) === 1
+  && !(start.value) && form.value.endMode === 'full' && form.value.rate === 1)
+/** "Вернуть по умолчанию": whole video, normal speed; the name stays */
+function reset() {
+  emit('save', { title: form.value.title.trim() || it.title, start: 0, end: 0, rate: 1 })
+}
 function save() {
   if (error.value) return
   const e = form.value.endMode === 'full' ? 0 : form.value.endMode === 'at' ? endVal.value! : -endVal.value!
@@ -71,6 +79,7 @@ function save() {
       <p class="faint small" style="margin: 0">Время — в виде 1:20 или 80 (секунд). Интервал и скорость действуют для всех слушателей; при повторе трек повторяется внутри интервала.</p>
     </form>
     <template #footer>
+      <button class="btn btn-ghost" style="margin-right: auto" :disabled="isDefault" title="Всё видео целиком, обычная скорость; название не меняется" @click="reset"><Icon name="rotate-ccw" :size="14" /> Вернуть по умолчанию</button>
       <button class="btn" @click="emit('close')">Отмена</button>
       <button class="btn btn-primary" :disabled="!!error" @click="save">Сохранить</button>
     </template>

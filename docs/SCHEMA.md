@@ -41,10 +41,11 @@ campaigns/{cid}                              кампейн: живёт РЯДО
 rooms/{rid}                                  музыкальная комната (как Watch2Gether): ownerId, hostUids, memberUids
  │                                           («мои комнаты»), campaignId (необязательная привязка к кампейну),
  │                                           access link | campaign, controlMode hosts | everyone
- ├─ tracks/{tid}                             синхронный плеер YouTube: main — основная музыка, layer — доп. дорожки;
- │                                           queue[], current, playing, position@at (серверное время), volume, loop
- ├─ playlists/{pid}                          сохранённые плейлисты комнаты; дорожка может играть плейлист напрямую
- │                                           (track.playlistId) и идти по нему как по очереди
+ ├─ tracks/{tid}                             синхронный плеер YouTube: main — основная музыка (всегда идёт по плейлисту,
+ │                                           playlistId), layer — доп. дорожки (своя маленькая queue[] или плейлист);
+ │                                           current, playing, position@at (серверное время), volume, loop
+ ├─ playlists/{pid}                          плейлисты комнаты; «main» = «Основной» создаётся с комнатой; музыка идёт
+ │                                           по плейлисту напрямую (track.playlistId), отдельной очереди нет
  ├─ listeners/{uid}                          присутствие (пульс раз в минуту) + замер сдвига часов клиента
  └─ messages/{mid}                           чат комнаты
 

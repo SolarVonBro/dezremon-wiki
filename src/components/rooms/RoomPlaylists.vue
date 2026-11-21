@@ -1,12 +1,11 @@
 <script setup lang="ts">
-// Saved playlists of the room in the side panel. One playlist is always open (the switcher in the header changes
-// it); new music goes into it from the add field above the player. Clicking a song plays the playlist from it:
-// the track then goes through the playlist itself like a queue (edits apply live; the track's own queue stays as
-// it was). Rows are reordered by dragging the grip.
+// Playlists of the room in the side panel — the music always plays one of them (there is no separate queue).
+// One playlist is always open (the switcher in the header changes it); new music goes into it from the add field
+// above the player. Clicking a song plays the playlist from it; edits apply live. Rows are reordered by dragging.
 import { computed, ref } from 'vue'
 import { useSession } from '@/stores/session'
 import {
-  appendPlaylistToQueue, createPlaylist, deletePlaylist, editPlaylistItem, movePlaylistItemTo, playFromPlaylist,
+  createPlaylist, deletePlaylist, editPlaylistItem, movePlaylistItemTo, playFromPlaylist,
   removeFromPlaylist, renamePlaylist, type ItemPatch,
 } from '@/data/rooms'
 import { errorText, plural } from '@/data/util'
@@ -52,22 +51,11 @@ async function create() {
   if (!name?.trim() || !session.user) return
   try { emit('select', await createPlaylist(props.rid, session.user, name.trim(), [], props.playlists.length)) } catch (e) { toast.error('Не получилось: ' + errorText(e)) }
 }
-async function saveQueue() {
-  const name = prompt('Название плейлиста из текущей очереди музыки:', 'Из очереди')
-  if (!name?.trim() || !session.user || !main.value) return
-  try {
-    emit('select', await createPlaylist(props.rid, session.user, name.trim(), main.value.queue, props.playlists.length))
-    toast.success(`Очередь сохранена как «${name.trim()}»`)
-  } catch (e) { toast.error('Не получилось: ' + errorText(e)) }
-}
 function playFrom(p: RoomPlaylist, itemId: string | null, t: RoomTrack | null = targetOf(p.id)) {
   if (!t || !props.canControl) return
   const first = itemId ?? (t.shuffle && p.items.length ? p.items[Math.floor(Math.random() * p.items.length)].id : p.items[0]?.id)
   if (!first) { toast.info('Плейлист пуст — добавьте музыку через поле над плеером'); return }
   void run(playFromPlaylist(props.rid, t.id, uid(), p.id, first))
-}
-function appendToQueue(p: RoomPlaylist) {
-  if (main.value) void run(appendPlaylistToQueue(props.rid, main.value.id, uid(), p), 'Скопировано в очередь музыки')
 }
 function rename(p: RoomPlaylist) {
   const n = prompt('Новое название плейлиста:', p.name)
@@ -122,7 +110,6 @@ function saveItem(patch: ItemPatch) {
           <template v-if="canControl">
             <div class="menu-sep" />
             <button class="menu-item" @click="create"><Icon name="plus" :size="15" /> Новый плейлист</button>
-            <button class="menu-item" :disabled="!main?.queue.length" @click="saveQueue"><Icon name="save" :size="15" /> Сохранить очередь как плейлист</button>
           </template>
         </div>
       </Dropdown>
@@ -133,7 +120,6 @@ function saveItem(patch: ItemPatch) {
           <template #trigger><button class="icon-btn" title="Ещё"><Icon name="more-horizontal" :size="17" /></button></template>
           <div class="menu">
             <button v-for="t in layers" :key="t.id" class="menu-item" :disabled="!open.items.length" @click="playFrom(open, null, t)"><Icon name="audio-lines" :size="15" /> Играть на «{{ t.name }}»</button>
-            <button class="menu-item" :disabled="!open.items.length" @click="appendToQueue(open)"><Icon name="list-plus" :size="15" /> Скопировать в очередь музыки</button>
             <div class="menu-sep" />
             <button class="menu-item" @click="rename(open)"><Icon name="pencil" :size="15" /> Переименовать</button>
             <button class="menu-item danger" :disabled="playlists.length < 2" @click="remove(open)"><Icon name="trash2" :size="15" /> Удалить плейлист</button>

@@ -261,6 +261,24 @@ export async function ensureDefaultPlaylist(rid: string, user: UserLike) {
     tx.set(ref, { name: 'Основной', items: [], order: 0, createdBy: user.uid, createdByName: nameOf(user), createdAt: t, updatedAt: t })
   })
 }
+/**
+ * Rooms made while the music had its own queue: move the queue into «Основной» (same item ids, so a song that is
+ * playing keeps playing) and let the music go through that playlist from now on.
+ */
+export async function migrateQueueToPlaylist(rid: string, tid: string, user: UserLike) {
+  await ensureDefaultPlaylist(rid, user)
+  await runTransaction(db, async (tx) => {
+    const ts = await tx.get(trackRef(rid, tid))
+    const ps = await tx.get(playlistRef(rid, DEFAULT_PLAYLIST_ID))
+    if (!ts.exists() || !ps.exists()) return
+    const t = normalizeTrack(ts.id, ts.data())
+    if (!t.queue.length) return
+    const items = (ps.data().items ?? []) as QueueItem[]
+    const have = new Set(items.map((x) => x.id))
+    tx.update(playlistRef(rid, DEFAULT_PLAYLIST_ID), { items: [...items, ...t.queue.filter((x) => !have.has(x.id))], updatedAt: now() })
+    tx.update(trackRef(rid, tid), { queue: [], ...(t.playlistId ? {} : { playlistId: DEFAULT_PLAYLIST_ID }), updatedAt: now(), updatedBy: user.uid })
+  })
+}
 export const renamePlaylist = (rid: string, pid: string, name: string) => updateDoc(playlistRef(rid, pid), { name, updatedAt: now() })
 
 /** Deletes a playlist; tracks that were playing it stop (their own queues are untouched). */

@@ -165,15 +165,28 @@ with sync_playwright() as p:
     gm.locator('.modal').get_by_role('button', name='Создать', exact=True).click()
     gm.wait_for_selector('.room-head h1', timeout=20000)
     rid = gm.url.split('/r/')[1].split('?')[0]
-    gm.get_by_role('button', name='Подключиться').click()
     gm.wait_for_selector('.pls .switcher:has-text("Основной")', timeout=15000)
     check(True, 'a new room has the default playlist «Основной» open in the side panel')
+    check(gm.locator('.queue-card').count() == 0, 'there is no queue block any more')
+    check(gm.locator('.room-head input[type=range]').count() == 0, 'no volume slider next to "Пригласить"')
+    # a room from the queue era: the music track still has its own queue → it moves into «Основной»
+    old_item = {'mapValue': {'fields': {'id': {'stringValue': 'old1'}, 'videoId': {'stringValue': 'dQw4w9WgXcQ'}, 'title': {'stringValue': 'Старая очередь'},
+                'duration': {'integerValue': '0'}, 'addedBy': {'stringValue': 'x'}, 'addedByName': {'stringValue': 'Мастер Игры'}}}}
+    rest('PATCH', f'{FS}/rooms/{rid}/tracks/main?updateMask.fieldPaths=queue&updateMask.fieldPaths=current&updateMask.fieldPaths=playlistId&updateMask.fieldPaths=playing',
+         {'fields': {'queue': {'arrayValue': {'values': [old_item]}}, 'current': {'stringValue': 'old1'}, 'playlistId': {'nullValue': None}, 'playing': {'booleanValue': False}}})
+    gm.reload(); gm.wait_for_selector('.room-head h1', timeout=20000)
+    gm.wait_for_selector('.pl-item:has-text("Старая очередь")', timeout=15000)
+    tr = rest('GET', f'{FS}/rooms/{rid}/tracks/main')['fields']
+    check(tr.get('playlistId', {}).get('stringValue') == 'main' and not tr['queue'].get('arrayValue', {}).get('values'), 'an old queue moved into «Основной» and the music now goes through it')
+    gm.get_by_role('button', name='Подключиться').click()
+    gm.locator('.pl-item', has_text='Старая очередь').locator('button[title="Убрать из плейлиста"]').click()
+    gm.wait_for_function("() => !document.querySelector('.pl-item')", timeout=10000)
     gm.locator('.s-add input').fill(VIDEO)
     gm.locator('.s-add form button').click()
     gm.wait_for_selector('.now-title:not(.faint)', timeout=20000)
     check('Never Gonna Give You Up' in gm.locator('.now-title').inner_text(), 'title fetched through oEmbed')
     gm.wait_for_selector('.pl-item', timeout=10000)
-    check(gm.locator('.queue-card .q-item').count() == 1 and gm.locator('.pl-item').count() == 1, 'one add field put the video into the queue AND the open playlist')
+    check(gm.locator('.pl-item').count() == 1 and 'Основной' in gm.locator('.now').inner_text(), 'the add field put the video into «Основной» and, nothing playing, started it')
 
     step('Player: joins the room, playback is in sync')
     pl.goto(BASE + f'#/c/{cid}/rooms')
@@ -232,7 +245,7 @@ with sync_playwright() as p:
     check(True, 'chat message delivered')
     check(gm.locator('.who', has_text='Игрок Один').count() == 1, 'GM sees the player among listeners')
 
-    step('Saved playlists in the side panel: play one like a queue')
+    step('Playlists instead of a queue')
     def drag(page, rows_sel, src, dst):
         g = page.locator(rows_sel).nth(src).locator('[data-drag-handle]')
         page.locator(rows_sel).nth(dst).scroll_into_view_if_needed(); g.scroll_into_view_if_needed(); page.wait_for_timeout(200)
@@ -242,69 +255,54 @@ with sync_playwright() as p:
         page.mouse.move(box['x'] + box['width'] / 2, tb['y'] + tb['height'] * (0.25 if dst < src else 0.75), steps=12)
         page.mouse.up()
     titles = lambda page, sel: [t.strip() for t in page.locator(sel).all_inner_texts()]
-    def set_targets(page, queue, playlist):
-        for key, want in (('в очередь', queue), ('в плейлист', playlist)):
-            chip = page.locator('.add-to .chip', has_text=key)
-            if ('on' in (chip.get_attribute('class') or '').split()) != want: chip.click()
-    def add_to(page, url, queue, playlist):
-        set_targets(page, queue, playlist)
+    def add(page, url):
         page.locator('.s-add input').fill(url)
         page.locator('.s-add form button').click()
+    def open_playlist(page, name):
+        page.locator('.pls .switcher').click()
+        page.locator('.menu-item', has_text=name).first.click()
+        page.wait_for_selector(f'.pls .switcher:has-text("{name}")', timeout=10000)
     check(gm.locator('.room-side .pls').count() == 1 and gm.locator('.room-side .chat').count() == 0, 'playlists are in the side panel, chat is not')
-    check(gm.locator('.room-main .s-chat .chat').count() == 1, 'chat is in the main column')
     order_ok = gm.evaluate("""() => { const l = document.querySelector('.s-layers'), c = document.querySelector('.s-chat'); return !!(l && c && (l.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING)) }""")
     check(order_ok, 'chat comes after the extra tracks')
-    check(gm.locator('.queue-card input').count() == 0 and gm.locator('.pls input').count() == 0, 'no separate add fields in the queue or the playlists')
+    check(gm.locator('.pls input').count() == 0 and gm.locator('.add-to').count() == 0, 'one add field; no "в очередь / в плейлист" toggles')
     gm.locator('.pls .switcher').click()
     PROMPTS.append('Бой')
     gm.locator('.menu-item', has_text='Новый плейлист').click()
     gm.wait_for_selector('.pls .switcher:has-text("Бой")', timeout=10000)
-    queue_before = titles(gm, '.queue-card .q-title')
     for url in (VIDEO2, VIDEO):
         n = gm.locator('.pl-item').count()
-        add_to(gm, url, queue=False, playlist=True)
+        add(gm, url)
         gm.wait_for_function(f"() => document.querySelectorAll('.pl-item').length > {n}", timeout=15000)
-    check(gm.locator('.pl-item').count() == 2 and titles(gm, '.queue-card .q-title') == queue_before, 'with "в очередь" off the songs went only into the open playlist «Бой»')
+    check(gm.locator('.pl-item').count() == 2, 'two songs went into the open playlist «Бой»')
+    check('Rick Astley' in pl.locator('.now-title').inner_text() and 'Основной' in gm.locator('.now').inner_text(), 'adding to another playlist does not interrupt the music')
     gm.locator('.pl-item').first.click()
     pl.wait_for_function("() => /GANGNAM/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
-    check(True, 'click on a song plays the playlist from it for everybody')
-    gm.wait_for_selector('.pl-banner:has-text("Бой")', timeout=10000)
-    check(titles(gm, '.queue-card .q-title') == queue_before, 'the queue stays untouched while the playlist plays')
+    check('Бой' in gm.locator('.now').inner_text(), 'click on a song plays the playlist from it for everybody')
     gm.locator('.controls button[title="Дальше"]').click()
     pl.wait_for_function("() => /Rick Astley/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
-    check(gm.locator('.pl-banner').count() == 1, '"next" goes to the next song of the playlist (not the queue)')
+    check(True, '"next" goes to the next song of the playlist')
 
     step('Drag and drop')
     before = titles(gm, '.pl-item-title')
     drag(gm, '.pl-item', 1, 0)
     gm.wait_for_function("(t) => document.querySelector('.pl-item-title')?.innerText.trim() === t", arg=before[1], timeout=10000)
     check(titles(gm, '.pl-item-title') == [before[1], before[0]], 'playlist reordered by dragging')
-    add_to(gm, VIDEO2, queue=True, playlist=False)
-    gm.wait_for_function("() => document.querySelectorAll('.queue-card .q-item').length === 2", timeout=15000)
-    check(gm.locator('.pl-item').count() == 2, 'with "в плейлист" off the song went only into the queue')
-    check(gm.locator('.pl-banner').count() == 1, 'adding to the queue does not interrupt the playlist')
-    q = titles(gm, '.queue-card .q-title')
-    drag(gm, '.queue-card .q-item', 1, 0)
-    gm.wait_for_function("(t) => document.querySelector('.queue-card .q-title')?.innerText.trim() === t", arg=q[1], timeout=10000)
-    check(titles(gm, '.queue-card .q-title') == [q[1], q[0]], 'queue reordered by dragging')
-    check(gm.locator('.queue-card button[title="Выше"], .queue-card button[title="Ниже"]').count() == 0, 'no more up/down arrows')
-    set_targets(gm, True, True)   # back to the default: both
+    check(gm.locator('.pls button[title="Выше"], .pls button[title="Ниже"]').count() == 0, 'no up/down arrows')
 
-    step('Back to the queue; listener sees playlists read-only; save queue')
-    gm.locator('.pl-banner').get_by_role('button', name='Играть очередь').click()
-    pl.wait_for_function("() => /GANGNAM/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
-    check(gm.locator('.pl-banner').count() == 0, '"Играть очередь" returns to the queue')
+    step('Back to «Основной»; listener sees playlists read-only')
+    open_playlist(gm, 'Основной')
+    gm.locator('.pl-item').first.click()
+    gm.wait_for_function("() => document.querySelector('.now')?.innerText.includes('Основной')", timeout=10000)
+    pl.wait_for_function("() => /Rick Astley/i.test(document.querySelector('.now-title')?.innerText ?? '')", timeout=15000)
+    check(True, 'switching playlists and playing «Основной» again')
     pl.wait_for_selector('.room-side .pls .pl-item', timeout=10000)
     check(pl.locator('.s-add').count() == 0 and pl.locator('.pl-item.clickable').count() == 0 and pl.locator('.pls [data-drag-handle]').count() == 0, 'listener without control: no add field, playlists read-only')
     gm.locator('.pls .switcher').click()
-    PROMPTS.append('Сохранённая очередь')
-    gm.locator('.menu-item', has_text='Сохранить очередь как плейлист').click()
-    gm.wait_for_selector('.pls .switcher:has-text("Сохранённая очередь")', timeout=10000)
-    check(gm.locator('.pl-item').count() == 2, 'current queue saved as a playlist and opened')
-    gm.locator('.pls .switcher').click()
     names = titles(gm, '.menu .menu-item .grow')
+    check(gm.locator('.menu-item', has_text='очередь').count() == 0, 'no queue actions in the playlist menu')
     gm.keyboard.press('Escape')
-    check(names == ['Основной', 'Бой', 'Сохранённая очередь'], f'switcher lists every playlist ({names})')
+    check(names == ['Основной', 'Бой'], f'switcher lists every playlist ({names})')
     shot(gm, 'd-room-playlists', full=False)
     gm.set_viewport_size({'width': 1366, 'height': 1600}); shot(gm, 'd-room-full', full=True); gm.set_viewport_size({'width': 1366, 'height': 900})
 
@@ -323,8 +321,8 @@ with sync_playwright() as p:
     check(pl.evaluate(LAYER_STATE) != before, f'click on the layer mini player toggled it ({before} -> {pl.evaluate(LAYER_STATE)})')
 
     step('Rename, interval and speed of a video')
-    gm.locator('.controls button[title="Повтор очереди"]').click()   # repeat this one song, inside its interval
-    gm.locator('.queue-card .q-item').first.locator('button[title^="Название"]').click()
+    gm.locator('.controls button[title="Повтор плейлиста"]').click()   # repeat this one song, inside its interval
+    gm.locator('.pls .pl-item').first.locator('button[title^="Название"]').click()
     gm.wait_for_selector('.modal h3:has-text("Настройки трека")')
     gm.locator('.modal input').first.fill('Боевая тема')
     gm.locator('.modal input[placeholder="0:00"]').fill('0:20')
@@ -334,7 +332,7 @@ with sync_playwright() as p:
     gm.locator('.modal').get_by_role('button', name='Сохранить').click()
     pl.wait_for_function("() => document.querySelector('.now-title')?.innerText.includes('Боевая тема')", timeout=10000)
     check(True, 'renamed title reached the listener')
-    check('0:20–0:26' in gm.locator('.queue-card .q-item').first.inner_text() and '×1.5' in gm.locator('.queue-card .q-item').first.inner_text(), 'queue row shows the interval and speed')
+    check('0:20–0:26' in gm.locator('.pls .pl-item').first.inner_text() and '×1.5' in gm.locator('.pls .pl-item').first.inner_text(), 'playlist row shows the interval and speed')
     samples = []
     t0 = time.time()
     while time.time() - t0 < 9:
@@ -348,6 +346,18 @@ with sync_playwright() as p:
     check(bool(samples) and all(r == 1.5 for _, r in samples), 'listener plays at ×1.5')
     a, c = gm.evaluate(YT_TIME), pl.evaluate(YT_TIME)
     if a and c and abs(a['t'] - c['t']) < 4: check(abs(a['t'] - c['t']) < 2.0, f'GM and listener agree inside the interval (diff {abs(a["t"] - c["t"]):.2f})')
+
+    step('Reset the song to its defaults (the name stays)')
+    gm.locator('.pls .pl-item').first.locator('button[title^="Название"]').click()
+    gm.locator('.modal').get_by_role('button', name='Вернуть по умолчанию').click()
+    gm.wait_for_function("() => !document.querySelector('.pls .pl-item .timing')", timeout=10000)
+    check('Боевая тема' in gm.locator('.pls .pl-item').first.inner_text(), 'name kept, interval and speed gone')
+    t0 = time.time(); x = None
+    while time.time() - t0 < 10:
+        x = pl.evaluate(YT_TIME)
+        if x and x['r'] == 1: break
+        time.sleep(0.5)
+    check(bool(x and x['r'] == 1), f'listener back to normal speed ({x and x["r"]})')
 
     step('Admin')
     ad = b.new_context(viewport={'width': 1366, 'height': 900}).new_page(); watch(ad, 'admin')
