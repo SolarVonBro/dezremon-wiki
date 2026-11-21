@@ -721,7 +721,7 @@ export const useWorld = defineStore('world', () => {
     const me = uid.value!
     const names = ['entities', 'bodies', 'secrets', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
       'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'revisions', 'bookmarks',
-      'invites', 'bans', 'members']
+      'invites', 'joinRequests', 'bans', 'members']
     let done = 0
     for (const name of names) {
       const snap = await getDocs(coll(w, name))
