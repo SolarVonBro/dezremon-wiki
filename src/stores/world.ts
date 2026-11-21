@@ -200,6 +200,16 @@ export const useWorld = defineStore('world', () => {
         if (token !== openToken) return
         const prevRole = member.value?.role
         member.value = s.exists() ? (s.data() as Member) : null
+        if (prevRole && !member.value && !world.value?.isPublic) {
+          // removed, banned or left a closed world: drop everything we had, including the local cache
+          syncs.forEach((x) => x.stop())
+          syncs = []
+          entities.value = new Map()
+          relations.value = new Map()
+          status.value = 'denied'
+          void cache.clearWorld(id)
+          return
+        }
         if (prevRole !== member.value?.role && status.value === 'ready') void restartSync()
       }, () => {}))
       unsubs.push(onSnapshot(collection(db, 'worlds', id, 'members'), (s) => {
@@ -744,5 +754,10 @@ export async function acceptInvite(wid: string, code: string, user: { uid: strin
   const existing = await getDoc(doc(db, 'worlds', wid, 'members', user.uid))
   if (existing.exists()) return
   const m: Member = { uid: user.uid, role: invite.role, inviteCode: code, displayName: user.displayName || user.email || 'Игрок', email: user.email ?? '', photoURL: user.photoURL ?? null, joinedAt: now(), favorites: [] }
-  await setDoc(doc(db, 'worlds', wid, 'members', user.uid), m)
+  try {
+    await setDoc(doc(db, 'worlds', wid, 'members', user.uid), m)
+  } catch (e: any) {
+    if (e?.code === 'permission-denied') throw new Error('Не удалось вступить: приглашение недействительно или вход в этот мир для вас закрыт мастером')
+    throw e
+  }
 }
