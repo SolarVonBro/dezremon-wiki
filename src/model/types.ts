@@ -30,6 +30,8 @@ export interface World {
   /** Bumped whenever a master narrows visibility of something: clients then do a full resync. */
   aclVersion: number
   settings: WorldSettings
+  /** Last storage measurement (Settings → Ресурсы). */
+  usage?: { bytes: number; docs: number; at: number; byCollection: Record<string, { docs: number; bytes: number }> }
   createdAt: number
   updatedAt: number
 }

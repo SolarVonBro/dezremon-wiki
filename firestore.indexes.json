@@ -803,6 +803,174 @@
           "queryScope": "COLLECTION_GROUP"
         }
       ]
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "name",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "kind",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "fields",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "attributes",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "excerpt",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "tooltip",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "links",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "aliases",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "mentions",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "tagIds",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "bodies",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "secrets",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "secrets",
+      "fieldPath": "attributes",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "secrets",
+      "fieldPath": "gmNotes",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "revisions",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "revisions",
+      "fieldPath": "name",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "revisions",
+      "fieldPath": "createdByName",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "posts",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "posts",
+      "fieldPath": "title",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "images",
+      "fieldPath": "thumb",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "images",
+      "fieldPath": "name",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "imageChunks",
+      "fieldPath": "data",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "timelineEras",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "timelineElements",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questElements",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mapMarkers",
+      "fieldPath": "html",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mapMarkers",
+      "fieldPath": "points",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "text",
+      "ttl": false,
+      "indexes": []
     }
   ]
 }
