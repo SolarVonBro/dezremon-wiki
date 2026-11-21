@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { useWorld } from '@/stores/world'
-import { sendJoinRequest, cancelJoinRequest, watchMyRequest } from '@/data/joinRequests'
+import { sendJoinRequest, cancelJoinRequest, fetchMyRequest, watchMyRequest } from '@/data/joinRequests'
 import { formatDate } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -21,10 +21,23 @@ const asking = ref(false)
 const message = ref('')
 const busy = ref(false)
 const hidden = ref(false)
+let cancelling = false
 let stop: (() => void) | null = null
+let poll: number | undefined
 
 const worldName = computed(() => (world.wid === props.wid ? world.world?.name ?? null : null))
 const askedKey = computed(() => `dw.joinAsk.${props.wid}`)
+
+function apply(r: JoinRequest | null) {
+  const was = request.value
+  request.value = r
+  // A pending request vanished without us cancelling it: a master accepted (or dismissed) it. Reload the
+  // world so an accepted visitor gets in right away; the store's own membership listener usually beats us.
+  if (was?.status === 'pending' && !r && !cancelling && world.status !== 'loading' && !world.isMember) {
+    world.close()
+    void world.open(props.wid)
+  }
+}
 
 watch(() => [props.wid, session.user?.uid], ([w, u]) => {
   stop?.()
@@ -33,7 +46,7 @@ watch(() => [props.wid, session.user?.uid], ([w, u]) => {
   if (!w || !u) return
   stop = watchMyRequest(w as string, u as string, (r) => {
     const first = request.value === undefined
-    request.value = r
+    apply(r)
     // first visit after signing in: offer the request right away (once per world in this browser)
     if (first && !r) {
       try {
@@ -42,21 +55,39 @@ watch(() => [props.wid, session.user?.uid], ([w, u]) => {
     }
   })
 }, { immediate: true })
-onBeforeUnmount(() => stop?.())
+
+// Safety net: a snapshot listener can go quiet after access changes under it (seen after being removed from
+// a world), so while waiting for an answer re-read the request from the server every 20 s.
+watch(() => request.value?.status, (st) => {
+  window.clearInterval(poll)
+  poll = undefined
+  if (st !== 'pending') return
+  poll = window.setInterval(async () => {
+    if (document.visibilityState !== 'visible' || !session.user) return
+    const r = await fetchMyRequest(props.wid, session.user.uid).catch(() => undefined)
+    if (r !== undefined && (r?.status ?? null) !== (request.value?.status ?? null)) apply(r)
+  }, 20000)
+})
+onBeforeUnmount(() => { stop?.(); window.clearInterval(poll) })
 
 async function send() {
   if (!session.user) return
   busy.value = true
   try {
-    await sendJoinRequest(props.wid, session.user, message.value, route.fullPath, worldName.value)
+    request.value = await sendJoinRequest(props.wid, session.user, message.value, route.fullPath, worldName.value)
     asking.value = false
     toast.success('Заявка отправлена — мастер увидит её в настройках мира')
   } catch (e: any) { toast.error(e?.message ?? String(e)) } finally { busy.value = false }
 }
 async function cancel() {
   if (!session.user) return
-  await cancelJoinRequest(props.wid, session.user.uid)
-  toast.info(request.value?.status === 'rejected' ? 'Заявка удалена — можно отправить новую' : 'Заявка отменена')
+  const wasRejected = request.value?.status === 'rejected'
+  cancelling = true
+  try {
+    await cancelJoinRequest(props.wid, session.user.uid)
+    request.value = null
+    toast.info(wasRejected ? 'Заявка удалена — можно отправить новую' : 'Заявка отменена')
+  } catch (e: any) { toast.error(e?.message ?? String(e)) } finally { cancelling = false }
 }
 const fromArticle = computed(() => {
   const eid = route.params.eid as string | undefined
@@ -107,6 +138,8 @@ const fromArticle = computed(() => {
 <style scoped>
 .join-banner { position: sticky; top: var(--topbar-h); z-index: 28; display: flex; align-items: center; gap: 10px; padding: 8px 20px; background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); font-size: 14px; flex-wrap: wrap; }
 .join-banner > .icon { color: var(--accent); }
-.join-banner.inline { position: static; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 10px; text-align: left; }
+.join-banner.inline { position: static; display: grid; grid-template-columns: auto 1fr; align-items: start; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 10px; text-align: left; padding: 12px 14px; }
+.join-banner.inline > .icon { margin-top: 2px; }
+.join-banner.inline > .btn { grid-column: 2; justify-self: start; }
 @media (max-width: 860px) { .join-banner { padding: 8px 12px; } }
 </style>

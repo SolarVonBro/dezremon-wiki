@@ -1,7 +1,7 @@
 // "Please let me in" requests: worlds/{wid}/joinRequests/{uid}. The requester writes it; a master accepts
 // (creates the member doc and deletes the request in one batch) or rejects (status → rejected).
 import {
-  collection, collectionGroup, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch, type Unsubscribe,
+  collection, collectionGroup, deleteDoc, doc, getDocFromServer, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch, type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from '@/firebase'
 import type { JoinRequest, Member } from '@/model/types'
@@ -18,6 +18,7 @@ export async function sendJoinRequest(wid: string, user: Requester, message: str
   }
   try {
     await setDoc(reqRef(wid, user.uid), r)
+    return r
   } catch (e: any) {
     if (e?.code === 'permission-denied') throw new Error('Не удалось отправить заявку: вы уже участник или мастер закрыл вам доступ к этому миру')
     throw e
@@ -29,6 +30,12 @@ export const cancelJoinRequest = (wid: string, uid: string) => deleteDoc(reqRef(
 /** Live state of my own request in one world (null = none). */
 export function watchMyRequest(wid: string, uid: string, cb: (r: JoinRequest | null) => void): Unsubscribe {
   return onSnapshot(reqRef(wid, uid), (s) => cb(s.exists() ? (s.data() as JoinRequest) : null), () => cb(null))
+}
+
+/** Fresh read from the server (fallback when a live listener goes quiet). */
+export async function fetchMyRequest(wid: string, uid: string): Promise<JoinRequest | null> {
+  const s = await getDocFromServer(reqRef(wid, uid))
+  return s.exists() ? (s.data() as JoinRequest) : null
 }
 
 /** All requests I have sent (personal cabinet). */

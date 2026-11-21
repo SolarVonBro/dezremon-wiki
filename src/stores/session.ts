@@ -24,6 +24,9 @@ function readTextSize(): TextSize {
 export const useSession = defineStore('session', () => {
   const user = ref<User | null>(null)
   const ready = ref(false)
+  /** true between "account created" and "name saved": pages wait for it so they see the chosen name */
+  const registering = ref(false)
+  const rev = ref(0)
   const theme = ref<ThemeMode>(readTheme())
   const textSize = ref<TextSize>(readTextSize())
   watch(textSize, (t) => {
@@ -59,9 +62,16 @@ export const useSession = defineStore('session', () => {
     await signInWithEmailAndPassword(auth, email, password)
   }
   async function register(email: string, password: string, name: string) {
-    const cred = await createUserWithEmailAndPassword(auth, email, password)
-    if (name) await updateProfile(cred.user, { displayName: name })
-    user.value = auth.currentUser
+    registering.value = true
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      if (name) {
+        await updateProfile(cred.user, { displayName: name })
+        await setDoc(doc(db, 'users', cred.user.uid), { displayName: name }, { merge: true }).catch(() => {})
+      }
+      user.value = auth.currentUser
+      rev.value++
+    } finally { registering.value = false }
   }
   async function resetPassword(email: string) {
     await sendPasswordResetEmail(auth, email)
@@ -69,11 +79,10 @@ export const useSession = defineStore('session', () => {
   async function signOut() {
     await fbSignOut(auth)
   }
-  const displayName = () => user.value?.displayName || user.value?.email || 'Гость'
+  const displayName = () => { void rev.value; return user.value?.displayName || user.value?.email || 'Гость' }
 
   // ---------- account (personal cabinet) ----------
   /** Bumped after profile/provider changes: Firebase mutates the User object in place. */
-  const rev = ref(0)
   const providers = () => { void rev.value; return (user.value?.providerData ?? []).map((p) => p.providerId) }
   const myMemberships = async () => (user.value ? (await getDocs(query(collectionGroup(db, 'members'), where('uid', '==', user.value.uid)))).docs : [])
 
@@ -135,7 +144,7 @@ export const useSession = defineStore('session', () => {
   }
 
   return {
-    user, ready, whenReady, theme, textSize, signInGoogle, signInEmail, register, resetPassword, signOut, displayName,
+    user, ready, registering, whenReady, theme, textSize, signInGoogle, signInEmail, register, resetPassword, signOut, displayName,
     rev, providers, updateDisplayName, changePassword, addPassword, linkGoogle, unlinkProvider, sendVerification, deleteAccount,
   }
 })

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, connectAuthEmulator } from 'firebase/auth'
-import { initializeFirestore, memoryLocalCache, connectFirestoreEmulator } from 'firebase/firestore'
+import { initializeFirestore, memoryLocalCache, connectFirestoreEmulator, setLogLevel } from 'firebase/firestore'
 import { firebaseConfig } from './firebaseConfig'
 
 // Local development against the Firebase emulators: `VITE_EMULATOR=1 npm run dev`
@@ -17,3 +17,4 @@ if (useEmulator) {
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
 }
 export const isEmulator = useEmulator
+try { if (localStorage.getItem('dw.fsdebug')) setLogLevel('debug') } catch { /* no storage */ }

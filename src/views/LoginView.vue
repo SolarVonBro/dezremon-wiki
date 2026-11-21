@@ -17,7 +17,7 @@ const busy = ref(false)
 const error = ref('')
 
 const next = () => (typeof route.query.next === 'string' && route.query.next.startsWith('/') ? route.query.next : '/')
-watch(() => session.user, (u) => { if (u) void router.replace(next()) }, { immediate: true })
+watch(() => [session.user, session.registering] as const, ([u, r]) => { if (u && !r) void router.replace(next()) }, { immediate: true })
 
 async function run(fn: () => Promise<void>) {
   busy.value = true

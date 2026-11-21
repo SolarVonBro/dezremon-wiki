@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 import {
-  collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc,
+  collection, collectionGroup, deleteDoc, disableNetwork, doc, enableNetwork, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc,
   where, writeBatch, limit as qlimit, type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from '@/firebase'
@@ -139,6 +139,16 @@ export const useWorld = defineStore('world', () => {
   }
 
   // ---------- open / close ----------
+  // The world is loaded for a particular user (guest = null): signing in or out from inside the world reloads it,
+  // otherwise a guest who just signed in would keep seeing the guest view and never notice being let in.
+  let openedFor: string | null = null
+  watch(() => session.user?.uid ?? null, (u) => {
+    const id = wid.value
+    if (!id || u === openedFor || (status.value !== 'ready' && status.value !== 'denied' && status.value !== 'error')) return
+    close()
+    void open(id)
+  })
+
   function close() {
     unsubs.forEach((u) => u())
     syncs.forEach((s) => s.stop())
@@ -156,12 +166,14 @@ export const useWorld = defineStore('world', () => {
   }
 
   async function open(id: string) {
-    if (wid.value === id && (status.value === 'ready' || status.value === 'loading')) return
+    if (wid.value === id && openedFor === (session.user?.uid ?? null) && (status.value === 'ready' || status.value === 'loading')) return
     close()
     const token = ++openToken
     wid.value = id
     status.value = 'loading'
     await session.whenReady
+    if (token !== openToken) return
+    openedFor = session.user?.uid ?? null
     try {
       const u = session.user
       const [ws, ms] = await Promise.all([
@@ -181,7 +193,7 @@ export const useWorld = defineStore('world', () => {
       void touchLastSeen()
     } catch (e: any) {
       if (token !== openToken) return
-      console.error(e)
+      if (e?.code !== 'permission-denied') console.error(e)
       if (e?.code === 'permission-denied') deny(id, token)
       else status.value = 'error'
       errorText.value = e?.message ?? String(e)
@@ -203,6 +215,15 @@ export const useWorld = defineStore('world', () => {
     }, () => {}))
   }
 
+  /**
+   * Losing access makes the server drop a pile of listen targets at once; afterwards the SDK sometimes stops
+   * delivering updates for new listeners in the same tab (seen with join requests after being kicked).
+   * Restarting the streams re-subscribes everything cleanly; pending writes are kept.
+   */
+  function resetStreams() {
+    void disableNetwork(db).then(() => enableNetwork(db)).catch(() => {})
+  }
+
   function startLive(id: string, token: number) {
     unsubs.push(onSnapshot(doc(db, 'worlds', id), (s) => {
       if (!s.exists() || token !== openToken) return
@@ -217,6 +238,12 @@ export const useWorld = defineStore('world', () => {
         if (token !== openToken) return
         const prevRole = member.value?.role
         member.value = s.exists() ? (s.data() as Member) : null
+        if (!prevRole && member.value) {
+          // a guest of a public world was just let in (join request accepted): reopen with member access
+          close()
+          void open(id)
+          return
+        }
         if (prevRole && !member.value && !world.value?.isPublic) {
           // removed, banned or left a closed world: drop everything we had, including the local cache
           syncs.forEach((x) => x.stop())
@@ -225,6 +252,7 @@ export const useWorld = defineStore('world', () => {
           relations.value = new Map()
           status.value = 'denied'
           void cache.clearWorld(id)
+          resetStreams()
           return
         }
         if (prevRole !== member.value?.role && status.value === 'ready') void restartSync()
@@ -278,6 +306,7 @@ export const useWorld = defineStore('world', () => {
         relations.value = new Map()
         status.value = 'denied'
         void cache.clearWorld(wid.value)
+        resetStreams()
         return
       }
       await restartSync()
