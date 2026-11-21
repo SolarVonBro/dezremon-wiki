@@ -1,0 +1,177 @@
+rules_version = '2';
+
+// Access model (see docs/SCHEMA.md):
+//   owner/master — everything in their world;
+//   player       — reads records with visibility public/members, records shared with them (allowedUids)
+//                  and their own records; writes their own records and entities they were made editors of;
+//   guest        — reads records with visibility "public" in worlds marked isPublic.
+// Rules are not filters: the client runs one query per branch (see src/data/access.ts).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function worldPath(w) { return /databases/$(database)/documents/worlds/$(w); }
+    function memberPath(w) { return /databases/$(database)/documents/worlds/$(w)/members/$(request.auth.uid); }
+    function isMember(w) { return signedIn() && exists(memberPath(w)); }
+    function isMaster(w) { return isMember(w) && get(memberPath(w)).data.role in ['owner', 'master']; }
+    function isOwner(w) { return isMember(w) && get(memberPath(w)).data.role == 'owner'; }
+    function worldPublic(w) { return get(worldPath(w)).data.isPublic == true; }
+    function settings(w) { return get(worldPath(w)).data.settings; }
+
+    function canRead(w, d) {
+      return isMaster(w)
+        || (isMember(w) && d.visibility in ['public', 'members'])
+        || (isMember(w) && uid() in d.allowedUids)
+        || (isMember(w) && d.createdBy == uid())
+        || (d.visibility == 'public' && worldPublic(w));
+    }
+
+    // Players may not publish to guests; they keep "public" only on records a master already made public.
+    function visOk(w) {
+      return isMaster(w) || request.resource.data.visibility != 'public'
+        || (resource != null && resource.data.visibility == 'public');
+    }
+
+    function entityAfter(w, e) { return getAfter(/databases/$(database)/documents/worlds/$(w)/entities/$(e)).data; }
+    function entityNow(w, e) { return get(/databases/$(database)/documents/worlds/$(w)/entities/$(e)).data; }
+    function canEditEntityData(ent) {
+      return ent.createdBy == uid() || uid() in ent.get('editorUids', []);
+    }
+    function canEditEntity(w, e) {
+      return isMaster(w) || (isMember(w) && exists(/databases/$(database)/documents/worlds/$(w)/entities/$(e)) && canEditEntityData(entityNow(w, e)));
+    }
+
+    function inviteOk(w, code, role) {
+      let inv = get(/databases/$(database)/documents/worlds/$(w)/invites/$(code)).data;
+      return inv.role == role && (inv.expiresAt == null || inv.expiresAt > request.time.toMillis());
+    }
+
+    match /users/{u} {
+      allow read, write: if signedIn() && uid() == u;
+    }
+
+    // "My worlds" is a collection-group query on members(uid == me).
+    match /{path=**}/members/{m} {
+      allow read: if signedIn() && resource.data.uid == uid();
+    }
+
+    match /worlds/{w} {
+      allow get: if isMember(w) || resource.data.isPublic == true;
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.ownerId == uid();
+      allow update: if isMaster(w) && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if isOwner(w);
+
+      match /members/{m} {
+        allow get: if signedIn() && (m == uid() || isMember(w));
+        allow list: if isMember(w);
+        allow create: if signedIn() && m == uid() && request.resource.data.uid == uid() && (
+          (request.resource.data.role == 'owner' && getAfter(worldPath(w)).data.ownerId == uid())
+          || (request.resource.data.role in ['master', 'player'] && inviteOk(w, request.resource.data.inviteCode, request.resource.data.role))
+        );
+        allow update: if (isOwner(w) && resource.data.role != 'owner' && request.resource.data.role in ['master', 'player'] && request.resource.data.uid == resource.data.uid)
+          || (m == uid() && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid);
+        allow delete: if resource.data.role != 'owner' && (isOwner(w) || m == uid());
+      }
+
+      match /invites/{code} {
+        allow get: if signedIn();
+        allow list, create, delete: if isMaster(w);
+        allow update: if false;
+      }
+
+      match /entities/{e} {
+        allow read: if canRead(w, resource.data);
+        allow create: if isMaster(w) || (
+          isMember(w) && request.resource.data.createdBy == uid() && visOk(w)
+          && request.resource.data.type in settings(w).get('playerCreateTypes', [])
+          && request.resource.data.get('editorUids', []).size() == 0
+        );
+        allow update: if isMaster(w) || (
+          isMember(w) && canEditEntityData(resource.data) && !resource.data.get('hasSecrets', false)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.get('editorUids', []) == resource.data.get('editorUids', [])
+          && request.resource.data.get('hasSecrets', false) == false
+          && visOk(w)
+        );
+        allow delete: if isMaster(w);
+      }
+
+      // Readable article text (secret blocks stripped). Mirrors the entity's visibility.
+      match /bodies/{e} {
+        allow read: if canRead(w, resource.data);
+        allow write: if isMaster(w) || (
+          isMember(w) && canEditEntityData(entityAfter(w, e)) && !entityAfter(w, e).get('hasSecrets', false)
+          && request.resource.data.visibility == entityAfter(w, e).visibility
+        );
+      }
+
+      match /secrets/{e} {
+        allow read, write: if isMaster(w);
+      }
+
+      match /revisions/{r} {
+        allow read: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid());
+        allow create: if isMember(w) && request.resource.data.createdBy == uid();
+        allow update: if false;
+        allow delete: if isMaster(w);
+      }
+
+      match /images/{i} {
+        allow read: if canRead(w, resource.data);
+        allow create: if isMember(w) && request.resource.data.createdBy == uid() && visOk(w);
+        allow update: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid() && request.resource.data.createdBy == uid() && visOk(w));
+        allow delete: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid());
+      }
+
+      match /imageChunks/{c} {
+        allow read: if canRead(w, resource.data);
+        allow create: if isMember(w) && request.resource.data.createdBy == uid() && visOk(w);
+        allow update: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid() && visOk(w));
+        allow delete: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid());
+      }
+
+      match /bookmarks/{b} {
+        allow read: if canRead(w, resource.data);
+        allow write: if isMaster(w);
+      }
+
+      // Rows hanging off an entity. `parent` names the field that points at the owning entity.
+      match /{coll}/{id} {
+        function parentField() {
+          return {
+            'posts': 'entityId', 'relations': 'sourceId', 'orgMembers': 'organisationId', 'inventory': 'ownerId',
+            'entityAbilities': 'entityId', 'questElements': 'questId', 'reminders': 'entityId', 'timelineEras': 'timelineId',
+            'timelineElements': 'timelineId', 'mapLayers': 'mapId', 'mapGroups': 'mapId', 'mapMarkers': 'mapId', 'messages': 'conversationId'
+          }[coll];
+        }
+        function isChild() {
+          return coll in ['posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
+                          'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages'];
+        }
+        function parentOf(d) { return d.get(parentField(), ''); }
+        function parentEditable(d) {
+          return parentOf(d) is string && parentOf(d) != '' && canEditEntity(w, parentOf(d));
+        }
+        // players may add their own posts (world setting), messages, and dates on calendars
+        function openForPlayers() {
+          return (coll == 'posts' && settings(w).get('playersCanPost', false))
+            || coll == 'messages'
+            || (coll == 'reminders' && request.resource.data.get('calendarId', '') != '');
+        }
+
+        allow read: if isChild() && canRead(w, resource.data);
+        allow create: if isChild() && (isMaster(w) || (
+          isMember(w) && request.resource.data.createdBy == uid() && visOk(w)
+          && (parentEditable(request.resource.data) || openForPlayers())
+        ));
+        allow update: if isChild() && (isMaster(w) || (
+          isMember(w) && request.resource.data.createdBy == resource.data.createdBy && visOk(w)
+          && (resource.data.createdBy == uid() || parentEditable(resource.data))
+        ));
+        allow delete: if isChild() && (isMaster(w) || (isMember(w) && resource.data.createdBy == uid()));
+      }
+    }
+  }
+}

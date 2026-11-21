@@ -1,0 +1,17 @@
+{
+  "name": "dezremon-wiki-backup-runner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ежедневный бэкап Firestore миров Dezremon Wiki в git-репозиторий (GitHub Actions)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "backup": "node backup.mjs --out ../backups",
+    "zip": "node zip-backup.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

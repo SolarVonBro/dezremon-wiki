@@ -1,0 +1,59 @@
+# Copy this file to .github/workflows/backup.yml of your PRIVATE backup repository.
+# Repository layout:   backup-runner/ (this folder)   backups/ (created by the first run)
+# Secret required:     FIREBASE_SA — the full JSON of a Firebase service-account key.
+name: Firestore backup
+
+on:
+  schedule:
+    - cron: '23 2 * * *'   # every day at 02:23 UTC
+  workflow_dispatch:
+    inputs:
+      world:
+        description: 'Only this world id (empty = all worlds)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firestore-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: backup-runner
+        run: |
+          if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund; else npm install --omit=dev --no-audit --no-fund; fi
+
+      - name: Dump Firestore
+        working-directory: backup-runner
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          WORLD: ${{ github.event.inputs.world }}
+        run: |
+          if [ -n "$WORLD" ]; then node backup.mjs --out ../backups --world "$WORLD"; else node backup.mjs --out ../backups; fi
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A backups
+          if git diff --cached --quiet; then
+            echo "No changes since the previous backup"
+            exit 0
+          fi
+          git commit -m "Backup $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
