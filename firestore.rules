@@ -60,7 +60,11 @@ service cloud.firestore {
       allow get: if isMember(w) || resource.data.isPublic == true;
       allow list: if false;
       allow create: if signedIn() && request.resource.data.ownerId == uid();
-      allow update: if isMaster(w) && request.resource.data.ownerId == resource.data.ownerId;
+      // ownerId changes only through a transfer: the new owner must be a member promoted to owner in the same batch
+      allow update: if isMaster(w) && (
+        request.resource.data.ownerId == resource.data.ownerId
+        || (isOwner(w) && getAfter(/databases/$(database)/documents/worlds/$(w)/members/$(request.resource.data.ownerId)).data.role == 'owner')
+      );
       allow delete: if isOwner(w);
 
       match /members/{m} {
@@ -68,11 +72,31 @@ service cloud.firestore {
         allow list: if isMember(w);
         allow create: if signedIn() && m == uid() && request.resource.data.uid == uid() && (
           (request.resource.data.role == 'owner' && getAfter(worldPath(w)).data.ownerId == uid())
-          || (request.resource.data.role in ['master', 'player'] && inviteOk(w, request.resource.data.inviteCode, request.resource.data.role))
+          || (request.resource.data.role in ['master', 'player'] && inviteOk(w, request.resource.data.inviteCode, request.resource.data.role)
+              && !exists(/databases/$(database)/documents/worlds/$(w)/bans/$(uid())))
         );
-        allow update: if (isOwner(w) && resource.data.role != 'owner' && request.resource.data.role in ['master', 'player'] && request.resource.data.uid == resource.data.uid)
-          || (m == uid() && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid);
-        allow delete: if resource.data.role != 'owner' && (isOwner(w) || m == uid());
+        function sameIdentity() { return request.resource.data.uid == resource.data.uid; }
+        function sameRole() { return request.resource.data.role == resource.data.role; }
+        allow update: if sameIdentity() && (
+          // owner changes the role of other members
+          (isOwner(w) && resource.data.role != 'owner' && request.resource.data.role in ['master', 'player'])
+          // masters manage non-role fields of anyone (player character, extra rights)
+          || (isMaster(w) && sameRole())
+          // everybody edits their own profile fields, but not their rights
+          || (m == uid() && sameRole() && request.resource.data.get('createTypes', []) == resource.data.get('createTypes', []))
+          // ownership transfer, in one batch with worlds/{w}.ownerId: the owner promotes another member…
+          || (isOwner(w) && m != uid() && request.resource.data.role == 'owner' && getAfter(worldPath(w)).data.ownerId == m)
+          // …and steps down to master
+          || (m == uid() && resource.data.role == 'owner' && request.resource.data.role == 'master' && getAfter(worldPath(w)).data.ownerId != uid())
+        );
+        allow delete: if (resource.data.role != 'owner' && (isMaster(w) && resource.data.role == 'player' || isOwner(w) || m == uid()))
+          // the owner's own membership goes last, after the world itself was deleted
+          || (m == uid() && !exists(worldPath(w)));
+      }
+
+      // Users removed from the world who must not come back through an old invite link.
+      match /bans/{u} {
+        allow read, write: if isMaster(w);
       }
 
       match /invites/{code} {
@@ -85,7 +109,8 @@ service cloud.firestore {
         allow read: if canRead(w, resource.data);
         allow create: if isMaster(w) || (
           isMember(w) && request.resource.data.createdBy == uid() && visOk(w)
-          && request.resource.data.type in settings(w).get('playerCreateTypes', [])
+          && (request.resource.data.type in settings(w).get('playerCreateTypes', [])
+              || request.resource.data.type in get(memberPath(w)).data.get('createTypes', []))
           && request.resource.data.get('editorUids', []).size() == 0
         );
         allow update: if isMaster(w) || (

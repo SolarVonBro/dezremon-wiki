@@ -67,6 +67,18 @@ export interface Member {
   inviteCode?: string
   characterId?: string | null
   favorites?: string[]
+  /** Extra sections this member may create (on top of settings.playerCreateTypes). Set by masters. */
+  createTypes?: string[]
+  /** Last time the member opened the world (updated at most every few hours). */
+  lastSeenAt?: number
+}
+
+export interface Ban {
+  uid: string
+  displayName: string
+  email: string
+  at: number
+  by: string
 }
 
 export interface Invite {

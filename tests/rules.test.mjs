@@ -139,6 +139,50 @@ await t('owner removes a player; player loses access', async () => {
 await t('stranger cannot touch world settings', () => assertFails(updateDoc(doc(stranger, 'worlds', 'w1'), { isPublic: true })))
 await t('player cannot change world settings', () => assertFails(updateDoc(doc(player, 'worlds', 'w1'), { isPublic: true })))
 
+console.log('members admin')
+await t('master edits a player\'s character link', () => assertSucceeds(updateDoc(doc(owner, 'worlds', 'w1', 'members', 'player'), { characterId: 'pub' })))
+await t('player edits own profile fields', () => assertSucceeds(updateDoc(doc(player, 'worlds', 'w1', 'members', 'player'), { displayName: 'Соня', lastSeenAt: now })))
+await t('player cannot grant himself extra create rights', () => assertFails(updateDoc(doc(player, 'worlds', 'w1', 'members', 'player'), { createTypes: ['character'] })))
+await t('per-member create rights: master grants characters, player creates one', async () => {
+  await assertSucceeds(updateDoc(doc(owner, 'worlds', 'w1', 'members', 'player'), { createTypes: ['character'] }))
+  await assertSucceeds(setDoc(doc(player, 'worlds', 'w1', 'entities', 'pc1'), { ...base, type: 'character', name: 'Мой герой', ...pv('members') }))
+})
+await t('banned user cannot rejoin with a valid invite', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'worlds', 'w1', 'bans', 'player2'), { uid: 'player2', at: now }))
+  await assertFails(setDoc(doc(player2, 'worlds', 'w1', 'members', 'player2'), { uid: 'player2', role: 'player', inviteCode: 'inv1' }))
+})
+await t('player cannot read the ban list', () => assertFails(getDoc(doc(player, 'worlds', 'w1', 'bans', 'player2'))))
+await t('player cannot take ownership', async () => {
+  const b = writeBatch(player)
+  b.update(doc(player, 'worlds', 'w1'), { ownerId: 'player' })
+  b.update(doc(player, 'worlds', 'w1', 'members', 'player'), { role: 'owner' })
+  await assertFails(b.commit())
+})
+await t('owner transfers ownership in one batch', async () => {
+  await assertSucceeds(updateDoc(doc(owner, 'worlds', 'w1', 'members', 'player'), { role: 'master' }))
+  const b = writeBatch(owner)
+  b.update(doc(owner, 'worlds', 'w1'), { ownerId: 'player' })
+  b.update(doc(owner, 'worlds', 'w1', 'members', 'player'), { role: 'owner' })
+  b.update(doc(owner, 'worlds', 'w1', 'members', 'owner'), { role: 'master' })
+  await assertSucceeds(b.commit())
+})
+await t('former owner (now master) cannot change roles; new owner can', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'worlds', 'w1', 'invites', 'inv3'), { code: 'inv3', role: 'player', createdBy: 'owner', createdAt: now, expiresAt: null, note: '' }))
+  await assertSucceeds(setDoc(doc(stranger, 'worlds', 'w1', 'members', 'stranger'), { uid: 'stranger', role: 'player', inviteCode: 'inv3', displayName: 'S', email: '', photoURL: null, joinedAt: now }))
+  await assertFails(updateDoc(doc(owner, 'worlds', 'w1', 'members', 'stranger'), { role: 'master' }))
+  await assertSucceeds(updateDoc(doc(player, 'worlds', 'w1', 'members', 'stranger'), { role: 'master' }))
+})
+await t('master removes a player, not another master', async () => {
+  await assertSucceeds(updateDoc(doc(player, 'worlds', 'w1', 'members', 'stranger'), { role: 'player' }))
+  await assertFails(deleteDoc(doc(stranger, 'worlds', 'w1', 'members', 'owner')))
+  await assertSucceeds(deleteDoc(doc(owner, 'worlds', 'w1', 'members', 'stranger')))
+})
+await t('owner deletes the world, then his own membership', async () => {
+  await assertFails(deleteDoc(doc(player, 'worlds', 'w1', 'members', 'player')))
+  await assertSucceeds(deleteDoc(doc(player, 'worlds', 'w1')))
+  await assertSucceeds(deleteDoc(doc(player, 'worlds', 'w1', 'members', 'player')))
+})
+
 await env.cleanup()
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

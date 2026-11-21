@@ -19,12 +19,12 @@ const name = ref('')
 const description = ref('')
 const isPublic = ref(false)
 
-watch(() => session.user, async (u) => {
-  loading.value = true
-  try { worlds.value = u ? await myWorlds(u.uid) : [] }
-  catch (e: any) { toast.error('Не удалось загрузить миры: ' + (e?.message ?? e)) }
-  finally { loading.value = false }
+// Signed-in users have their worlds in the personal cabinet; this page is the landing for guests.
+watch(() => [session.ready, session.user], () => {
+  if (session.user) { void router.replace({ name: 'account' }); return }
+  if (session.ready) loading.value = false
 }, { immediate: true })
+
 
 async function create() {
   if (!session.user || !name.value.trim()) return

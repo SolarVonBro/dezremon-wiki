@@ -1,5 +1,5 @@
 /* ============ Article typography (editor + viewer) ============ */
-.prose { font-family: var(--font-text); font-size: 17px; line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+.prose { font-family: var(--font-text); font-size: var(--prose-size, 17px); line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
 .prose > :first-child { margin-top: 0; }
 .prose p { margin: 0 0 .85em; }
 .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { font-family: var(--font-head); line-height: 1.2; margin: 1.3em 0 .5em; color: var(--text); scroll-margin-top: 80px; }
@@ -249,7 +249,7 @@ img.img-broken { min-height: 40px; min-width: 120px; background: var(--surface-3
 .lb-next { right: 16px; top: 50%; }
 
 @media (max-width: 720px) {
-  .prose { font-size: 16px; }
+  .prose { font-size: calc(var(--prose-size, 17px) - 1px); }
   .wiki-editor { padding: 14px 14px 30px; }
   .wiki-img[data-align='left'], .wiki-img[data-align='right'] { float: none; display: block; margin: .8em auto; max-width: 100%; }
   .tb { top: var(--topbar-h); }

@@ -10,18 +10,20 @@ import { ICON_NAMES } from '@/components/common/icons'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import ImageDialog from '@/components/editor/ImageDialog.vue'
+import Modal from '@/components/common/Modal.vue'
 import { toast } from '@/components/common/toast'
 import type { CustomType, Invite, Role, Visibility } from '@/model/types'
 
 const BackupPanel = defineAsyncComponent(() => import('@/components/modules/BackupPanel.vue'))
 const UsagePanel = defineAsyncComponent(() => import('@/components/modules/UsagePanel.vue'))
+const MembersAdmin = defineAsyncComponent(() => import('@/components/admin/MembersAdmin.vue'))
 const route = useRoute()
 const router = useRouter()
 const world = useWorld()
 const gallery = useGallery()
 const tab = computed(() => (route.params.tab as string) || 'general')
 const TABS = [
-  { k: 'general', label: 'Общие', icon: 'settings' }, { k: 'members', label: 'Участники', icon: 'users' }, { k: 'modules', label: 'Разделы', icon: 'layout-grid' },
+  { k: 'general', label: 'Общие', icon: 'settings' }, { k: 'members', label: 'Участники и права', icon: 'users' }, { k: 'modules', label: 'Разделы', icon: 'layout-grid' },
   { k: 'usage', label: 'Ресурсы', icon: 'database' }, { k: 'backup', label: 'Бэкап и импорт', icon: 'archive' }, { k: 'trash', label: 'Корзина', icon: 'trash2' },
 ]
 
@@ -99,6 +101,24 @@ async function purgeOld() {
 }
 const visOptions: Visibility[] = ['public', 'members', 'master']
 
+// danger zone
+const deleting = ref(false)
+const deleteName = ref('')
+const deleteProgress = ref<string | null>(null)
+async function deleteWorld() {
+  deleteProgress.value = 'начинаю…'
+  try {
+    await world.deleteWorld((done, what) => { deleteProgress.value = `${what}: удалено ${done}` })
+    toast.success('Мир удалён')
+    void router.replace({ name: 'account' })
+  } catch (e: any) { toast.error('Ошибка удаления: ' + (e?.message ?? e)); deleteProgress.value = null }
+}
+async function leave() {
+  if (!confirm(`Выйти из мира «${world.world?.name}»? Вернуться можно будет только по новому приглашению.`)) return
+  await world.leaveWorld()
+  void router.replace({ name: 'account' })
+}
+
 // Publish everything players can see to guests, or hide it again (all collections at once).
 const publishBusy = ref<string | null>(null)
 async function publishAll(to: 'public' | 'members') {
@@ -161,47 +181,37 @@ async function publishAll(to: 'public' | 'members') {
           </select>
         </label>
       </section>
+      <section class="card card-pad stack danger-zone">
+        <h3 class="panel-title" style="margin: 0"><Icon name="triangle-alert" /> Опасная зона</h3>
+        <template v-if="world.isOwner">
+          <p class="muted small" style="margin: 0">Передать мир другому участнику можно в «Участники и права» → карточка участника → «Передать владение».</p>
+          <div class="row gap wrap">
+            <span class="grow small">Удалить мир со всеми статьями, картинками и участниками. <b>Это нельзя отменить</b> — сначала скачайте бэкап.</span>
+            <RouterLink class="btn btn-sm" :to="{ name: 'settings', params: { wid: world.wid!, tab: 'backup' } }"><Icon name="download" :size="14" /> Бэкап</RouterLink>
+            <button class="btn btn-sm btn-danger" @click="deleting = true">Удалить мир…</button>
+          </div>
+        </template>
+
+        <div v-else class="row gap wrap">
+          <span class="grow small">Выйти из мира. Вернуться можно будет только по новому приглашению.</span>
+          <button class="btn btn-sm btn-danger" @click="leave">Выйти из мира</button>
+        </div>
+      </section>
+      <Modal v-if="deleting" title="Удалить мир" width="500px" :closable="!deleteProgress" @close="deleting = false">
+        <div class="stack">
+          <p style="margin: 0">Будут удалены все статьи, тексты, картинки, карты, календари, участники и приглашения мира <b>«{{ world.world?.name }}»</b>. Восстановить можно только из бэкапа.</p>
+          <label class="field"><span>Введите название мира для подтверждения</span><input v-model="deleteName" class="input" :placeholder="world.world?.name" :disabled="!!deleteProgress" /></label>
+          <p v-if="deleteProgress" class="muted small" style="margin: 0"><Icon name="refresh-cw" class="spin" :size="13" /> {{ deleteProgress }}</p>
+        </div>
+        <template #footer>
+          <button class="btn" :disabled="!!deleteProgress" @click="deleting = false">Отмена</button>
+          <button class="btn btn-danger" :disabled="deleteName.trim() !== world.world?.name || !!deleteProgress" @click="deleteWorld">Удалить навсегда</button>
+        </template>
+      </Modal>
       <ImageDialog v-if="imgDialog" :multiple="false" @close="imgDialog = false" @files="onFiles" @pick="(id) => world.updateWorld({ [imgDialog as string]: id })" />
     </div>
 
-    <div v-else-if="tab === 'members'" class="stack">
-      <section class="card card-pad">
-        <h3 class="panel-title"><Icon name="users" /> Участники ({{ world.members.length }})</h3>
-        <table class="table">
-          <tbody>
-            <tr v-for="m in world.members" :key="m.uid">
-              <td><span class="row gap-sm"><span class="avatar round" style="width: 30px; height: 30px"><img v-if="m.photoURL" :src="m.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="15" /></span> {{ m.displayName }}</span></td>
-              <td class="muted small">{{ m.email }}</td>
-              <td>
-                <select v-if="world.isOwner && m.role !== 'owner'" class="input input-sm" :value="m.role" @change="changeRole(m.uid, ($event.target as HTMLSelectElement).value as Role)">
-                  <option value="master">Мастер</option><option value="player">Игрок</option>
-                </select>
-                <span v-else class="badge">{{ ROLE[m.role] }}</span>
-              </td>
-              <td class="faint small">{{ relativeTime(m.joinedAt) }}</td>
-              <td><button v-if="world.isOwner && m.role !== 'owner'" class="icon-btn danger" title="Исключить" @click="kick(m.uid, m.displayName)"><Icon name="x" :size="15" /></button></td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-      <section class="card card-pad stack">
-        <h3 class="panel-title"><Icon name="user-plus" /> Пригласить</h3>
-        <div class="row gap wrap">
-          <select v-model="invRole" class="input" style="width: auto"><option value="player">Игроком</option><option value="master">Мастером</option></select>
-          <select v-model="invDays" class="input" style="width: auto"><option :value="1">на 1 день</option><option :value="7">на неделю</option><option :value="14">на 2 недели</option><option :value="30">на месяц</option><option :value="null">бессрочно</option></select>
-          <input v-model="invNote" class="input grow" placeholder="Для кого (заметка)" />
-          <button class="btn btn-primary" @click="createInvite"><Icon name="link" :size="15" /> Создать ссылку</button>
-        </div>
-        <div v-for="i in invites" :key="i.code" class="rel-row">
-          <Icon name="mail" :size="15" />
-          <span class="nowrap"><b>{{ i.role === 'master' ? 'Мастер' : 'Игрок' }}</b> {{ i.note }} <span class="faint small">· {{ i.expiresAt ? (i.expiresAt < Date.now() ? 'истекло' : 'до ' + formatDate(i.expiresAt)) : 'бессрочно' }}</span></span>
-          <input class="input input-sm grow invite-url" readonly :value="inviteUrl(i.code)" title="Ссылка-приглашение" @focus="($event.target as HTMLInputElement).select()" />
-          <button class="btn btn-sm" @click="copyInvite(i.code)"><Icon name="copy" :size="13" /> Ссылка</button>
-          <button class="icon-btn danger" title="Отозвать" @click="world.deleteInvite(i.code)"><Icon name="trash2" :size="15" /></button>
-        </div>
-        <p class="faint small" style="margin: 0">Человек открывает ссылку, входит через Google или почту и становится участником. Отзовите ссылку, когда все присоединились.</p>
-      </section>
-    </div>
+    <MembersAdmin v-else-if="tab === 'members'" />
 
     <div v-else-if="tab === 'modules'" class="stack">
       <section class="card card-pad">
@@ -249,3 +259,7 @@ async function publishAll(to: 'public' | 'members') {
     </div>
   </div>
 </template>
+
+<style scoped>
+.danger-zone { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+</style>

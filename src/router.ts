@@ -10,6 +10,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
+    { path: '/account', name: 'account', component: () => import('@/views/AccountView.vue') },
     { path: '/join/:wid/:code', name: 'join', component: () => import('@/views/JoinView.vue') },
     {
       path: '/w/:wid',

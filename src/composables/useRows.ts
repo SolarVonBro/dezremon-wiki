@@ -21,10 +21,10 @@ export function useRows<T>(collection: string, field: string, value: Ref<string 
     key = null
   }
 
-  watch([typeof value === 'function' ? value : () => value.value, () => world.wid, () => world.role, () => world.status], ([v]) => {
+  watch([typeof value === 'function' ? value : () => value.value, () => world.wid, () => world.role, () => world.status, () => world.preview?.uid ?? (world.preview ? '*' : '')], ([v]) => {
     release()
     if (!v || !world.wid || world.status !== 'ready') { out.value = []; return }
-    key = `${world.wid}|${world.role}|${collection}|${field}|${v}|${sortKey}`
+    key = `${world.wid}|${world.role}|${world.preview ? 'pv:' + (world.preview.uid ?? '*') : ''}|${collection}|${field}|${v}|${sortKey}`
     let s = shared.get(key)
     if (!s) {
       const rows = shallowRef<any[]>([])

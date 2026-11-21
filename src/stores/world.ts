@@ -14,7 +14,7 @@ import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
 import { clean, excerptOf, htmlToText, now, randomId, sortByName } from '@/data/util'
 import { setCustomTypes, typeDef } from '@/model/entityTypes'
 import type {
-  Attribute, Entity, Invite, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
+  Attribute, Ban, Entity, Invite, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
 } from '@/model/types'
 import { toast } from '@/components/common/toast'
 
@@ -52,15 +52,27 @@ export const useWorld = defineStore('world', () => {
 
   const uid = computed(() => session.user?.uid ?? null)
   const role = computed<Role | null>(() => member.value?.role ?? null)
-  const isMaster = computed(() => isMasterRole(role.value))
-  const isOwner = computed(() => role.value === 'owner')
+  /**
+   * "View as player": a master sees the world exactly as a player (or one specific member) would —
+   * hidden articles, rows and master secrets disappear, editing is off. Purely client-side.
+   */
+  const preview = ref<{ uid: string | null; name: string; guest?: boolean } | null>(null)
+  const realMaster = computed(() => isMasterRole(role.value))
+  const isMaster = computed(() => realMaster.value && !preview.value)
+  const isOwner = computed(() => role.value === 'owner' && !preview.value)
   const isMember = computed(() => !!role.value)
   const access = computed<Access>(() => ({ wid: wid.value ?? '', uid: uid.value, role: role.value }))
+  /** Access used to decide what is shown (differs from `access` only in preview mode). */
+  const viewAccess = computed<Access>(() => (!preview.value ? access.value
+    : preview.value.guest ? { wid: wid.value ?? '', uid: null, role: null }
+      : { wid: wid.value ?? '', uid: preview.value.uid ?? '__preview__', role: 'player' }))
+  /** The member whose eyes we look through (self, or the previewed player). */
+  const viewMember = computed<Member | null>(() => (preview.value?.uid ? members.value.find((m) => m.uid === preview.value!.uid) ?? null : preview.value ? null : member.value))
   const settings = computed<WorldSettings>(() => ({ ...DEFAULT_SETTINGS, ...(world.value?.settings ?? {}) }))
 
   // ---------- derived views ----------
   const list = computed(() => {
-    const a = access.value
+    const a = viewAccess.value
     const pub = !!world.value?.isPublic
     return [...entities.value.values()].filter((e) => !e.deleted && canSee(a, e, pub))
   })
@@ -87,7 +99,7 @@ export const useWorld = defineStore('world', () => {
   const tags = computed(() => byType.value.get('tag') ?? [])
   const recent = computed(() => [...list.value].sort((a, b) => b.updatedAt - a.updatedAt))
   const visibleRelations = computed(() => {
-    const a = access.value
+    const a = viewAccess.value
     const pub = !!world.value?.isPublic
     return [...relations.value.values()].filter((r) => !r.deleted && canSee(a, r, pub) && get(r.sourceId) && get(r.targetId))
   })
@@ -109,19 +121,20 @@ export const useWorld = defineStore('world', () => {
     if (!id) return undefined
     const e = entities.value.get(id)
     if (!e || e.deleted) return undefined
-    return canSee(access.value, e, !!world.value?.isPublic) ? e : undefined
+    return canSee(viewAccess.value, e, !!world.value?.isPublic) ? e : undefined
   }
   function getAny(id: string) { return entities.value.get(id) }
 
   function canEdit(e: Entity | undefined | null): boolean {
-    if (!e || !uid.value || !role.value) return false
+    if (!e || !uid.value || !role.value || preview.value) return false
     if (isMaster.value) return true
     if (e.hasSecrets) return false
     return e.createdBy === uid.value || (e.editorUids ?? []).includes(uid.value)
   }
   function canCreate(type: string): boolean {
+    if (preview.value) return false
     if (isMaster.value) return true
-    return !!role.value && settings.value.playerCreateTypes.includes(type)
+    return !!role.value && (settings.value.playerCreateTypes.includes(type) || (member.value?.createTypes ?? []).includes(type))
   }
 
   // ---------- open / close ----------
@@ -136,6 +149,7 @@ export const useWorld = defineStore('world', () => {
     entities.value = new Map()
     relations.value = new Map()
     secretsState.value = {}
+    preview.value = null
     status.value = 'idle'
     wid.value = null
   }
@@ -163,6 +177,7 @@ export const useWorld = defineStore('world', () => {
       await startSync(token)
       if (token !== openToken) return
       status.value = 'ready'
+      void touchLastSeen()
     } catch (e: any) {
       if (token !== openToken) return
       console.error(e)
@@ -467,12 +482,14 @@ export const useWorld = defineStore('world', () => {
   // ---------- child rows (posts, inventory, map markers, …) ----------
   function watchRows<T extends { id: string }>(name: string, field: string, value: string, cb: (rows: T[]) => void, sortKey: keyof T | null = 'order' as keyof T): Unsubscribe {
     const a = access.value
+    const view = preview.value ? viewAccess.value : null
+    const pub = !!world.value?.isPublic
     const qs = visibleQueries(a, name, [where(field, '==', value)])
     const parts: Array<Map<string, T>> = qs.map(() => new Map())
     const emit = () => {
       const merged = new Map<string, T>()
       for (const p of parts) for (const [k, v] of p) merged.set(k, v)
-      let rows = [...merged.values()].filter((r: any) => !r.deleted)
+      let rows = [...merged.values()].filter((r: any) => !r.deleted && (!view || canSee(view, r, pub)))
       if (sortKey) rows = rows.sort((x: any, y: any) => (x[sortKey] ?? 0) - (y[sortKey] ?? 0) || String(x.name ?? '').localeCompare(String(y.name ?? '')))
       cb(rows)
     }
@@ -583,6 +600,77 @@ export const useWorld = defineStore('world', () => {
     await track(deleteDoc(docRef(wid.value!, 'members', memberUid)))
     await bumpAcl()
   }
+  /** Masters: non-role fields of a member (player character, extra create rights). */
+  async function updateMember(memberUid: string, patch: Partial<Member>) {
+    await track(updateDoc(docRef(wid.value!, 'members', memberUid), clean(patch)))
+  }
+  /** Removes a member and blocks re-joining through invite links. */
+  async function banMember(m: Member) {
+    const b: Ban = { uid: m.uid, displayName: m.displayName, email: m.email, at: now(), by: uid.value! }
+    const batch = writeBatch(db)
+    batch.set(docRef(wid.value!, 'bans', m.uid), b)
+    batch.delete(docRef(wid.value!, 'members', m.uid))
+    await track(batch.commit())
+    await bumpAcl()
+  }
+  async function unban(banUid: string) {
+    await track(deleteDoc(docRef(wid.value!, 'bans', banUid)))
+  }
+  function watchBans(cb: (rows: Ban[]) => void) {
+    return onSnapshot(coll(wid.value!, 'bans'), (s) => cb(s.docs.map((d) => d.data() as Ban)), () => cb([]))
+  }
+  /** Owner hands the world over to another member and becomes a master. */
+  async function transferOwnership(toUid: string) {
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'worlds', wid.value!), { ownerId: toUid, updatedAt: now() })
+    batch.update(docRef(wid.value!, 'members', toUid), { role: 'owner' })
+    batch.update(docRef(wid.value!, 'members', uid.value!), { role: 'master' })
+    await track(batch.commit(), 'Передача владения')
+  }
+  async function leaveWorld() {
+    await track(deleteDoc(docRef(wid.value!, 'members', uid.value!)), 'Выход из мира')
+    close()
+  }
+  /** Owner: deletes every document of the world (content, images, members), then the world itself. */
+  async function deleteWorld(onProgress: (done: number, what: string) => void = () => {}) {
+    const w = wid.value!
+    const me = uid.value!
+    const names = ['entities', 'bodies', 'secrets', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
+      'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'revisions', 'bookmarks',
+      'invites', 'bans', 'members']
+    let done = 0
+    for (const name of names) {
+      const snap = await getDocs(coll(w, name))
+      const refs = snap.docs.filter((d) => !(name === 'members' && d.id === me)).map((d) => d.ref)
+      for (let i = 0; i < refs.length; i += 450) {
+        const b = writeBatch(db)
+        refs.slice(i, i + 450).forEach((r) => b.delete(r))
+        await b.commit()
+        done += Math.min(450, refs.length - i)
+        onProgress(done, name)
+      }
+    }
+    await deleteDoc(doc(db, 'worlds', w))
+    await deleteDoc(docRef(w, 'members', me))
+    void cache.clearWorld(w)
+    close()
+  }
+  /** Remembers when the member last opened the world (one write per few hours per device). */
+  async function touchLastSeen() {
+    if (!member.value || !wid.value) return
+    const key = `dw.seen.${wid.value}.${uid.value}`
+    try {
+      const last = Number(localStorage.getItem(key) ?? 0)
+      if (Date.now() - last < 6 * 3600 * 1000) return
+      localStorage.setItem(key, String(Date.now()))
+    } catch { /* private mode: still update */ }
+    await updateDoc(docRef(wid.value, 'members', uid.value!), { lastSeenAt: now() }).catch(() => {})
+  }
+  function startPreview(target: { uid: string | null; name: string; guest?: boolean }) {
+    if (!realMaster.value) return
+    preview.value = target
+  }
+  function stopPreview() { preview.value = null }
   async function updateMyMember(patch: Partial<Member>) {
     await track(updateDoc(docRef(wid.value!, 'members', uid.value!), clean(patch)))
   }
@@ -599,29 +687,38 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, isMaster, isOwner, isMember, access, settings, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,
     watchRows, fetchRows, saveRow, deleteRow,
     saveRelation, deleteRelation, relationsOf, revisionsOf,
     updateWorld, updateSettings, bumpAcl, createInvite, watchInvites, deleteInvite, setMemberRole, removeMember, updateMyMember, memberName, toggleFavorite,
+    updateMember, banMember, unban, watchBans, transferOwnership, leaveWorld, deleteWorld,
     typeDef,
   }
 })
 
 // ---------- functions that do not need an open world ----------
 
-export async function myWorlds(uid: string): Promise<Array<World & { role: Role }>> {
+export type MyWorld = World & { role: Role; membership: Member }
+
+export async function myWorlds(uid: string): Promise<MyWorld[]> {
   const s = await getDocs(query(collectionGroup(db, 'members'), where('uid', '==', uid)))
-  const out: Array<World & { role: Role }> = []
+  const out: MyWorld[] = []
   await Promise.all(s.docs.map(async (m) => {
     const wref = m.ref.parent.parent
     if (!wref) return
     const w = await getDoc(wref).catch(() => null)
-    if (w?.exists()) out.push({ ...(w.data() as World), id: w.id, role: (m.data() as Member).role })
+    const mem = m.data() as Member
+    if (w?.exists()) out.push({ ...(w.data() as World), id: w.id, role: mem.role, membership: mem })
   }))
-  return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  return out.sort((a, b) => (b.membership.lastSeenAt ?? b.updatedAt) - (a.membership.lastSeenAt ?? a.updatedAt))
+}
+
+/** Leave a world from outside of it (personal cabinet). Owners cannot leave. */
+export async function leaveWorldById(wid: string, uid: string) {
+  await deleteDoc(doc(db, 'worlds', wid, 'members', uid))
 }
 
 export async function createWorld(user: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }, name: string, description: string, isPublic: boolean): Promise<string> {

@@ -11,6 +11,7 @@ import QuickSearch from '@/components/layout/QuickSearch.vue'
 import CreateEntityModal from '@/components/layout/CreateEntityModal.vue'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BookmarksNav from '@/components/layout/BookmarksNav.vue'
+import Dropdown from '@/components/common/Dropdown.vue'
 import { createRequest } from '@/components/layout/createRequest'
 import { unsavedEditors } from '@/composables/useAutosave'
 
@@ -96,10 +97,11 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         </span>
       </RouterLink>
       <div class="sb-search"><QuickSearch /></div>
-      <div v-if="world.isMember" class="sb-section" style="padding-top: 0">
+      <div v-if="world.isMember && !world.preview" class="sb-section" style="padding-top: 0">
         <button class="btn btn-primary" style="width: 100%" title="Создать статью (N)" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать</button>
       </div>
       <nav class="sb-section">
+        <RouterLink v-if="world.viewMember?.characterId && world.get(world.viewMember.characterId)" class="sb-link" :to="{ name: 'entity', params: { wid: world.wid ?? '', eid: world.viewMember.characterId } }"><Icon name="user" :size="17" style="color: var(--accent)" /> Мой персонаж</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }" exact-active-class="active"><Icon name="layout-dashboard" :size="17" /> Обзор</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'search', params: { wid: world.wid ?? '' } }"><Icon name="text-search" :size="17" /> Поиск по текстам</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'graph', params: { wid: world.wid ?? '' } }"><Icon name="network" :size="17" /> Граф связей</RouterLink>
@@ -126,7 +128,23 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
           <Icon :name="saveState.icon" :size="14" :class="{ spin: saveState.cls === 'saving' }" /> {{ saveState.text }}
         </span>
         <div id="topbar-actions" class="row gap-sm" />
+        <Dropdown v-if="world.realMaster && !world.preview" placement="bottom-end">
+          <template #trigger><button class="btn btn-ghost btn-sm" title="Посмотреть мир так, как его видят игроки или гости"><Icon name="eye" :size="15" /><span class="hide-sm"> Глазами игрока</span></button></template>
+          <div class="menu">
+            <div class="menu-label">Показать мир так, как его видит…</div>
+            <button class="menu-item" @click="world.startPreview({ uid: null, name: 'любой игрок' })"><Icon name="users" :size="15" /> Любой игрок</button>
+            <button v-for="p in world.players" :key="p.uid" class="menu-item" @click="world.startPreview({ uid: p.uid, name: p.displayName })"><Icon name="user" :size="15" /> {{ p.displayName }}</button>
+            <button v-if="world.world?.isPublic" class="menu-item" @click="world.startPreview({ uid: null, name: 'гость', guest: true })"><Icon name="globe" :size="15" /> Гость без входа</button>
+          </div>
+        </Dropdown>
+        <RouterLink v-if="session.ready && !session.user" class="btn btn-primary btn-sm" :to="{ name: 'login', query: { next: route.fullPath } }"><Icon name="log-in" :size="15" /> Войти</RouterLink>
+        <span v-else-if="session.user" class="mobile-only"><UserMenu compact /></span>
       </header>
+      <div v-if="world.preview" class="preview-banner">
+        <Icon name="eye" :size="16" />
+        <span class="grow">Вы смотрите на мир глазами: <b>{{ world.preview.name }}</b>. Скрытые статьи, разделы и секреты мастера не показываются, редактирование выключено.</span>
+        <button class="btn btn-sm" @click="world.stopPreview()"><Icon name="x" :size="14" /> Выйти из просмотра</button>
+      </div>
       <div v-if="world.status === 'loading'" class="content empty"><Icon name="refresh-cw" class="spin" :size="28" /><p>Загрузка мира…</p></div>
       <RouterView v-else v-slot="{ Component }">
         <component :is="Component" :key="route.params.eid ?? route.name" />

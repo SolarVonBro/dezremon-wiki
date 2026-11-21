@@ -18,6 +18,7 @@ const pins = computed(() => world.settings.dashboardPins.map((id) => world.get(i
 const randomSeed = ref(0)
 const random = computed(() => { void randomSeed.value; const l = world.list.filter((e) => e.type !== 'tag'); return l.length ? l[Math.floor(Math.random() * l.length)] : null })
 const unmentioned = computed(() => world.list.filter((e) => !world.backlinks.get(e.id)?.length && !['tag', 'calendar', 'attribute_template'].includes(e.type) && !e.excerpt).slice(0, 8))
+const myCharacter = computed(() => world.get(world.viewMember?.characterId ?? null) ?? null)
 const calendarId = computed(() => world.settings.mainCalendarId ?? world.byType.get('calendar')?.[0]?.id ?? null)
 const pinPick = ref<string | null>(null)
 function addPin(id: string | null) { if (id) void world.updateSettings({ dashboardPins: [...new Set([...world.settings.dashboardPins, id])] }); pinPick.value = null }
@@ -47,6 +48,13 @@ function unpin(id: string) { void world.updateSettings({ dashboardPins: world.se
     </div>
 
     <div class="dash-grid">
+      <section v-if="myCharacter" class="card card-pad my-char">
+        <h3 class="panel-title"><Icon name="user" /> Мой персонаж</h3>
+        <RouterLink class="row gap" style="align-items: flex-start; color: var(--text)" :to="{ name: 'entity', params: { wid: world.wid!, eid: myCharacter.id } }">
+          <span class="avatar avatar-lg"><Thumb :id="myCharacter.imageId" :crop="cropOf(myCharacter)"><Icon name="user" /></Thumb></span>
+          <span><b style="font-family: var(--font-head); font-size: 22px">{{ myCharacter.name }}</b><br /><span class="muted small">{{ myCharacter.fields?.title || myCharacter.kind }}</span><br /><span class="faint small">{{ myCharacter.tooltip || myCharacter.excerpt }}</span></span>
+        </RouterLink>
+      </section>
       <section v-if="pins.length || world.isMaster" class="card card-pad" style="grid-column: 1 / -1">
         <h3 class="panel-title"><Icon name="pin" /> Закреплено</h3>
         <div class="card-grid">

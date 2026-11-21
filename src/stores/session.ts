@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import {
   onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile, type User,
+  createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile, sendEmailVerification, EmailAuthProvider,
+  reauthenticateWithCredential, reauthenticateWithPopup, updatePassword, linkWithCredential, linkWithPopup, unlink, deleteUser,
+  type User,
 } from 'firebase/auth'
-import { doc, setDoc } from 'firebase/firestore'
+import { collectionGroup, deleteDoc, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
 
 export type ThemeMode = 'auto' | 'dark' | 'light' | 'parchment'
@@ -13,10 +15,21 @@ function readTheme(): ThemeMode {
   try { return (localStorage.getItem('dw.theme') as ThemeMode) || 'auto' } catch { return 'auto' }
 }
 
+export type TextSize = 's' | 'm' | 'l' | 'xl'
+export const TEXT_SIZES: Record<TextSize, { label: string; px: number }> = { s: { label: 'Мелкий', px: 15 }, m: { label: 'Обычный', px: 17 }, l: { label: 'Крупный', px: 19 }, xl: { label: 'Очень крупный', px: 21 } }
+function readTextSize(): TextSize {
+  try { return (localStorage.getItem('dw.textSize') as TextSize) || 'm' } catch { return 'm' }
+}
+
 export const useSession = defineStore('session', () => {
   const user = ref<User | null>(null)
   const ready = ref(false)
   const theme = ref<ThemeMode>(readTheme())
+  const textSize = ref<TextSize>(readTextSize())
+  watch(textSize, (t) => {
+    try { localStorage.setItem('dw.textSize', t) } catch { /* private mode */ }
+    document.documentElement.style.setProperty('--prose-size', `${(TEXT_SIZES[t] ?? TEXT_SIZES.m).px}px`)
+  }, { immediate: true })
 
   let resolveReady: () => void
   const whenReady = new Promise<void>((r) => (resolveReady = r))
@@ -58,7 +71,73 @@ export const useSession = defineStore('session', () => {
   }
   const displayName = () => user.value?.displayName || user.value?.email || 'Гость'
 
-  return { user, ready, whenReady, theme, signInGoogle, signInEmail, register, resetPassword, signOut, displayName }
+  // ---------- account (personal cabinet) ----------
+  /** Bumped after profile/provider changes: Firebase mutates the User object in place. */
+  const rev = ref(0)
+  const providers = () => { void rev.value; return (user.value?.providerData ?? []).map((p) => p.providerId) }
+  const myMemberships = async () => (user.value ? (await getDocs(query(collectionGroup(db, 'members'), where('uid', '==', user.value.uid)))).docs : [])
+
+  /** New display name everywhere: Auth profile, users doc and the member doc in every world. */
+  async function updateDisplayName(name: string) {
+    const u = auth.currentUser
+    if (!u || !name.trim()) return
+    await updateProfile(u, { displayName: name.trim() })
+    await setDoc(doc(db, 'users', u.uid), { displayName: name.trim() }, { merge: true })
+    const ms = await myMemberships()
+    for (let i = 0; i < ms.length; i += 400) {
+      const b = writeBatch(db)
+      ms.slice(i, i + 400).forEach((d) => b.update(d.ref, { displayName: name.trim() }))
+      await b.commit()
+    }
+    rev.value++
+  }
+  async function reauth(password?: string) {
+    const u = auth.currentUser!
+    if (password && u.email) await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, password))
+    else await reauthenticateWithPopup(u, new GoogleAuthProvider())
+  }
+  async function changePassword(current: string, next: string) {
+    await reauth(current)
+    await updatePassword(auth.currentUser!, next)
+  }
+  /** Google-only accounts can add a password for signing in by e-mail. */
+  async function addPassword(password: string) {
+    const u = auth.currentUser!
+    if (!u.email) throw new Error('У аккаунта нет почты')
+    await linkWithCredential(u, EmailAuthProvider.credential(u.email, password))
+    rev.value++
+  }
+  async function linkGoogle() {
+    await linkWithPopup(auth.currentUser!, new GoogleAuthProvider())
+    rev.value++
+  }
+  async function unlinkProvider(providerId: string) {
+    if (providers().length < 2) throw new Error('Нельзя отключить единственный способ входа')
+    await unlink(auth.currentUser!, providerId)
+    rev.value++
+  }
+  async function sendVerification() {
+    await sendEmailVerification(auth.currentUser!)
+  }
+  /**
+   * Deletes the account: leaves every world (owners must transfer or delete their worlds first),
+   * removes the profile doc, then the Firebase account.
+   */
+  async function deleteAccount(password?: string) {
+    const u = auth.currentUser
+    if (!u) return
+    const ms = await myMemberships()
+    if (ms.some((d) => d.data().role === 'owner')) throw new Error('Сначала передайте или удалите миры, которыми вы владеете')
+    await reauth(password)
+    for (const d of ms) await deleteDoc(d.ref)
+    await deleteDoc(doc(db, 'users', u.uid)).catch(() => {})
+    await deleteUser(u)
+  }
+
+  return {
+    user, ready, whenReady, theme, textSize, signInGoogle, signInEmail, register, resetPassword, signOut, displayName,
+    rev, providers, updateDisplayName, changePassword, addPassword, linkGoogle, unlinkProvider, sendVerification, deleteAccount,
+  }
 })
 
 export function applyTheme(t: ThemeMode) {
@@ -80,6 +159,11 @@ export function authErrorText(e: any): string {
     'auth/too-many-requests': 'Слишком много попыток, попробуйте позже',
     'auth/operation-not-allowed': 'Этот способ входа не включён в Firebase',
     'auth/unauthorized-domain': 'Домен сайта не добавлен в Firebase Authentication',
+    'auth/requires-recent-login': 'Для этого действия войдите заново',
+    'auth/credential-already-in-use': 'Этот аккаунт Google уже привязан к другому пользователю',
+    'auth/provider-already-linked': 'Этот способ входа уже подключён',
+    'auth/no-such-provider': 'Этот способ входа не подключён',
+    'auth/missing-password': 'Введите пароль',
   }
   return map[code] ?? (e?.message || 'Ошибка входа')
 }
