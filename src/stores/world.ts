@@ -221,7 +221,12 @@ export const useWorld = defineStore('world', () => {
   async function startSync(token: number) {
     const a = access.value
     const acl = world.value?.aclVersion ?? 0
-    const onErr = (e: unknown) => { console.error('sync error', e); toast.error('Ошибка синхронизации: ' + ((e as any)?.message ?? e)) }
+    const onErr = (e: unknown) => {
+      // Access changed under us (removed from the world, role lowered…): re-check instead of alarming the user.
+      if ((e as any)?.code === 'permission-denied') { void revalidateAccess(token); return }
+      console.error('sync error', e)
+      toast.error('Ошибка синхронизации: ' + ((e as any)?.message ?? e))
+    }
     const s1 = await syncCollection<Entity>(a, 'entities', acl, (ups, rem) => {
       if (token !== openToken) return
       const m = new Map(entities.value)
@@ -238,6 +243,28 @@ export const useWorld = defineStore('world', () => {
     }, onErr)
     syncs.push(s1, s2)
     await Promise.all([s1.ready, s2.ready])
+  }
+
+  let revalidating = false
+  async function revalidateAccess(token: number) {
+    if (revalidating || token !== openToken || !wid.value) return
+    revalidating = true
+    try {
+      const u = session.user
+      const ms = u ? await getDoc(doc(db, 'worlds', wid.value, 'members', u.uid)).catch(() => null) : null
+      if (token !== openToken) return
+      member.value = ms?.exists() ? (ms.data() as Member) : null
+      if (!member.value && !world.value?.isPublic) {
+        syncs.forEach((x) => x.stop())
+        syncs = []
+        entities.value = new Map()
+        relations.value = new Map()
+        status.value = 'denied'
+        void cache.clearWorld(wid.value)
+        return
+      }
+      await restartSync()
+    } finally { revalidating = false }
   }
 
   async function restartSync() {
