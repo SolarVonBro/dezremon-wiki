@@ -8,7 +8,8 @@ import { arrayRemove, arrayUnion } from 'firebase/firestore'
 import { useSession } from '@/stores/session'
 import { isServiceAdmin, readServiceConfig } from '@/data/admin'
 import {
-  PRESENCE_TTL, Presence, addTrack, advanceAfterEnd, enterRoom, itemsOf, playItem, roomUrl, setPlayback, setTrackProps, skip, updateRoom,
+  PRESENCE_TTL, Presence, addItems, addToPlaylist, addTrack, advanceAfterEnd, ensureDefaultPlaylist, enterRoom, itemsOf, playItem, roomUrl,
+  setPlayback, setTrackProps, skip, updateRoom,
   watchListeners, watchPlaylists, watchRoom, watchTracks,
 } from '@/data/rooms'
 import RoomPlayer from '@/components/rooms/RoomPlayer.vue'
@@ -23,7 +24,8 @@ import { expectedTime, itemEnd, itemStart } from '@/components/rooms/timing'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import { toast } from '@/components/common/toast'
-import type { LoopMode, Room, RoomListener, RoomPlaylist, RoomTrack } from '@/model/types'
+import type { LoopMode, QueueItem, Room, RoomListener, RoomPlaylist, RoomTrack } from '@/model/types'
+import { randomId } from '@/data/util'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +35,7 @@ const rid = route.params.rid as string
 const room = ref<Room | null | undefined>(undefined)
 const tracks = ref<RoomTrack[]>([])
 const playlists = ref<RoomPlaylist[]>([])
+const playlistsLoaded = ref(false)
 const listeners = ref<RoomListener[]>([])
 const offset = ref(0)
 const apiKey = ref('')
@@ -53,7 +56,7 @@ watch(() => [session.ready, session.user?.uid] as const, ([ready, u]) => {
   }, () => { room.value = null }))
   stops.push(watchTracks(rid, (r) => { tracks.value = r }))
   stops.push(watchListeners(rid, (r) => { listeners.value = r }))
-  stops.push(watchPlaylists(rid, (r) => { playlists.value = r }))
+  stops.push(watchPlaylists(rid, (r) => { playlists.value = r; playlistsLoaded.value = true }))
   void readServiceConfig().then((c) => { apiKey.value = c.youtubeApiKey })
 }, { immediate: true })
 function leave() { stops.forEach((s) => s()); stops = []; presence?.stop(); presence = null }
@@ -72,6 +75,20 @@ const layers = computed(() => tracks.value.filter((t) => t.kind !== 'main'))
 /** what a track goes through: its queue, or the saved playlist it plays */
 const itemsOfTrack = (t: RoomTrack) => itemsOf(t, playlists.value)
 const playlistName = (pid: string | null | undefined) => (pid ? playlists.value.find((p) => p.id === pid)?.name ?? '' : '')
+
+// ---------- the playlist open in the side panel (always one; remembered in this browser) ----------
+const OPEN_KEY = `dw.room.${rid}.playlist`
+const openPlaylistId = ref<string | null>((() => { try { return localStorage.getItem(OPEN_KEY) } catch { return null } })())
+const openPlaylist = computed(() => playlists.value.find((p) => p.id === openPlaylistId.value)
+  ?? playlists.value.find((p) => p.id === main.value?.playlistId) ?? playlists.value[0] ?? null)
+function selectPlaylist(pid: string) {
+  openPlaylistId.value = pid
+  try { localStorage.setItem(OPEN_KEY, pid) } catch { /* private mode */ }
+}
+// older rooms have no playlists yet: whoever controls the music creates the default one
+watch(() => [playlistsLoaded.value, playlists.value.length, canControl.value] as const, ([loaded, n, can]) => {
+  if (loaded && !n && can && session.user) void ensureDefaultPlaylist(rid, session.user).catch(() => {})
+}, { immediate: true })
 
 // ---------- presence ----------
 const tick = ref(Date.now())
@@ -96,9 +113,10 @@ function connect() {
 }
 
 // ---------- personal volumes (this browser only) ----------
-type Personal = { master: number; tracks: Record<string, { vol: number; muted: boolean }> }
+type Personal = { master: number; tracks: Record<string, { vol: number; muted: boolean }>; addTo: { queue: boolean; playlist: boolean } }
 const PKEY = `dw.room.${rid}`
-function readPersonal(): Personal { try { return { master: 80, tracks: {}, ...JSON.parse(localStorage.getItem(PKEY) ?? '{}') } } catch { return { master: 80, tracks: {} } } }
+const DEFAULT_PERSONAL: Personal = { master: 80, tracks: {}, addTo: { queue: true, playlist: true } }
+function readPersonal(): Personal { try { return { ...DEFAULT_PERSONAL, ...JSON.parse(localStorage.getItem(PKEY) ?? '{}') } } catch { return { ...DEFAULT_PERSONAL } } }
 const personal = ref<Personal>(readPersonal())
 watch(personal, (p) => { try { localStorage.setItem(PKEY, JSON.stringify(p)) } catch { /* private mode */ } }, { deep: true })
 const mine = (tid: string) => personal.value.tracks[tid] ?? { vol: 100, muted: false }
@@ -129,6 +147,25 @@ function skipBy(dir: 1 | -1) {
   if (dir === -1 && position.value - mainStart.value > 5) { seek(mainStart.value); return }
   void run(skip(rid, t.id, uid.value, t, mainItems.value, dir))
 }
+// ---------- one add field for the open playlist and the queue ----------
+async function addEverywhere(items: QueueItem[], playNow: boolean) {
+  const m = main.value
+  if (!m) return
+  const to = personal.value.addTo
+  const pl = openPlaylist.value
+  const ops: Promise<unknown>[] = []
+  if (to.queue || playNow) ops.push(addItems(rid, m.id, uid.value, items, playNow))
+  if (to.playlist && pl) ops.push(addToPlaylist(rid, pl.id, uid.value, items.map((x) => ({ ...x, id: randomId(10) }))))
+  if (!ops.length) { toast.info('Отметьте, куда добавлять: в очередь и/или в плейлист'); return }
+  await Promise.all(ops)
+}
+const addLabel = computed(() => {
+  const to = personal.value.addTo
+  const pl = openPlaylist.value ? `в «${openPlaylist.value.name}»` : ''
+  return to.queue && to.playlist && pl ? `в очередь и ${pl}` : to.playlist && pl ? pl : 'в очередь'
+})
+function toggleAddTo(k: 'queue' | 'playlist') { personal.value.addTo = { ...personal.value.addTo, [k]: !personal.value.addTo[k] } }
+
 const LOOPS: LoopMode[] = ['all', 'one', 'off']
 const LOOP_LABEL: Record<LoopMode, string> = { all: 'Повтор очереди', one: 'Повтор трека', off: 'Без повтора' }
 function cycleLoop() { if (main.value) void run(setTrackProps(rid, main.value.id, uid.value, { loop: LOOPS[(LOOPS.indexOf(main.value.loop) + 1) % LOOPS.length] })) }
@@ -180,6 +217,16 @@ const settingsOpen = ref(false)
 
       <div class="room-grid">
         <div class="room-main">
+          <!-- one field for new music: into the open playlist and/or the queue -->
+          <section v-if="canControl && main" class="card add-card s-add">
+            <AddMedia :rid="rid" :target="addEverywhere" allow-play-now :target-label="addLabel" :api-key="apiKey"
+              :placeholder="apiKey ? 'Ссылка YouTube или поиск…' : 'Ссылка на видео или плейлист YouTube…'" />
+            <div class="add-to small">
+              <span class="faint">Добавлять:</span>
+              <button type="button" class="chip" :class="{ on: personal.addTo.queue }" @click="toggleAddTo('queue')"><Icon :name="personal.addTo.queue ? 'check' : 'list-music'" :size="13" /> в очередь</button>
+              <button type="button" class="chip" :class="{ on: personal.addTo.playlist }" :disabled="!openPlaylist" @click="toggleAddTo('playlist')"><Icon :name="personal.addTo.playlist ? 'check' : 'list-video'" :size="13" /> в плейлист «{{ openPlaylist?.name ?? '…' }}»</button>
+            </div>
+          </section>
           <!-- main track -->
           <section v-if="main" class="card main-card s-player">
             <div class="player-wrap">
@@ -232,7 +279,6 @@ const settingsOpen = ref(false)
               <span class="grow">Сейчас музыка идёт по плейлисту <b>«{{ playlistName(main.playlistId) || '…' }}»</b>. Очередь ждёт.</span>
               <button v-if="canControl && main.queue.length" class="btn btn-sm" @click="run(playItem(rid, main.id, uid, main.queue[0].id))"><Icon name="play" :size="13" /> Играть очередь</button>
             </div>
-            <AddMedia v-if="canControl" :rid="rid" :tid="main.id" :api-key="apiKey" />
             <RoomQueue :rid="rid" :track="main" :can-control="canControl" :durations="durations" :now-time="() => position" />
           </section>
 
@@ -272,7 +318,7 @@ const settingsOpen = ref(false)
             </div>
           </section>
           <section class="card card-pad">
-            <RoomPlaylists :rid="rid" :playlists="playlists" :tracks="tracks" :can-control="canControl" :api-key="apiKey" :main-now-time="() => position" />
+            <RoomPlaylists :rid="rid" :playlists="playlists" :open="openPlaylist" :tracks="tracks" :can-control="canControl" :main-now-time="() => position" @select="selectPlaylist" />
           </section>
         </aside>
       </div>
@@ -283,10 +329,13 @@ const settingsOpen = ref(false)
 </template>
 
 <style scoped>
-.room-page { max-width: 1280px; margin: 0 auto; padding: 18px 24px 60px; }
+.room-page { max-width: 1380px; margin: 0 auto; padding: 18px 24px 60px; }
 .room-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .room-head h1 { margin: 0; font-size: 32px; display: flex; align-items: center; gap: 10px; }
-.room-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.room-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }
+.add-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.add-to { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.add-to .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .room-main, .room-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .pl-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); font-size: 14px; }
 .pl-banner > .icon { color: var(--accent); }
@@ -310,11 +359,12 @@ const settingsOpen = ref(false)
 @media (max-width: 1000px) {
   .room-grid { display: flex; flex-direction: column; align-items: stretch; gap: 18px; }
   .room-main { display: contents; }
-  .s-player { order: 1; }
-  .s-queue { order: 2; }
-  .room-side { order: 3; }
-  .s-layers { order: 4; }
-  .s-chat { order: 5; }
+  .s-add { order: 1; }
+  .s-player { order: 2; }
+  .s-queue { order: 3; }
+  .room-side { order: 4; }
+  .s-layers { order: 5; }
+  .s-chat { order: 6; }
 }
 @media (max-width: 720px) {
   .room-page { padding: 12px 12px 50px; }

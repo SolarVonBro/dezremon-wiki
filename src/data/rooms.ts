@@ -48,6 +48,9 @@ export async function createRoom(user: UserLike, data: Pick<Room, 'name' | 'camp
     loop: 'all', shuffle: false, rev: 0, updatedAt: t, updatedBy: user.uid,
   })
   await b.commit()
+  // every room starts with a playlist (the side panel always shows one); a separate write: the playlist rules
+  // look at the room, which must exist first
+  await ensureDefaultPlaylist(ref.id, user).catch(() => {})
   return ref.id
 }
 
@@ -247,6 +250,16 @@ export async function createPlaylist(rid: string, user: UserLike, name: string, 
   const t = now()
   await setDoc(ref, { name, items: items.map((x) => ({ ...x, id: randomId(10) })), order, createdBy: user.uid, createdByName: nameOf(user), createdAt: t, updatedAt: t })
   return ref.id
+}
+export const DEFAULT_PLAYLIST_ID = 'main'
+/** Creates the room's default playlist «Основной» unless it exists (safe when several clients race). */
+export async function ensureDefaultPlaylist(rid: string, user: UserLike) {
+  await runTransaction(db, async (tx) => {
+    const ref = playlistRef(rid, DEFAULT_PLAYLIST_ID)
+    if ((await tx.get(ref)).exists()) return
+    const t = now()
+    tx.set(ref, { name: 'Основной', items: [], order: 0, createdBy: user.uid, createdByName: nameOf(user), createdAt: t, updatedAt: t })
+  })
 }
 export const renamePlaylist = (rid: string, pid: string, name: string) => updateDoc(playlistRef(rid, pid), { name, updatedAt: now() })
 
