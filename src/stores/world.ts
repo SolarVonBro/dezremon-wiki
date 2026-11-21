@@ -734,6 +734,7 @@ export const useWorld = defineStore('world', () => {
         onProgress(done, name)
       }
     }
+    await deleteDoc(doc(db, 'usage', w)).catch(() => {})
     await deleteDoc(doc(db, 'worlds', w))
     await deleteDoc(docRef(w, 'members', me))
     void cache.clearWorld(w)
@@ -823,6 +824,7 @@ export async function createWorld(user: { uid: string; displayName: string | nul
   const batch = writeBatch(db)
   batch.set(ref, w)
   batch.set(doc(db, 'worlds', ref.id, 'members', user.uid), m)
+  batch.set(doc(db, 'usage', ref.id), { bytes: 0, docs: 0, at: 0 })
   await batch.commit()
   return ref.id
 }

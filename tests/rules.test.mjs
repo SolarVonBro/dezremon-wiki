@@ -217,6 +217,26 @@ await t('master rejects; requester sees status and may withdraw', async () => {
   await assertSucceeds(deleteDoc(doc(player2, 'worlds', 'w2', 'joinRequests', 'player2')))
 })
 
+console.log('project storage meter')
+await t('owner publishes the world size; any signed-in user reads the totals', async () => {
+  await assertSucceeds(setDoc(doc(owner, 'usage', 'w1'), { bytes: 1000, docs: 10, at: now }))
+  await assertSucceeds(getDocs(collection(stranger, 'usage')))
+})
+await t('players, strangers and guests cannot write sizes; no extra fields', async () => {
+  await assertFails(setDoc(doc(player, 'usage', 'w1'), { bytes: 1, docs: 1, at: now }))
+  await assertFails(setDoc(doc(stranger, 'usage', 'w1'), { bytes: 1, docs: 1, at: now }))
+  await assertFails(setDoc(doc(owner, 'usage', 'w1'), { bytes: 1, docs: 1, at: now, name: 'leak' }))
+  await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(), 'usage')))
+})
+await t('a new world gets its usage doc in the creation batch', async () => {
+  const b = writeBatch(stranger)
+  b.set(doc(stranger, 'worlds', 'wNew'), { name: 'N', ownerId: 'stranger', isPublic: false, aclVersion: 0, settings: {}, createdAt: now, updatedAt: now })
+  b.set(doc(stranger, 'worlds', 'wNew', 'members', 'stranger'), { uid: 'stranger', role: 'owner', displayName: 'S', email: '', photoURL: null, joinedAt: now })
+  b.set(doc(stranger, 'usage', 'wNew'), { bytes: 0, docs: 0, at: 0 })
+  await assertSucceeds(b.commit())
+  await assertFails(setDoc(doc(owner, 'usage', 'wNew'), { bytes: 5, docs: 1, at: now }))
+})
+
 await env.cleanup()
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

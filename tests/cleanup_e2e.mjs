@@ -1,5 +1,5 @@
 // Removes ONLY e2e test data: auth accounts e2e-*@example.com, their users/{uid} docs,
-// worlds named "E2E …" (reports only), and joinRequests left under worlds that no longer exist.
+// worlds named "E2E …" (reports only), joinRequests and usage rows left from worlds that no longer exist.
 // Usage: node tests/cleanup_e2e.mjs "$(node gtoken.mjs)" [--apply]   (token = OAuth access token of a project owner)
 const [token, flag] = process.argv.slice(2)
 const APPLY = flag === '--apply'
@@ -38,10 +38,16 @@ const reqs = q.filter((x) => x.document).map((x) => x.document.name)
 const orphans = reqs.filter((n) => !existing.has(n.split('/worlds/')[1].split('/')[0]))
 console.log(`joinRequests: ${reqs.length} total, ${orphans.length} orphaned`)
 
+// ---- storage-meter rows (usage/{wid}) of worlds that no longer exist
+const usageDocs = ((await j(`${FS}/usage?pageSize=300`)).documents ?? []).map((d) => d.name)
+const usageOrphans = usageDocs.filter((n) => !existing.has(n.split('/').pop()))
+console.log(`usage rows: ${usageDocs.length} total, ${usageOrphans.length} orphaned`)
+
 // ---- orphan subcollection docs of deleted e2e worlds that the old deleteWorld missed are only joinRequests
 const e2eUids = new Set(e2e.map((u) => u.localId))
 if (APPLY) {
   for (const n of orphans) await j(`https://firestore.googleapis.com/v1/${n}`, { method: 'DELETE' })
+  for (const n of usageOrphans) await j(`https://firestore.googleapis.com/v1/${n}`, { method: 'DELETE' })
   for (const uid of e2eUids) await j(`${FS}/users/${uid}`, { method: 'DELETE' }).catch((e) => console.log('users doc', uid, e.message))
   for (let i = 0; i < e2e.length; i += 100) {
     await j(`https://identitytoolkit.googleapis.com/v1/projects/${P}/accounts:batchDelete`, { method: 'POST', body: JSON.stringify({ localIds: e2e.slice(i, i + 100).map((u) => u.localId), force: true }) })

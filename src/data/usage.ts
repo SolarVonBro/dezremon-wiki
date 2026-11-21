@@ -2,12 +2,13 @@
 // (https://firebase.google.com/docs/firestore/storage-size): documents + single-field and composite index entries.
 // On the free Spark plan Google does not expose usage metrics through its API (Cloud Monitoring requires billing),
 // so the app measures it itself. Image chunks are not downloaded: their size is known from image metadata.
-import { getCountFromServer, getDocs, Bytes, Timestamp, GeoPoint, DocumentReference } from 'firebase/firestore'
+import { collection, doc, getCountFromServer, getDocs, setDoc, Bytes, Timestamp, GeoPoint, DocumentReference } from 'firebase/firestore'
+import { db } from '@/firebase'
 import { coll } from './access'
 import { WORLD_COLLECTIONS, IMAGE_CHUNK } from './backup/format'
 import type { ImageMeta } from '@/model/types'
 
-/** Spark plan limits (per project, all worlds together). */
+/** Spark plan limits — per PROJECT: every world of every master shares them. */
 export const SPARK = { storageBytes: 1024 ** 3, reads: 50_000, writes: 20_000, deletes: 20_000 }
 
 /**
@@ -147,6 +148,20 @@ export async function measureWorld(wid: string, onProgress: (done: number, total
   onProgress(names.length + 1, names.length + 1, '')
   return { bytes, docs, at: Date.now(), byCollection }
 }
+
+/** Anonymous per-world totals (usage/{wid}); at = 0 means "never measured". */
+export interface WorldUsageRow { id: string; bytes: number; docs: number; at: number }
+
+export async function readProjectUsage(): Promise<WorldUsageRow[]> {
+  const s = await getDocs(collection(db, 'usage'))
+  return s.docs.map((d) => {
+    const x = d.data()
+    return { id: d.id, bytes: Number(x.bytes) || 0, docs: Number(x.docs) || 0, at: Number(x.at) || 0 }
+  })
+}
+
+export const saveWorldUsage = (wid: string, u: { bytes: number; docs: number; at: number }) =>
+  setDoc(doc(db, 'usage', wid), { bytes: u.bytes, docs: u.docs, at: u.at })
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} Б`

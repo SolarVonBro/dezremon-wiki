@@ -51,6 +51,16 @@ service cloud.firestore {
       allow read, write: if signedIn() && uid() == u;
     }
 
+    // Storage meter: the free 1 GiB is shared by the whole project, so every world publishes its measured size here
+    // (numbers only, no names) and the meter sums them. Written by the world's masters (owner also at creation).
+    match /usage/{w} {
+      allow read: if signedIn();
+      allow create, update: if (isMaster(w) || getAfter(worldPath(w)).data.ownerId == uid())
+        && request.resource.data.keys().hasOnly(['bytes', 'docs', 'at'])
+        && request.resource.data.bytes is number && request.resource.data.docs is number && request.resource.data.at is number;
+      allow delete: if isOwner(w) || (signedIn() && !exists(worldPath(w)));
+    }
+
     // "My worlds" is a collection-group query on members(uid == me).
     match /{path=**}/members/{m} {
       allow read: if signedIn() && resource.data.uid == uid();
