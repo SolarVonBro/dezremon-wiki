@@ -20,7 +20,7 @@ function shouldShow({ editor, state, from, to }: any) {
 </script>
 
 <template>
-  <BubbleMenu :editor="editor" plugin-key="textMenu" :should-show="shouldShow" :update-delay="120" :options="{ placement: 'top', offset: 8, flip: true }">
+  <BubbleMenu :editor="editor" plugin-key="textMenu" :should-show="shouldShow" :update-delay="120" :options="{ placement: 'top', offset: 8, flip: true, shift: { padding: 8 } }">
     <div class="bubble" @mousedown.prevent>
       <button class="tb-btn" :class="{ on: editor.isActive('bold') }" title="Жирный" @click="chain().toggleBold().run()"><Icon name="bold" /></button>
       <button class="tb-btn" :class="{ on: editor.isActive('italic') }" title="Курсив" @click="chain().toggleItalic().run()"><Icon name="italic" /></button>

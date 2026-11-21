@@ -54,6 +54,6 @@ function isCollapsed(p: Post) { return collapsed.value[p.id] ?? p.isCollapsed }
       <div v-if="!isCollapsed(p) && p.createdBy !== entity.createdBy" class="faint small">Автор: {{ world.memberName(p.createdBy) }}</div>
     </section>
   </template>
-  <button v-if="editing && canPost && position === 'after'" class="btn btn-ghost" style="align-self: flex-start" @click="add"><Icon name="plus" :size="15" /> Добавить раздел (отдельный блок с собственной видимостью)</button>
+  <button v-if="editing && canPost && position === 'after'" class="btn btn-ghost" style="align-self: flex-start" @click="add"><Icon name="plus" :size="15" /> Добавить раздел<span class="hide-sm">&nbsp;(отдельный блок с собственной видимостью)</span></button>
   <button v-else-if="!editing && position === 'after' && world.isMember && !world.canEdit(entity) && world.settings.playersCanPost" class="btn btn-ghost btn-sm" style="align-self: flex-start" @click="add"><Icon name="plus" :size="14" /> Добавить свою заметку</button>
 </template>

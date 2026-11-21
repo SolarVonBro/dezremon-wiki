@@ -331,6 +331,9 @@ const eraGroupCount = computed(() => groups.value.filter((g) => g.era).length)
 
 @media (max-width: 720px) {
   .tl-module { --tl-date-w: 0px; --tl-axis-w: 34px; }
+  /* the hidden date cell leaves the grid, so the template must drop its column too — otherwise the axis and the
+     card slide one column left and the card gets squeezed into the 34px axis column */
+  .tl-era-head, .tl-item { grid-template-columns: var(--tl-axis-w) minmax(0, 1fr); }
   .tl-date, .tl-era-range { display: none; }
   .tl-date-inline, .tl-era-years { display: block; }
   .tl-era-years { display: inline; }

@@ -84,7 +84,7 @@ async function save(reset = false) {
       </aside>
     </div>
     <template #footer>
-      <button class="btn btn-ghost" style="margin-right: auto" :disabled="busy" @click="save(true)"><Icon name="rotate-ccw" :size="14" /> Сбросить (по центру)</button>
+      <button class="btn btn-ghost" style="margin-right: auto" :disabled="busy" @click="save(true)"><Icon name="rotate-ccw" :size="14" /> Сбросить<span class="hide-sm">&nbsp;(по центру)</span></button>
       <button class="btn" @click="emit('close')">Отмена</button>
       <button class="btn btn-primary" :disabled="busy || !url" @click="save()">Сохранить кадр</button>
     </template>

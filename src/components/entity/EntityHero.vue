@@ -118,7 +118,7 @@ async function remove() {
           {{ entity.fields?.title }}<span v-if="entity.aliases.length" class="faint"> {{ entity.fields?.title ? '·' : '' }} также: {{ entity.aliases.join(', ') }}</span>
         </div>
         <div v-if="tags.length" class="hero-tags">
-          <RouterLink v-for="t in tags" :key="t.id" class="tag-chip" :style="{ '--tag-color': t.fields?.colour || undefined }" :to="{ name: 'entity', params: { wid: world.wid!, eid: t.id } }">{{ t.name }}</RouterLink>
+          <RouterLink v-for="t in tags" :key="t.id" class="tag-chip" :style="{ '--tag-color': t.fields?.colour || undefined }" :to="{ name: 'entity', params: { wid: world.wid!, eid: t.id } }" :title="t.name"><span class="ellipsis">{{ t.name }}</span></RouterLink>
         </div>
       </div>
       <div class="entity-actions no-print">

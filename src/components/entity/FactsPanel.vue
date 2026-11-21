@@ -110,7 +110,7 @@ const PAIR_PRIVATE_HINT = 'Для скрытых от игроков детал�
       <label class="field"><span>Другие имена (через запятую)</span><input v-model="aliases" class="input input-sm" placeholder="Прозвища, старые названия" @blur="saveAliases" /></label>
       <div class="field"><span>Теги</span>
         <div class="row wrap gap-sm">
-          <span v-for="id in entity.tagIds" :key="id" class="tag-chip" :style="{ '--tag-color': world.get(id)?.fields?.colour }">{{ world.get(id)?.name ?? '…' }}<button class="icon-btn" style="width: 16px; height: 16px" @click="toggleTag(id)"><Icon name="x" :size="11" /></button></span>
+          <span v-for="id in entity.tagIds" :key="id" class="tag-chip" :style="{ '--tag-color': world.get(id)?.fields?.colour }" :title="world.get(id)?.name"><span class="ellipsis">{{ world.get(id)?.name ?? '…' }}</span><button class="icon-btn" style="width: 16px; height: 16px" @click="toggleTag(id)"><Icon name="x" :size="11" /></button></span>
         </div>
         <EntityPicker v-model="tagPick" :types="['tag']" placeholder="Добавить тег…" :exclude="entity.tagIds" />
       </div>

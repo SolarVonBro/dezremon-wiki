@@ -25,7 +25,7 @@ function out() { if (t) clearTimeout(t); hidePreview(200) }
 </template>
 
 <style scoped>
-.entity-link { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 500; max-width: 100%; }
+.entity-link { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 500; max-width: 100%; min-width: 0; }
 .entity-link:hover { color: var(--accent); text-decoration: none; }
 .el-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .el-avatar { width: 26px; height: 26px; border-radius: 6px; }

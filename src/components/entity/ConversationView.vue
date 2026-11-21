@@ -44,8 +44,8 @@ async function remove(m: ConversationMessage) { if (confirm('Удалить ре
       </div>
     </div>
     <form v-if="world.isMember" class="stack-sm" style="margin-top: 12px" @submit.prevent="send">
-      <div class="row gap-sm">
-        <select v-model="author" class="input input-sm" style="max-width: 240px">
+      <div class="row gap-sm wrap">
+        <select v-model="author" class="input input-sm" style="width: auto; max-width: 100%">
           <option value="">От своего имени</option>
           <option v-for="id in participants" :key="id" :value="id">{{ world.get(id)?.name ?? 'скрыто' }}</option>
         </select>
@@ -63,6 +63,7 @@ async function remove(m: ConversationMessage) { if (confirm('Удалить ре
 .chat { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding: 4px; }
 .msg { background: var(--surface-2); border-radius: 12px; padding: 8px 12px; max-width: 80%; border: 1px solid var(--border); }
 .msg.mine { align-self: flex-end; background: var(--accent-soft); }
-.msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.msg-head { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin-bottom: 2px; }
+.msg-head > .small { white-space: nowrap; }
 .msg-text { white-space: pre-wrap; font-family: var(--font-text); }
 </style>

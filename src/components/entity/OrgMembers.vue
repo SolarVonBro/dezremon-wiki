@@ -43,7 +43,7 @@ async function remove() { if (form.value?.id && confirm('Убрать участ
       <button v-if="editing" class="btn btn-sm btn-primary" @click="openNew"><Icon name="plus" :size="14" /> Добавить</button>
     </div>
     <div v-if="!shown.length" class="empty">Никого нет.</div>
-    <table v-else class="table">
+    <div v-else class="table-scroll"><table class="table">
       <thead><tr><th>{{ isOrg ? 'Персонаж' : 'Организация' }}</th><th>Роль</th><th>Статус</th><th /></tr></thead>
       <tbody>
         <tr v-for="r in shown" :key="r.id">
@@ -53,7 +53,7 @@ async function remove() { if (form.value?.id && confirm('Убрать участ
           <td style="width: 40px"><button v-if="editing" class="icon-btn" @click="openEdit(r)"><Icon name="pencil" :size="14" /></button></td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <div v-if="isOrg && subOrgs.length" style="margin-top: 16px">
       <div class="section-title">Подразделения</div>
       <div class="row wrap gap"><EntityLink v-for="o in subOrgs" :key="o.id" :id="o.id" avatar /></div>

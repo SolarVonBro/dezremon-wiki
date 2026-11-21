@@ -221,7 +221,7 @@ async function publishAll(to: 'public' | 'members') {
     <div v-else-if="tab === 'modules'" class="stack">
       <section class="card card-pad">
         <h3 class="panel-title"><Icon name="layout-grid" /> Разделы мира</h3>
-        <table class="table">
+        <div class="table-scroll"><table class="table">
           <thead><tr><th>Раздел</th><th>Включён</th><th>Игроки могут создавать</th><th>Статей</th></tr></thead>
           <tbody>
             <tr v-for="t in allTypes()" :key="t.key">
@@ -231,7 +231,7 @@ async function publishAll(to: 'public' | 'members') {
               <td class="muted">{{ world.byType.get(t.key)?.length ?? 0 }}<button v-if="t.custom" class="icon-btn danger" title="Удалить тип" @click="removeCustomType(t.key)"><Icon name="trash2" :size="14" /></button></td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </section>
       <section class="card card-pad stack">
         <h3 class="panel-title"><Icon name="plus" /> Свой тип статей</h3>

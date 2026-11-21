@@ -47,6 +47,14 @@ async function render() {
     imageUrl(world.access, id).then((u) => { img.src = u; img.classList.remove('img-loading') })
       .catch(() => { img.classList.remove('img-loading'); img.classList.add('img-broken'); img.alt = img.alt || 'Изображение недоступно' })
   })
+  // wide tables scroll sideways instead of stretching the page (the editor has its own .tableWrapper)
+  el.querySelectorAll<HTMLTableElement>('table').forEach((t) => {
+    if (t.parentElement?.classList.contains('table-scroll')) return
+    const w = document.createElement('div')
+    w.className = 'table-scroll'
+    t.replaceWith(w)
+    w.appendChild(t)
+  })
   // heading anchors for the table of contents
   const used = new Set<string>()
   const hs: Heading[] = []

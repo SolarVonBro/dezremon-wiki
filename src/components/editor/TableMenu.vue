@@ -25,7 +25,7 @@ function valign(v: string | null) { chain().setCellAttribute('verticalAlign', v)
 </script>
 
 <template>
-  <BubbleMenu :editor="editor" plugin-key="tableMenu" :should-show="shouldShow" :get-referenced-virtual-element="tableRect" :options="{ placement: 'top', offset: 8, flip: true }">
+  <BubbleMenu :editor="editor" plugin-key="tableMenu" :should-show="shouldShow" :get-referenced-virtual-element="tableRect" :options="{ placement: 'top', offset: 8, flip: true, shift: { padding: 8 } }">
     <div class="bubble" @mousedown.prevent>
       <button class="tb-btn" title="Строка выше" @click="chain().addRowBefore().run()"><Icon name="between-horizontal-start" /></button>
       <button class="tb-btn" title="Строка ниже" @click="chain().addRowAfter().run()"><Icon name="rows3" /></button>

@@ -55,7 +55,7 @@ async function create() {
         <select v-model="templateId" class="input"><option :value="null">Без шаблона</option><option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option></select>
       </label>
       <div class="field"><span>Кто видит</span><VisibilitySelect v-model="vis" /></div>
-      <div class="row gap">
+      <div class="row gap wrap">
         <button class="btn btn-primary" :disabled="!name.trim() || busy"><Icon name="plus" :size="16" /> Создать и редактировать</button>
         <button v-if="!initialType" type="button" class="btn btn-ghost" @click="type = null">Другой тип</button>
       </div>

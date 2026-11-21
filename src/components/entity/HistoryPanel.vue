@@ -38,7 +38,7 @@ async function restore(r: Revision) {
 </script>
 
 <template>
-  <div class="entity-grid" style="grid-template-columns: 320px minmax(0, 1fr)">
+  <div class="entity-grid history-grid">
     <div class="card card-pad">
       <h3 class="panel-title"><Icon name="clock" /> Версии текста</h3>
       <p class="faint small">Снимок сохраняется не чаще раза в 10 минут при редактировании.</p>
@@ -57,11 +57,13 @@ async function restore(r: Revision) {
         </div>
         <RichView :html="selected.html" />
       </template>
-      <div v-else class="empty">Выберите версию слева, чтобы посмотреть её.</div>
+      <div v-else class="empty">Выберите версию в списке, чтобы посмотреть её.</div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .pick-row.active { background: var(--accent-soft); }
+.history-grid { grid-template-columns: 320px minmax(0, 1fr); }
+@media (max-width: 1100px) { .history-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>

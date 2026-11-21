@@ -41,7 +41,7 @@ const ALIGNS = [
 </script>
 
 <template>
-  <BubbleMenu :editor="editor" plugin-key="imageMenu" :should-show="shouldShow" :options="{ placement: 'top', offset: 8, flip: true }">
+  <BubbleMenu :editor="editor" plugin-key="imageMenu" :should-show="shouldShow" :options="{ placement: 'top', offset: 8, flip: true, shift: { padding: 8 } }">
     <div v-if="attrs" class="bubble bubble-col" @mousedown.self.prevent>
       <div class="bubble-row" @mousedown.prevent>
         <button v-for="a in ALIGNS" :key="a.v" class="tb-btn" :class="{ on: attrs.align === a.v }" :title="a.t" @click="set({ align: a.v, width: a.v === 'full' ? null : attrs.width })"><Icon :name="a.icon" /></button>

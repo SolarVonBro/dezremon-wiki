@@ -29,8 +29,8 @@
 
 /* tables */
 .prose table { border-collapse: collapse; margin: 1em 0; width: 100%; table-layout: fixed; overflow: hidden; font-size: .95em; }
-.prose .tableWrapper { overflow-x: auto; margin: 1em 0; }
-.prose .tableWrapper table { margin: 0; }
+.prose .tableWrapper, .prose .table-scroll { overflow-x: auto; margin: 1em 0; }
+.prose .tableWrapper table, .prose .table-scroll > table { margin: 0; }
 .prose td, .prose th { border: 1px solid var(--border-strong); padding: 6px 10px; vertical-align: top; position: relative; min-width: 40px; }
 .prose td > p, .prose th > p { margin: 0; }
 .prose td > p:empty, .prose th > p:empty { min-height: 1.7em; }
@@ -203,7 +203,7 @@ img.img-broken { min-height: 40px; min-width: 120px; background: var(--surface-3
 .palette-custom { position: relative; overflow: hidden; }
 .palette-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 
-.bubble { display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow-lg); padding: 4px; z-index: 60; }
+.bubble { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow-lg); padding: 4px; z-index: 60; max-width: calc(100vw - 16px); }
 .bubble-col { flex-direction: column; align-items: stretch; gap: 4px; }
 .bubble-row { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; max-width: 560px; }
 .bubble-sep { width: 1px; height: 20px; background: var(--border); margin: 0 3px; }
@@ -254,6 +254,12 @@ img.img-broken { min-height: 40px; min-width: 120px; background: var(--surface-3
   .wiki-img[data-align='left'], .wiki-img[data-align='right'] { float: none; display: block; margin: .8em auto; max-width: 100%; }
   .tb { top: var(--topbar-h); }
   .tb-font { display: none; }
+}
+/* Narrow screens: a fixed layout split the width evenly, and with overflow-wrap:anywhere every cell broke its
+   words letter by letter. Columns now size to their words and the wrapper scrolls sideways. */
+@media (max-width: 860px) {
+  .prose table { table-layout: auto; }
+  .prose td, .prose th { overflow-wrap: break-word; }
 }
 
 @media print {
