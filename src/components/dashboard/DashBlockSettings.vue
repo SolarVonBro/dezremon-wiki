@@ -231,7 +231,7 @@ const badUrls = computed(() => (f.value.links ?? []).some((l) => !l.entityId && 
           <button v-for="o in HEIGHTS" :key="o.h" class="chip" :class="{ on: f.h === o.h }" @click="f.h = o.h">{{ o.label }}</button>
           <span class="row gap-sm small faint"><input v-model.lazy="customH" class="input input-sm" type="number" min="120" max="1600" step="20" style="width: 86px" placeholder="авто" /> px</span>
         </div>
-        <span class="faint small">Если содержимое выше блока, внутри появится прокрутка. Ширину и высоту можно менять и мышью — за края блока в режиме настройки.</span>
+        <span class="faint small">Блоки одного ряда всегда одной высоты — по самому высокому. Если содержимое выше заданной высоты, внутри появится прокрутка. Ширину и высоту можно менять и мышью — за края блока.</span>
       </div>
       <div class="row gap wrap">
         <div class="field"><span>Оформление</span>

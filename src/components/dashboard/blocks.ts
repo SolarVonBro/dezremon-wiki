@@ -2,7 +2,7 @@
 // defaults and the standard layout used until a master customises the page.
 import type { DashBlock, DashBlockType, DashboardLayout } from '@/model/types'
 import { randomId } from '@/data/util'
-import { clampX, flowPositions } from './layout'
+import { flowPositions, rowsFromTops, tidy } from './layout'
 
 export interface BlockKind {
   type: DashBlockType
@@ -69,7 +69,7 @@ export function defaultLayout(pins: string[] = []): DashboardLayout {
     b('waiting', 'waiting'),
   ]
   flowPositions(blocks)
-  return { v: 1, gap: 'md', wide: false, blocks }
+  return { v: 2, gap: 'md', wide: false, blocks }
 }
 
 /** Tolerates layouts written by older or newer versions: unknown blocks are dropped, sizes clamped. */
@@ -78,10 +78,11 @@ export function normalizeLayout(raw: DashboardLayout | null | undefined, pins: s
   const blocks = raw.blocks
     .filter((b) => b && KIND.has(b.type) && typeof b.id === 'string')
     .map((b) => ({ ...b, w: clampW(b.w), h: clampH(b.h) }))
-  // saved before blocks had positions: place them the way the page used to flow
+  // saved before blocks had positions: place them the way the page used to flow; tops → rows
   if (blocks.some((b) => typeof b.x !== 'number' || typeof b.y !== 'number')) flowPositions(blocks)
-  for (const b of blocks) b.x = clampX(b.x, b.w)
-  return { v: 1, blocks, gap: raw.gap ?? 'md', wide: !!raw.wide }
+  else if ((raw.v ?? 1) < 2) rowsFromTops(blocks)
+  tidy(blocks)
+  return { v: 2, blocks, gap: raw.gap ?? 'md', wide: !!raw.wide }
 }
 
 export const clampW = (w: unknown) => Math.min(12, Math.max(MIN_W, Math.round(Number(w) || 12)))

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// The world overview: blocks placed in a 12-column grid (src/components/dashboard). Every block keeps its column
-// and moves up until the block above it (layout.ts), so rows may have empty columns and short blocks can stand
-// one above the other next to a tall one. Masters switch on «Настроить обзор» to add, remove, move and resize
-// blocks and change their settings; the layout lives in world.settings.dashboard.
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+// The world overview: blocks in a table-like grid of 12 columns and rows (src/components/dashboard/layout.ts).
+// Blocks of one row start and end on one level; columns may stay empty; a block may span several rows, next to
+// blocks placed one above the other. Masters switch on «Настроить обзор» to add, remove, move and resize blocks and
+// change their settings; the layout lives in world.settings.dashboard.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useWorld } from '@/stores/world'
 import { clean, errorText } from '@/data/util'
@@ -14,7 +14,7 @@ import DashBlockView from '@/components/dashboard/DashBlockView.vue'
 import DashBlockSettings from '@/components/dashboard/DashBlockSettings.vue'
 import DashAddModal from '@/components/dashboard/DashAddModal.vue'
 import { GAP_PX, defaultLayout, kindOf, midW, newBlock, normalizeLayout, titleOf } from '@/components/dashboard/blocks'
-import { ROW, clampX, compact, freeSpot, rowsFor, type Slot } from '@/components/dashboard/layout'
+import { clampX, freePlace, insertAt, maxWidth, neighbour, placeAt, rowsWithout, tidy, visibleCells, type Cell, type Geometry } from '@/components/dashboard/layout'
 import { useDashData } from '@/components/dashboard/useDashData'
 import { useGridEdit } from '@/components/dashboard/useGridEdit'
 import type { DashBlock, DashBlockType, DashboardLayout } from '@/model/types'
@@ -29,59 +29,21 @@ const data = useDashData(blocks)
 /** Outside edit mode a block shows only if this viewer may see it and it has something to show. */
 const shown = computed(() => (editing.value ? blocks.value : blocks.value.filter((b) => data.allowed(b) && data.hasContent(b))))
 const gap = computed(() => GAP_PX[layout.value.gap ?? 'md'])
+/** Where every shown block stands (rows left empty by hidden blocks close up). */
+const cells = computed(() => visibleCells(shown.value))
 
-// ---------- page width → mode; block heights → positions ----------
+// ---------- page width → mode ----------
 const wrapEl = ref<HTMLElement | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
 const gridW = ref(1200)
-/** grid: blocks at their columns; two / one: blocks follow each other (two per row at most, or one). */
+/** grid: blocks at their columns and rows; two / one: blocks follow each other (two per row at most, or one). */
 const mode = computed(() => (gridW.value >= 860 ? 'grid' : gridW.value >= 540 ? 'two' : 'one'))
-/** Natural heights of the blocks (px), measured: the content decides how many grid rows a block takes. */
-const heights = reactive(new Map<string, number>())
-const measured = ref(false)
-const rowsOf = (b: DashBlock) => rowsFor(b.h > 0 ? b.h : heights.get(b.id) ?? 160, gap.value)
-
-/** While a block is dragged: its wished place, and the others' order frozen at the start (their centres). */
-const drag = ref<{ id: string; key: number; keys: Map<string, number> } | null>(null)
-function keyOf(b: DashBlock) {
-  const d = drag.value
-  if (!d) return b.y ?? 0
-  return d.id === b.id ? d.key : d.keys.get(b.id) ?? b.y ?? 0
-}
-const slots = computed(() => compact(shown.value.map((b) => ({ id: b.id, x: b.x ?? 0, w: b.w, rows: rowsOf(b), key: keyOf(b) }))))
-const slotsOf = (l: DashboardLayout) => compact(l.blocks.map((b) => ({ id: b.id, x: b.x ?? 0, w: b.w, rows: rowsOf(b), key: b.y ?? 0 })))
-
 let gridRo: ResizeObserver | null = null
-let blockRo: ResizeObserver | null = null
 onMounted(() => {
   gridRo = new ResizeObserver(() => { if (wrapEl.value) gridW.value = wrapEl.value.clientWidth })
   if (wrapEl.value) { gridW.value = wrapEl.value.clientWidth; gridRo.observe(wrapEl.value) }
-  blockRo = new ResizeObserver((entries) => {
-    for (const en of entries) {
-      const el = en.target as HTMLElement
-      const id = el.dataset.blockId
-      if (id && !el.classList.contains('db-floating')) heights.set(id, Math.round(en.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight))
-    }
-    measured.value = true
-  })
-  observeBlocks()
 })
-function observeBlocks() {
-  if (!blockRo || !gridEl.value) return
-  blockRo.disconnect()
-  const els = gridEl.value.querySelectorAll<HTMLElement>('[data-block]')
-  els.forEach((el) => blockRo!.observe(el))
-  if (!els.length) measured.value = true
-}
-watch(() => shown.value.map((b) => b.id).join(), () => nextTick(observeBlocks), { flush: 'post' })
-onBeforeUnmount(() => { gridRo?.disconnect(); blockRo?.disconnect() })
-
-/** Settles a layout after a change: every block gets the place it actually takes; the list follows reading order. */
-function settle(l: DashboardLayout) {
-  const s = slotsOf(l)
-  for (const b of l.blocks) { const p = s.get(b.id); if (p) { b.x = p.x; b.y = p.top } }
-  l.blocks.sort((a, b) => (a.y! - b.y!) || (a.x! - b.x!))
-}
+onBeforeUnmount(() => gridRo?.disconnect())
 
 // ---------- editing: changes go to a draft and are saved shortly after (one write per gesture) ----------
 const history = ref<DashboardLayout[]>([])
@@ -96,18 +58,19 @@ function scheduleSave() {
   saveTimer = setTimeout(() => void flush(), 700)
 }
 const remember = () => { if (draft.value) history.value = [...history.value.slice(-39), clean(draft.value)] }
-function change(fn: (l: DashboardLayout) => void) {
+/** A change of the layout: `fn` edits a copy, which is then made valid (no overlaps, no empty rows). */
+function change(fn: (l: DashboardLayout) => string | void) {
   if (!draft.value) return
   remember()
   const next = clean(draft.value)
-  fn(next)
-  settle(next)
+  const keep = fn(next)
+  tidy(next.blocks, keep || undefined)
   draft.value = next
   scheduleSave()
 }
 function startEdit() {
   const d = clean(saved.value)
-  settle(d)
+  tidy(d.blocks)
   draft.value = d
   history.value = []
   editing.value = true
@@ -138,14 +101,15 @@ const settingsBlock = computed(() => draft.value?.blocks.find((b) => b.id === se
 async function addBlock(type: DashBlockType) {
   adding.value = false
   const b = newBlock(type)
-  // the highest free place for its width (fills holes next to shorter blocks)
-  change((l) => { const spot = freeSpot(slotsOf(l), b.w); l.blocks.push({ ...b, x: spot.x, y: spot.top }) })
+  // the first free place in the existing rows (empty columns), else a new row at the bottom
+  change((l) => { const p = freePlace(l.blocks, b.w); l.blocks.push({ ...b, x: p.x, y: p.y, rs: 1 }); return b.id })
   if (kindOf(type).needsSetup) settingsFor.value = b.id
   await nextTick()
   document.querySelector(`[data-block-id="${b.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
 function saveBlock(b: DashBlock) {
-  change((l) => { const i = l.blocks.findIndex((x) => x.id === b.id); if (i >= 0) l.blocks[i] = { ...b, x: clampX(b.x, b.w) } })
+  // a wider block pushes the neighbours it now covers down
+  change((l) => { const i = l.blocks.findIndex((x) => x.id === b.id); if (i >= 0) l.blocks[i] = { ...b, x: clampX(b.x, b.w) }; return b.id })
   settingsFor.value = null
 }
 function removeBlock(id: string) {
@@ -155,62 +119,76 @@ function removeBlock(id: string) {
 function duplicate(id: string) {
   change((l) => {
     const src = find(l, id)
-    if (src) l.blocks.push({ ...clean(src), id: newBlock(src.type).id, y: (src.y ?? 0) + 0.5 })
+    if (!src) return
+    const copy = { ...clean(src), id: newBlock(src.type).id }
+    l.blocks.push(copy)
+    const at = rowsWithout(l.blocks, copy.id, src.id)
+    insertAt(l.blocks, copy.id, at ? at.end + 1 : 0, src.x ?? 0)
+    return copy.id
   })
 }
-/** Arrow moves: a column left/right, or above/below the neighbouring block that shares a column. */
+/** Arrow moves: a column left/right (neighbours in the way move down), or above/below the neighbouring block. */
 function nudge(id: string, dir: 'left' | 'right' | 'up' | 'down') {
   change((l) => {
     const b = find(l, id)
     if (!b) return
-    if (dir === 'left' || dir === 'right') { b.x = clampX((b.x ?? 0) + (dir === 'left' ? -1 : 1), b.w); return }
-    const s = slotsOf(l)
-    const me = s.get(id)!
-    const near = l.blocks.map((o) => ({ o, p: s.get(o.id)! })).filter(({ o, p }) => o.id !== id && p.x < me.x + me.w && me.x < p.x + p.w)
-    const pick = dir === 'up'
-      ? near.filter(({ p }) => p.top < me.top).sort((a, z) => z.p.top - a.p.top)[0]
-      : near.filter(({ p }) => p.top > me.top).sort((a, z) => a.p.top - z.p.top)[0]
-    if (pick) b.y = pick.p.top + (dir === 'up' ? -0.5 : 0.5)
+    if (dir === 'left' || dir === 'right') { b.x = clampX((b.x ?? 0) + (dir === 'left' ? -1 : 1), b.w); return id }
+    const n = neighbour(l.blocks, id, dir)
+    if (!n) return
+    const at = rowsWithout(l.blocks, id, n.id)
+    if (at) insertAt(l.blocks, id, dir === 'up' ? at.row : at.end + 1, b.x ?? 0)
+    return id
   })
 }
 function setHeight(id: string, h: number) { change((l) => { const b = find(l, id); if (b) b.h = h }) }
 
 // ---------- mouse / touch ----------
+/** The rows as drawn: px from the top of the grid (the browser has already sized them to their blocks). */
+function geometry(): Geometry {
+  const g = gridEl.value
+  if (!g) return { tops: [], bottoms: [] }
+  const cs = getComputedStyle(g)
+  const gapPx = parseFloat(cs.rowGap) || 0
+  const sizes = cs.gridTemplateRows.split(' ').map(parseFloat).filter((n) => Number.isFinite(n))
+  const tops: number[] = [], bottoms: number[] = []
+  let y = 0
+  for (const s of sizes) { tops.push(y); bottoms.push(y + s); y += s + gapPx }
+  return { tops, bottoms }
+}
+let dragBase: DashBlock[] | null = null
+let dragGeo: Geometry = { tops: [], bottoms: [] }
 let resizing = false
 const { onPointerDown, floating } = useGridEdit(() => gridEl.value, {
   mode: () => (mode.value === 'grid' ? 'grid' : 'list'),
   gap: () => gap.value,
-  dragStart: (id) => {
+  dragStart: () => {
+    if (!draft.value) return
     remember()
-    const keys = new Map<string, number>()
-    for (const [k, s] of slots.value) keys.set(k, s.top + s.rows / 2)
-    drag.value = { id, key: keys.get(id) ?? 0, keys }
+    dragBase = clean(draft.value.blocks)
+    dragGeo = geometry()
   },
   dragTo: (id, x, top) => {
-    const b = draft.value && find(draft.value, id)
-    if (!b || !drag.value) return
-    b.x = clampX(x, b.w)
-    drag.value = { ...drag.value, key: top + rowsOf(b) / 2 }
+    if (!draft.value || !dragBase) return
+    // keep the list order while dragging: re-ordering the elements would make the dragged one lose the pointer
+    const placed = new Map(placeAt(dragBase, id, x, top, dragGeo).map((b) => [b.id, b]))
+    draft.value.blocks = dragBase.map((b) => placed.get(b.id) ?? b)
   },
   dragEnd: (_id, commit) => {
-    const d = drag.value
-    if (!draft.value || !d) { drag.value = null; return }
-    if (!commit) { drag.value = null; undo(); return }
-    // the places the page showed while dragging become the saved ones
-    const s = slots.value
-    const l = clean(draft.value)
-    for (const b of l.blocks) { const p = s.get(b.id); if (p) { b.x = p.x; b.y = p.top } }
-    drag.value = null
-    settle(l)
-    draft.value = l
+    const base = dragBase
+    dragBase = null
+    if (!draft.value || !base) return
+    if (!commit) { undo(); return }
+    tidy(draft.value.blocks)
+    draft.value = clean(draft.value)
     scheduleSave()
   },
+  // narrow page: before / after the target in reading order, in its column
   move: (id, targetId, after) => change((l) => {
-    const b = find(l, id), t = find(l, targetId)
-    if (!b || !t) return
-    // narrow page: the block goes before/after the target in reading order and takes its column
-    b.x = clampX(t.x, b.w)
-    b.y = (t.y ?? 0) + (after ? 0.5 : -0.5)
+    const t = find(l, targetId)
+    const at = rowsWithout(l.blocks, id, targetId)
+    if (!t || !at) return
+    insertAt(l.blocks, id, after ? at.end + 1 : at.row, t.x ?? 0)
+    return id
   }),
   resize: (id, w, h) => {
     if (!draft.value) return
@@ -218,23 +196,27 @@ const { onPointerDown, floating } = useGridEdit(() => gridEl.value, {
     resizing = true
     const b = find(draft.value, id)
     if (!b) return
-    if (w !== null) b.w = Math.min(w, 12 - (b.x ?? 0))
+    // grows to the right up to the next block of its rows
+    if (w !== null) b.w = Math.max(2, Math.min(w, maxWidth(draft.value.blocks, id)))
     if (h !== null) b.h = h
   },
   resizeEnd: () => {
     if (!resizing || !draft.value) return
     resizing = false
-    const l = clean(draft.value)
-    settle(l)
-    draft.value = l
+    tidy(draft.value.blocks)
+    draft.value = clean(draft.value)
     scheduleSave()
   },
 })
-const placeholder = computed(() => (floating.value && mode.value === 'grid' ? slots.value.get(floating.value.id) ?? null : null))
-const slotStyle = (s: Slot) => ({ '--gc': `${s.x + 1} / span ${s.w}`, '--gr': `${s.top + 1} / span ${s.rows}` })
+const cellStyle = (c: Cell) => ({ '--gc': `${c.x + 1} / span ${c.w}`, '--gr': `${c.row + 1} / span ${c.span}` })
+const placeholder = computed(() => {
+  const f = floating.value
+  const c = f && mode.value === 'grid' ? cells.value.get(f.id) : null
+  return c && f ? { ...cellStyle(c), minHeight: f.height + 'px' } : null
+})
 function blockStyle(b: DashBlock) {
-  const s = slots.value.get(b.id)
-  const st: Record<string, string | number | undefined> = { '--w': b.w, '--wm': midW(b.w), height: b.h > 0 ? b.h + 'px' : undefined, ...(s ? slotStyle(s) : {}) }
+  const c = cells.value.get(b.id)
+  const st: Record<string, string | number | undefined> = { '--w': b.w, '--wm': midW(b.w), '--h': b.h > 0 ? b.h + 'px' : undefined, ...(c ? cellStyle(c) : {}) }
   const f = floating.value
   if (f && f.id === b.id) Object.assign(st, { left: f.left + 'px', top: f.top + 'px', width: f.width + 'px', height: f.height + 'px' })
   return st
@@ -260,7 +242,7 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
   <div class="content" :class="{ 'content-wide': layout.wide }">
     <div v-if="editing" class="db-toolbar card">
       <div class="db-tb-title"><Icon name="layout-dashboard" :size="17" /> <b>Настройка обзора</b>
-        <span class="faint small hide-sm">Тащите блок за <Icon name="grip-vertical" :size="13" /> в любую колонку, размер — за края. Изменения сохраняются сразу и видны всем.</span>
+        <span class="faint small hide-sm">Тащите блок за <Icon name="grip-vertical" :size="13" />: на пустые колонки ряда — в этот ряд, на верх или низ другого блока — над ним или под ним. Размер — за края. Изменения видны всем сразу.</span>
       </div>
       <div class="db-tb-actions">
         <button class="btn btn-sm btn-primary" @click="adding = true"><Icon name="plus" :size="15" /> Блок</button>
@@ -278,8 +260,8 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
     </div>
 
     <div ref="wrapEl" class="db-wrap">
-      <div ref="gridEl" class="db-grid" :class="['mode-' + mode, { editing, measured }]" :style="{ '--g': gap + 'px', '--row': ROW + 'px' }" @pointerdown="editing && onPointerDown($event)">
-        <div v-if="placeholder" class="db-placeholder" :style="slotStyle(placeholder)" />
+      <div ref="gridEl" class="db-grid" :class="['mode-' + mode, { editing }]" :style="{ '--g': gap + 'px' }" @pointerdown="editing && onPointerDown($event)">
+        <div v-if="placeholder" class="db-placeholder" :style="placeholder" />
         <div v-for="b in shown" :key="b.id" class="db-block" data-block :data-block-id="b.id"
           :class="['db-' + (b.type === 'hero' ? 'hero' : b.style ?? 'card'), { fixed: b.h > 0, 'is-empty': editing && !data.hasContent(b), 'db-floating': floating?.id === b.id }]"
           :style="blockStyle(b)">
@@ -311,7 +293,7 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
             <span class="db-rs db-rs-x" data-block-resize="x" title="Ширина" />
             <span class="db-rs db-rs-y" data-block-resize="y" title="Высота (двойной щелчок — по содержимому)" @dblclick="setHeight(b.id, 0)" />
             <span class="db-rs db-rs-xy" data-block-resize="xy" title="Размер" />
-            <span class="db-size-tip">{{ b.w }}/12 · {{ b.h ? b.h + ' px' : 'авто' }}</span>
+            <span class="db-size-tip">{{ b.w }}/12 · {{ b.h ? 'от ' + b.h + ' px' : 'по содержимому' }}</span>
           </template>
         </div>
       </div>
@@ -331,10 +313,9 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
 <style scoped>
 .content-wide { max-width: none; }
 .db-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--g); }
-/* wide page: blocks at their columns and rows; each takes its natural height, the rest of its rows is the gap */
-.db-grid.mode-grid { grid-auto-rows: var(--row); row-gap: 0; align-items: start; }
-.mode-grid > .db-block { grid-column: var(--gc); grid-row: var(--gr); }
-.mode-grid:not(.measured) { visibility: hidden; }
+/* wide page: blocks at their columns and rows; a row is as tall as its tallest block, the others stretch to it */
+.db-grid.mode-grid { grid-auto-rows: auto; row-gap: var(--g); align-items: stretch; }
+.mode-grid > .db-block, .mode-grid > .db-placeholder { grid-column: var(--gc); grid-row: var(--gr); }
 /* narrow page: one after another, two per row at most (or one) */
 .db-grid.mode-two, .db-grid.mode-one { row-gap: var(--g); align-items: stretch; }
 .mode-two > .db-block { grid-column: span var(--wm); }
@@ -348,7 +329,11 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
 .db-hero { padding: 0; overflow: hidden; border: 1px solid var(--border); }
 .db-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .db-body > * { flex: 1; }
-.fixed .db-body { overflow: auto; scrollbar-width: thin; }
+/* a set height: the block asks its row for that much (the content does not count — `contain: size`) and scrolls
+   inside; a taller row still stretches it */
+.db-block.fixed { min-height: var(--h); }
+.fixed .db-body { contain: size; overflow: auto; scrollbar-width: thin; }
+.fixed .db-body > * { flex: 1 0 auto; }
 .db-hero.fixed .db-body { overflow: hidden; }
 
 /* ---------- edit mode ---------- */
@@ -387,7 +372,7 @@ const SHOW_LABEL = { members: 'участникам', masters: 'мастерам
 
 /* wide page: the dragged block floats under the pointer, a frame shows where it will stand */
 .db-grid .db-floating { position: fixed; z-index: 60; margin: 0; opacity: .94; box-shadow: var(--shadow-lg); cursor: grabbing; }
-.db-placeholder { grid-column: var(--gc); grid-row: var(--gr); align-self: stretch; margin-bottom: var(--g); border: 2px dashed var(--accent); border-radius: 14px; background: var(--accent-soft); }
+.db-placeholder { border: 2px dashed var(--accent); border-radius: 14px; background: var(--accent-soft); }
 /* narrow page: the block follows the pointer, a line marks where it lands */
 .db-dragging { z-index: 50; opacity: .92; box-shadow: var(--shadow-lg); cursor: grabbing; transition: none; }
 .db-moving { user-select: none; }

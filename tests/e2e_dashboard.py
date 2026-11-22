@@ -54,7 +54,7 @@ MAP_FIT = """() => { const st = document.querySelector('.dbv-mapbox .dw-stage').
   const cx = st.left + st.width / 2, cy = st.top + st.height / 2
   return { inside: im.left >= st.left - 2 && im.right <= st.right + 2 && im.top >= st.top - 2 && im.bottom <= st.bottom + 2,
     cover: Math.max(im.width / st.width, im.height / st.height), centre: im.left < cx && im.right > cx && im.top < cy && im.bottom > cy } }"""
-BLOCKS = """() => [...document.querySelectorAll('.db-grid > [data-block]')].map((b) => ({ id: b.dataset.blockId, w: Number(b.style.getPropertyValue('--w')), h: b.style.height,
+BLOCKS = """() => [...document.querySelectorAll('.db-grid > [data-block]')].map((b) => ({ id: b.dataset.blockId, w: Number(b.style.getPropertyValue('--w')), h: b.style.getPropertyValue('--h').trim(),
   title: b.querySelector('.db-eb-title')?.innerText ?? '', x: Math.round(b.getBoundingClientRect().left), width: Math.round(b.getBoundingClientRect().width) }))"""
 OVERFLOW = "() => document.documentElement.scrollWidth - window.innerWidth"
 
@@ -272,36 +272,38 @@ with sync_playwright() as p:
     check(any(x['title'] == 'Приветствие' for x in pg.evaluate(BLOCKS)), 'and undone')
     pg.locator('.db-toolbar').get_by_role('button', name='Готово').click()
 
-    print('== free placement: an empty middle, two blocks next to one tall block')
-    put_layout(wid, {'v': 1, 'gap': 'md', 'wide': False, 'blocks': [
-        {'id': 'A', 'type': 'recent', 'w': 4, 'h': 600, 'x': 0, 'y': 0, 'limit': 14, 'types': []},
-        {'id': 'B', 'type': 'random', 'w': 4, 'h': 0, 'x': 8, 'y': 0, 'types': []},
-        {'id': 'C', 'type': 'waiting', 'w': 4, 'h': 0, 'x': 0, 'y': 200, 'show': 'masters', 'limit': 3},
-        {'id': 'E', 'type': 'character', 'w': 4, 'h': 0, 'x': 4, 'y': 300},
-        {'id': 'T', 'type': 'text', 'w': 12, 'h': 0, 'x': 0, 'y': 400, 'html': '<p>Подвал обзора</p>'},
+    print('== rows: level blocks, an empty middle, two blocks next to one')
+    put_layout(wid, {'v': 2, 'gap': 'md', 'wide': False, 'blocks': [
+        {'id': 'A', 'type': 'recent', 'w': 4, 'h': 0, 'x': 0, 'y': 0, 'rs': 1, 'limit': 14, 'types': []},
+        {'id': 'B', 'type': 'random', 'w': 4, 'h': 0, 'x': 8, 'y': 0, 'rs': 1, 'types': []},
+        {'id': 'C', 'type': 'waiting', 'w': 4, 'h': 0, 'x': 0, 'y': 1, 'rs': 1, 'show': 'masters', 'limit': 3},
+        {'id': 'E', 'type': 'character', 'w': 4, 'h': 0, 'x': 4, 'y': 1, 'rs': 1},
+        {'id': 'T', 'type': 'text', 'w': 12, 'h': 0, 'x': 0, 'y': 2, 'rs': 1, 'html': '<p>Подвал обзора</p>'},
     ]})
     pg.reload(); pg.wait_for_selector('[data-block-id="T"]', timeout=20000); pg.wait_for_timeout(800)
     p = pg.evaluate(POS)
-    check(p['B']['l'] > p['A']['r'] + p['A']['w'] * 0.8 and abs(p['B']['t'] - p['A']['t']) <= 4, f'B stands in the right columns, level with A, the middle stays empty ({p["A"]}, {p["B"]})')
-    check(p['C']['l'] == p['A']['l'] and p['C']['t'] >= p['A']['b'], 'C under A in its column')
-    check(p['T']['t'] >= max(p['A']['b'], p['C']['b']), 'the full-width text goes under everything')
+    check(p['B']['l'] > p['A']['r'] + p['A']['w'] * 0.8, f'B stands in the right columns, the middle stays empty ({p["A"]}, {p["B"]})')
+    check(abs(p['B']['t'] - p['A']['t']) <= 1 and abs(p['B']['b'] - p['A']['b']) <= 1, f'blocks of one row are level: same top and bottom ({p["A"]}, {p["B"]})')
+    check(p['C']['l'] == p['A']['l'] and p['C']['t'] > p['A']['b'], 'C in the next row under A')
+    check(p['T']['t'] > max(p['A']['b'], p['C']['b']), 'the full-width text goes under everything')
     pg.get_by_role('button', name='Настроить обзор').first.click(); pg.wait_for_selector('.db-toolbar', timeout=5000); pg.wait_for_timeout(500)
     p = pg.evaluate(POS)
     check('E' in p, 'the empty «Мой персонаж» block is there in edit mode (middle columns)')
-    # drag C into the right column, under B
+    # drag C onto the lower half of B: it goes under B, A stretches over both
     grip = pg.locator('[data-block-id="C"] [data-block-grip]')
-    grip.scroll_into_view_if_needed()
+    grip.evaluate("(e) => e.scrollIntoView({ block: 'center' })"); pg.wait_for_timeout(200)
     gb = grip.bounding_box()
     cbox = pg.locator('[data-block-id="C"]').bounding_box()
     bbox = pg.locator('[data-block-id="B"]').bounding_box()
     off_x, off_y = gb['x'] - cbox['x'], gb['y'] - cbox['y']
-    tx, ty = bbox['x'] + off_x + gb['width'] / 2, bbox['y'] + bbox['height'] + 30 + off_y + gb['height'] / 2
+    tx, ty = bbox['x'] + off_x + gb['width'] / 2, bbox['y'] + bbox['height'] * 0.7 + off_y + gb['height'] / 2
     pg.mouse.move(gb['x'] + gb['width'] / 2, gb['y'] + gb['height'] / 2); pg.mouse.down()
     pg.mouse.move(tx, ty, steps=30)
     check(pg.locator('.db-placeholder').count() == 1, 'while dragging, a frame shows where the block will stand')
     pg.mouse.up(); pg.wait_for_timeout(600)
     p = pg.evaluate(POS)
-    check(p['C']['l'] == p['B']['l'] and p['C']['t'] > p['B']['t'] and p['C']['t'] < p['A']['b'], f'C now stands under B, next to the tall A ({p["A"]}, {p["B"]}, {p["C"]})')
+    check(p['C']['l'] == p['B']['l'] and p['C']['t'] > p['B']['b'], f'C now stands under B ({p["B"]}, {p["C"]})')
+    check(abs(p['A']['t'] - p['B']['t']) <= 1 and abs(p['A']['b'] - p['C']['b']) <= 1, f'two next to one, level: A from the top of B to the bottom of C ({p["A"]}, {p["B"]}, {p["C"]})')
     before = {k: v['l'] for k, v in p.items()}
     pg.locator('.db-toolbar').get_by_role('button', name='Готово').click()
     pg.wait_for_function("() => !document.querySelector('.db-toolbar')", timeout=5000); pg.wait_for_timeout(1500)
@@ -309,11 +311,26 @@ with sync_playwright() as p:
     check('E' not in p, 'outside edit mode the empty block is hidden')
     after = {k: v['l'] for k, v in p.items()}
     check(all(after[k] == before[k] for k in after), f'after «Готово» every block keeps its column ({before} -> {after})')
-    check(p['C']['l'] == p['B']['l'] and p['B']['t'] < p['C']['t'] < p['A']['b'], 'after «Готово»: still two blocks next to one')
+    check(abs(p['A']['t'] - p['B']['t']) <= 1 and abs(p['A']['b'] - p['C']['b']) <= 1 and p['C']['t'] > p['B']['b'], 'after «Готово»: still two next to one, level')
     pg.reload(); pg.wait_for_selector('[data-block-id="T"]', timeout=20000); pg.wait_for_timeout(800)
     p2 = pg.evaluate(POS)
     check(all(p2[k]['l'] == p[k]['l'] and abs(p2[k]['t'] - p[k]['t']) <= 4 for k in p), 'after reload: the same places')
     pg.screenshot(path=os.path.join(OUT, 'd-4-placement.png'), full_page=True)
+
+    print('== a block dropped on the empty columns of a row joins it')
+    pg.get_by_role('button', name='Настроить обзор').first.click(); pg.wait_for_selector('.db-toolbar', timeout=5000); pg.wait_for_timeout(400)
+    grip = pg.locator('[data-block-id="E"] [data-block-grip]')
+    grip.evaluate("(e) => e.scrollIntoView({ block: 'center' })"); pg.wait_for_timeout(200)
+    gb = grip.bounding_box(); ebox = pg.locator('[data-block-id="E"]').bounding_box(); abox = pg.locator('[data-block-id="A"]').bounding_box()
+    tx = abox['x'] + abox['width'] + 20 + (gb['x'] - ebox['x']) + gb['width'] / 2
+    ty = abox['y'] + 10 + (gb['y'] - ebox['y']) + gb['height'] / 2
+    pg.mouse.move(gb['x'] + gb['width'] / 2, gb['y'] + gb['height'] / 2); pg.mouse.down(); pg.mouse.move(tx, ty, steps=25); pg.mouse.up(); pg.wait_for_timeout(500)
+    p = pg.evaluate(POS)
+    check(abs(p['E']['t'] - p['A']['t']) <= 1 and p['A']['r'] < p['E']['l'] < p['B']['l'], f'E joined the top row between A and B ({p["A"]}, {p["E"]}, {p["B"]})')
+    pg.keyboard.press('Control+z'); pg.wait_for_timeout(300)
+    p = pg.evaluate(POS)
+    check(p['E']['t'] > p['A']['t'], 'Ctrl+Z puts it back')
+    pg.locator('.db-toolbar').get_by_role('button', name='Готово').click(); pg.wait_for_timeout(1200)
 
     print('== map block: the real map')
     pg.goto(BASE + f'#/w/{wid}/gallery'); pg.wait_for_timeout(1500)   # the gallery store comes to life there

@@ -9,12 +9,12 @@
 // Resizing: the width snaps to twelfths of the grid, the height to H_STEP px; `resize` is called live.
 import { onBeforeUnmount, ref } from 'vue'
 import { H_STEP, MAX_H, MIN_H, MIN_W } from './blocks'
-import { ROW } from './layout'
 
 export interface GridEditHandlers {
   mode: () => 'grid' | 'list'
   gap: () => number
   dragStart: (id: string) => void
+  /** x — column under the block's left edge, top — its top edge in px from the top of the grid */
   dragTo: (id: string, x: number, top: number) => void
   dragEnd: (id: string, commit: boolean) => void
   move: (id: string, targetId: string, after: boolean) => void
@@ -72,7 +72,7 @@ export function useGridEdit(grid: () => HTMLElement | null, on: GridEditHandlers
       const gr = g.getBoundingClientRect()
       const gap = on.gap()
       const col = (gr.width - 11 * gap) / 12
-      on.dragTo(id, Math.round((cx - gx - gr.left) / (col + gap)), Math.max(0, Math.round((cy - gy - gr.top) / ROW)))
+      on.dragTo(id, Math.round((cx - gx - gr.left) / (col + gap)), cy - gy - gr.top)
     }
     track(e, handle, (x, y) => { cx = x; cy = y; update() }, (commit) => {
       floating.value = null

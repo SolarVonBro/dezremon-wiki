@@ -72,12 +72,12 @@ usage/{wid | service}                        замеры объёма: по м�
 
 ## Обзор мира (`worlds/{wid}.settings.dashboard`)
 
-Страница «Обзор» собирается из блоков: `{ v: 1, gap, wide, blocks[] }`. Блок — `{ id, type, x, y, w, h, title?, hideTitle?,
-show?, style?, …настройки вида }`: `x` — колонка (0–11), `w` — ширина в двенадцатых строки (2–12), `y` — порядок сверху вниз
-(верх блока в рядах по 4 px на момент сохранения; блоки держат свои колонки и поднимаются до блока над ними —
-`src/components/dashboard/layout.ts`), `h` — высота в px (0 — по содержимому),
-`show` — `all` | `members` | `masters` (только прячет блок на странице: данные лежат в документе мира, который читают все,
-кто видит мир), `style` — `card` | `plain` | `accent`. Виды: hero, stats, text (`html`), pins (`ids[]`), entity
+Страница «Обзор» собирается из блоков: `{ v: 2, gap, wide, blocks[] }`. Блок — `{ id, type, x, y, rs, w, h, title?,
+hideTitle?, show?, style?, …настройки вида }`: сетка как таблица — 12 колонок и ряды; `x` — колонка (0–11), `w` — ширина
+в колонках (2–12), `y` — ряд, `rs` — сколько рядов блок занимает (высокий блок рядом с двумя друг под другом). Ряд высотой
+с самый высокий блок, блоки ряда тянутся до него (`src/components/dashboard/layout.ts`). `h` — желаемая высота в px
+(0 — по содержимому; больше — прокрутка внутри), `show` — `all` | `members` | `masters` (только прячет блок на странице:
+данные лежат в документе мира, который читают все, кто видит мир), `style` — `card` | `plain` | `accent`. Виды: hero, stats, text (`html`), pins (`ids[]`), entity
 (`entityId`, `view`), list (`types[]`, `tagId`, `sort`, `limit`, `view`), recent, calendar (`calendarId`), map
 (`entityId`), image (`imageId`, `caption`, `fit`), links (`links[]: {label, url | entityId}`), character, campaigns,
 random, waiting — см. `src/components/dashboard/blocks.ts`. Нет `dashboard` — стандартный набор блоков (закреплённые

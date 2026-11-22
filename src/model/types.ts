@@ -69,9 +69,11 @@ export interface DashBlock {
   type: DashBlockType
   /** Column the block starts at (0–11). */
   x?: number
-  /** Place in the vertical order: the block's top (in 4 px rows) when the layout was saved. Blocks keep their
-   *  columns and move up as far as the blocks above them allow (src/components/dashboard/layout.ts). */
+  /** Row the block starts in (0 = top). Rows are as tall as their tallest block; blocks stretch to their rows
+   *  (src/components/dashboard/layout.ts). */
   y?: number
+  /** How many rows the block spans (1 when absent): a tall block next to two blocks placed one above the other. */
+  rs?: number
   /** Width in twelfths of the row (12 = full width). */
   w: number
   /** Fixed height in px (the content scrolls inside); 0 = as tall as the content. */
@@ -111,7 +113,8 @@ export interface DashBlock {
 }
 
 export interface DashboardLayout {
-  v: 1
+  /** 2 — rows (x, y = row, rs); 1 — y was a top in 4 px steps (converted on load); no x/y — the old flowing page */
+  v: 1 | 2
   blocks: DashBlock[]
   /** Space between blocks. */
   gap?: 'sm' | 'md' | 'lg'
