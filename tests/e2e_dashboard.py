@@ -31,10 +31,20 @@ def check(cond, what):
 
 
 SEED = r"""async () => {
-  const world = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('world')
+  const pinia = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia
+  const world = pinia._s.get('world'), gallery = pinia._s.get('gallery')
+  const c = document.createElement('canvas'); c.width = 400; c.height = 400
+  const x = c.getContext('2d'); x.fillStyle = '#8a5a2f'; x.fillRect(0, 0, 400, 400)
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9))
+  const [img1] = await gallery.upload([new File([blob], 'arwen.jpg', { type: 'image/jpeg' })], { folder: 'portraits' })
+  const [img2] = await gallery.upload([new File([blob], 'velmor.jpg', { type: 'image/jpeg' })], { folder: 'places' })
   const ids = []
-  for (const [type, name] of [['character', 'Арвен Тихая'], ['character', 'Борис Гром'], ['location', 'Вельмор'], ['location', 'Серые холмы'], ['organization', 'Орден Пепла']])
-    ids.push(await world.createEntity(type, name, {}))
+  // picture + text: the only one the random block may show; text only; picture only; neither
+  ids.push(await world.createEntity('character', 'Арвен Тихая', { imageId: img1.id }, '<p>Странствующая целительница с севера.</p>'))
+  ids.push(await world.createEntity('character', 'Борис Гром', {}, '<p>Кузнец без портрета.</p>'))
+  ids.push(await world.createEntity('location', 'Вельмор', { imageId: img2.id }))
+  ids.push(await world.createEntity('location', 'Серые холмы', {}))
+  ids.push(await world.createEntity('organization', 'Орден Пепла', {}))
   for (let i = 0; i < 50 && world.pendingWrites > 0; i++) await new Promise((r) => setTimeout(r, 200))
   return ids
 }"""
@@ -129,7 +139,9 @@ with sync_playwright() as p:
     pg.locator('.app-bar .app-nav a', has_text='Кампейны').click(); pg.wait_for_url('**/#/campaigns**', timeout=10000)
     check(pg.locator('.app-bar .app-nav a.on', has_text='Кампейны').count() == 1, 'Кампейны opens from inside a world in one click')
     pg.go_back(); pg.wait_for_selector('.db-grid', timeout=20000)
+    pg.goto(BASE + f'#/w/{wid}/gallery'); pg.wait_for_timeout(1500)   # the gallery store comes to life there
     eids = pg.evaluate(SEED)
+    pg.goto(BASE + f'#/w/{wid}'); pg.wait_for_selector('.db-grid', timeout=20000)
 
     print('== «Обзор» in the sidebar is lit only on the overview')
     ov = pg.locator('.sidebar .sb-link', has_text='Обзор')
@@ -146,6 +158,11 @@ with sync_playwright() as p:
     titles = pg.locator('.db-grid .panel-title').all_inner_texts()
     check(any('Последние изменения' in t for t in titles), f'standard blocks shown ({titles})')
     check(pg.locator('.dash-hero h1', has_text='Обзорный мир').count() == 1, 'hero with the world name')
+    seen = set()
+    for _ in range(5):
+        seen.add(pg.locator('.dbv--random b').first.inner_text().strip())
+        pg.locator('.dbv--random button[title="Другая статья"]').click(); pg.wait_for_timeout(150)
+    check(seen == {'Арвен Тихая'}, f'random article: only articles with a picture and text ({seen})')
 
     print('== edit mode: add a text block')
     pg.get_by_role('button', name='Настроить обзор').first.click()

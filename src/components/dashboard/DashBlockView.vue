@@ -214,9 +214,9 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
     <template v-else-if="b.type === 'random'">
       <RouterLink v-if="data.random(b)" class="row gap" style="align-items: flex-start; color: var(--text)" :to="to(data.random(b)!)">
         <span class="avatar avatar-lg"><Thumb :id="data.random(b)!.imageId" :crop="cropOf(data.random(b))"><Icon :name="typeDef(data.random(b)!.type).icon" /></Thumb></span>
-        <span><b style="font-family: var(--font-head); font-size: 20px">{{ data.random(b)!.name }}</b><br /><span class="muted small">{{ text(data.random(b)!) || 'Без текста' }}</span></span>
+        <span><b style="font-family: var(--font-head); font-size: 20px">{{ data.random(b)!.name }}</b><br /><span class="muted small dbv-random-text">{{ text(data.random(b)!) }}</span></span>
       </RouterLink>
-      <p v-else class="dbv-empty">Нет подходящих статей.</p>
+      <p v-else class="dbv-empty">Нет статей с картинкой и текстом{{ b.types?.length ? ' в выбранных разделах' : '' }} — блок появится, когда они будут.</p>
     </template>
 
     <!-- ============ waiting for text ============ -->
@@ -274,6 +274,7 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 .fit-contain .dbv-img :deep(img) { object-fit: contain; background: var(--surface-2); }
 .dbv-img-empty { cursor: default; aspect-ratio: 4 / 3; }
 
+.dbv-random-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .dbv-links { display: flex; flex-direction: column; gap: 6px; }
 .dbv-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none !important; background: var(--surface); transition: border-color .12s, background .12s; }
 .dbv-link:hover { border-color: var(--accent); background: var(--surface-2); }

@@ -29,7 +29,7 @@ export const BLOCK_KINDS: BlockKind[] = [
   { type: 'links', label: 'Быстрые ссылки', icon: 'link', description: 'Кнопки на статьи и внешние сайты: правила, Discord, виртуальный стол', defaults: { w: 4, links: [] }, needsSetup: true },
   { type: 'character', label: 'Мой персонаж', icon: 'user', description: 'Персонаж игрока — каждый видит своего (у кого нет персонажа, блок не видит)', defaults: { w: 4 } },
   { type: 'campaigns', label: 'Кампейны', icon: 'swords', description: 'Кампейны этого мира, в которых участвует зритель', defaults: { w: 4 } },
-  { type: 'random', label: 'Случайная статья', icon: 'shuffle', description: 'Для вдохновения — новая при каждом открытии', defaults: { w: 4, types: [] } },
+  { type: 'random', label: 'Случайная статья', icon: 'shuffle', description: 'Для вдохновения — новая при каждом открытии; только статьи с картинкой и текстом', defaults: { w: 4, types: [] } },
   { type: 'waiting', label: 'Ждут текста', icon: 'feather', description: 'Статьи без текста и без упоминаний', defaults: { w: 4, show: 'masters', limit: 8 } },
 ]
 const KIND = new Map(BLOCK_KINDS.map((k) => [k.type, k]))

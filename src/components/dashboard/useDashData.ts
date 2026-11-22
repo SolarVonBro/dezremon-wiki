@@ -38,8 +38,11 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
   const links = (b: DashBlock) => (b.links ?? []).filter((l) => (l.entityId ? !!world.get(l.entityId) : !!safeUrl(l.url)))
 
   // ---------- random article: picked once per block, re-picked on demand or when it stops matching ----------
+  /** Only articles worth showing off: with a picture and some text (the part the viewer may read). */
+  const showable = (e: Entity) => !!e.imageId && !!e.excerpt?.trim() && !SERVICE_TYPES.includes(e.type)
+  const showableCount = computed(() => world.list.reduce((n, e) => n + (showable(e) ? 1 : 0), 0))
   const picks = reactive(new Map<string, string>())
-  function pool(b: DashBlock) { return world.list.filter((e) => !SERVICE_TYPES.includes(e.type) && typeOk(b.types)(e)) }
+  function pool(b: DashBlock) { return world.list.filter((e) => showable(e) && typeOk(b.types)(e)) }
   function reroll(b: DashBlock) {
     const l = pool(b)
     if (!l.length) { picks.delete(b.id); return }
@@ -47,7 +50,8 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
     const options = l.length > 1 ? l.filter((e) => e.id !== cur) : l
     picks.set(b.id, options[Math.floor(Math.random() * options.length)].id)
   }
-  watch(() => [blocks.value.filter((b) => b.type === 'random').map((b) => b.id + ':' + (b.types ?? []).join(',')).join('|'), world.list.length], () => {
+  // also when an article gets its first picture or text (the count of candidates changes, not the list length)
+  watch(() => [blocks.value.filter((b) => b.type === 'random').map((b) => b.id + ':' + (b.types ?? []).join(',')).join('|'), world.list.length, showableCount.value], () => {
     for (const b of blocks.value) {
       if (b.type !== 'random') continue
       const e = world.get(picks.get(b.id) ?? null)
