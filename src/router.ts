@@ -44,6 +44,8 @@ export const router = createRouter({
         { path: 'settings/:tab?', name: 'settings', component: () => import('@/views/SettingsView.vue') },
       ],
     },
+    // design lab: every kind of UI under six candidate designs (not linked from anywhere — open #/design by hand)
+    { path: '/design', name: 'designLab', component: () => import('@/views/DesignLabView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
