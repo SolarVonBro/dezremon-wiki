@@ -9,7 +9,7 @@ import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import QuickSearch from '@/components/layout/QuickSearch.vue'
 import CreateEntityModal from '@/components/layout/CreateEntityModal.vue'
-import UserMenu from '@/components/layout/UserMenu.vue'
+import AppBar from '@/components/layout/AppBar.vue'
 import BookmarksNav from '@/components/layout/BookmarksNav.vue'
 import WorldCampaignsNav from '@/components/layout/WorldCampaignsNav.vue'
 import BanBanner from '@/components/layout/BanBanner.vue'
@@ -90,7 +90,27 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       <button class="btn btn-primary" @click="world.close(); world.open(route.params.wid as string)">Повторить</button>
     </div>
   </div>
-  <div v-else class="shell">
+  <div v-else class="world-app">
+    <!-- the same top bar as on the hub pages; the world adds its breadcrumbs and actions to it -->
+    <AppBar in-world @menu="sidebarOpen = !sidebarOpen">
+      <template #context><div id="crumbs" class="crumbs grow" /></template>
+      <template #actions>
+        <span v-if="saveState" class="save-state" :class="saveState.cls" :title="(world.lastSavedAt ? 'Последнее сохранение: ' + formatDate(world.lastSavedAt) : '') || saveState.text">
+          <Icon :name="saveState.icon" :size="14" :class="{ spin: saveState.cls === 'saving' }" /><span class="hide-md"> {{ saveState.text }}</span>
+        </span>
+        <div id="topbar-actions" class="row gap-sm" />
+        <Dropdown v-if="world.realMaster && !world.preview" placement="bottom-end">
+          <template #trigger><button class="btn btn-ghost btn-sm" title="Посмотреть мир так, как его видят игроки или гости"><Icon name="eye" :size="15" /><span class="hide-md"> Глазами игрока</span></button></template>
+          <div class="menu">
+            <div class="menu-label">Показать мир так, как его видит…</div>
+            <button class="menu-item" @click="world.startPreview({ uid: null, name: 'любой игрок' })"><Icon name="users" :size="15" /> Любой игрок</button>
+            <button v-for="p in world.players" :key="p.uid" class="menu-item" @click="world.startPreview({ uid: p.uid, name: p.displayName })"><Icon name="user" :size="15" /> {{ p.displayName }}</button>
+            <button v-if="world.world?.isPublic" class="menu-item" @click="world.startPreview({ uid: null, name: 'гость', guest: true })"><Icon name="globe" :size="15" /> Гость без входа</button>
+          </div>
+        </Dropdown>
+      </template>
+    </AppBar>
+  <div class="shell">
     <div v-if="sidebarOpen" class="sb-backdrop" @click="sidebarOpen = false" />
     <aside class="sidebar" :class="{ open: sidebarOpen }">
       <RouterLink class="sb-world" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }">
@@ -106,7 +126,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       </div>
       <nav class="sb-section">
         <RouterLink v-if="world.viewMember?.characterId && world.get(world.viewMember.characterId)" class="sb-link" :to="{ name: 'entity', params: { wid: world.wid ?? '', eid: world.viewMember.characterId } }"><Icon name="user" :size="17" style="color: var(--accent)" /> Мой персонаж</RouterLink>
-        <RouterLink class="sb-link" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }" exact-active-class="active"><Icon name="layout-dashboard" :size="17" /> Обзор</RouterLink>
+        <RouterLink class="sb-link" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }" active-class="" exact-active-class="active"><Icon name="layout-dashboard" :size="17" /> Обзор</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'search', params: { wid: world.wid ?? '' } }"><Icon name="text-search" :size="17" /> Поиск по текстам</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'graph', params: { wid: world.wid ?? '' } }"><Icon name="network" :size="17" /> Граф связей</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'gallery', params: { wid: world.wid ?? '' } }"><Icon name="images" :size="17" /> Галерея</RouterLink>
@@ -124,31 +144,9 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
           <span v-if="world.pendingRequestCount" class="sb-badge" title="Новые заявки на вступление">{{ world.pendingRequestCount }}</span>
         </RouterLink>
       </nav>
-      <div class="sb-foot">
-        <RouterLink class="sb-link grow" :to="{ name: 'account' }"><Icon name="arrow-left" :size="16" /> Все миры и кампейны</RouterLink>
-      </div>
     </aside>
 
     <div class="main">
-      <header class="topbar">
-        <button class="icon-btn mobile-only" title="Меню" @click="sidebarOpen = !sidebarOpen"><Icon name="menu" /></button>
-        <div id="crumbs" class="crumbs grow" />
-        <span v-if="saveState" class="save-state" :class="saveState.cls" :title="world.lastSavedAt ? 'Последнее сохранение: ' + formatDate(world.lastSavedAt) : ''">
-          <Icon :name="saveState.icon" :size="14" :class="{ spin: saveState.cls === 'saving' }" /> {{ saveState.text }}
-        </span>
-        <div id="topbar-actions" class="row gap-sm" />
-        <Dropdown v-if="world.realMaster && !world.preview" placement="bottom-end">
-          <template #trigger><button class="btn btn-ghost btn-sm" title="Посмотреть мир так, как его видят игроки или гости"><Icon name="eye" :size="15" /><span class="hide-sm"> Глазами игрока</span></button></template>
-          <div class="menu">
-            <div class="menu-label">Показать мир так, как его видит…</div>
-            <button class="menu-item" @click="world.startPreview({ uid: null, name: 'любой игрок' })"><Icon name="users" :size="15" /> Любой игрок</button>
-            <button v-for="p in world.players" :key="p.uid" class="menu-item" @click="world.startPreview({ uid: p.uid, name: p.displayName })"><Icon name="user" :size="15" /> {{ p.displayName }}</button>
-            <button v-if="world.world?.isPublic" class="menu-item" @click="world.startPreview({ uid: null, name: 'гость', guest: true })"><Icon name="globe" :size="15" /> Гость без входа</button>
-          </div>
-        </Dropdown>
-        <RouterLink v-if="session.ready && !session.user" class="btn btn-primary btn-sm" :to="{ name: 'login', query: { next: route.fullPath } }"><Icon name="log-in" :size="15" /> Войти</RouterLink>
-        <UserMenu v-else-if="session.user" />
-      </header>
       <BanBanner />
       <JoinBanner v-if="world.status === 'ready' && !world.isMember && world.wid" :wid="world.wid" />
       <div v-if="world.adminView && world.status === 'ready'" class="preview-banner admin-banner">
@@ -166,5 +164,6 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       </RouterView>
     </div>
     <CreateEntityModal v-if="createRequest" :initial-type="createRequest.type" :parent-id="createRequest.parentId" @close="createRequest = null" @created="(id) => { createRequest = null; router.push({ name: 'entity', params: { wid: world.wid!, eid: id }, query: { edit: '1' } }) }" />
+  </div>
   </div>
 </template>

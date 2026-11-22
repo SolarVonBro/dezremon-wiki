@@ -60,6 +60,7 @@ CHECK_JS = r"""
 
 e = lambda k, q='': f"{WURL}/e/{fx[k]}{q}"
 PAGES = [
+    ('worlds', BASE + '#/worlds'),
     ('account', BASE + '#/account'),
     ('dashboard', WURL),
     ('list-character', WURL + '/t/character'),

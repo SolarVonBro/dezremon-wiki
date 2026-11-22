@@ -70,6 +70,17 @@ usage/{wid | service}                        замеры объёма: по м�
 организация, предмет, заметка, событие, календарь, раса, существо, квест, журнал, способность, карта, хронология,
 тег, разговор, бросок кубов, шаблон атрибутов; мастер может добавить свои типы (`settings.customTypes`).
 
+## Обзор мира (`worlds/{wid}.settings.dashboard`)
+
+Страница «Обзор» собирается из блоков: `{ v: 1, gap, wide, blocks[] }`. Блок — `{ id, type, w, h, title?, hideTitle?,
+show?, style?, …настройки вида }`: `w` — ширина в двенадцатых строки (2–12), `h` — высота в px (0 — по содержимому),
+`show` — `all` | `members` | `masters` (только прячет блок на странице: данные лежат в документе мира, который читают все,
+кто видит мир), `style` — `card` | `plain` | `accent`. Виды: hero, stats, text (`html`), pins (`ids[]`), entity
+(`entityId`, `view`), list (`types[]`, `tagId`, `sort`, `limit`, `view`), recent, calendar (`calendarId`), map
+(`entityId`), image (`imageId`, `caption`, `fit`), links (`links[]: {label, url | entityId}`), character, campaigns,
+random, waiting — см. `src/components/dashboard/blocks.ts`. Нет `dashboard` — стандартный набор блоков (закреплённые
+статьи берутся из старого `settings.dashboardPins`). Правила не проверяют содержимое: `settings` пишут только мастера.
+
 ## Видимость и права
 
 У каждой читаемой записи есть `visibility` (`public` | `members` | `master` | `custom`), `allowedUids[]` и

@@ -1,113 +1,269 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+// The world overview: blocks in a 12-column grid (src/components/dashboard). Masters switch on «Настроить обзор»
+// to add, remove, move and resize blocks and change their settings; the layout lives in world.settings.dashboard.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useWorld } from '@/stores/world'
-import { allTypes, typeDef } from '@/model/entityTypes'
-import { relativeTime } from '@/data/util'
+import { clean, errorText } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
-import Thumb from '@/components/common/Thumb.vue'
-import EntityLink from '@/components/common/EntityLink.vue'
-import EntityPicker from '@/components/common/EntityPicker.vue'
-import { createRequest } from '@/components/layout/createRequest'
-import { cropOf } from '@/data/crop'
+import Dropdown from '@/components/common/Dropdown.vue'
+import { toast } from '@/components/common/toast'
+import DashBlockView from '@/components/dashboard/DashBlockView.vue'
+import DashBlockSettings from '@/components/dashboard/DashBlockSettings.vue'
+import DashAddModal from '@/components/dashboard/DashAddModal.vue'
+import { defaultLayout, kindOf, midW, newBlock, normalizeLayout, titleOf } from '@/components/dashboard/blocks'
+import { useDashData } from '@/components/dashboard/useDashData'
+import { useGridEdit } from '@/components/dashboard/useGridEdit'
+import type { DashBlock, DashBlockType, DashboardLayout } from '@/model/types'
 
-const CalendarWidget = defineAsyncComponent(() => import('@/components/modules/CalendarWidget.vue'))
 const world = useWorld()
-const stats = computed(() => allTypes().filter((t) => world.enabledTypes(t.key) && (world.byType.get(t.key)?.length ?? 0) > 0).map((t) => ({ t, n: world.byType.get(t.key)!.length })))
-const recent = computed(() => world.recent.slice(0, 14))
-const pins = computed(() => world.settings.dashboardPins.map((id) => world.get(id)).filter(Boolean))
-const randomSeed = ref(0)
-const random = computed(() => { void randomSeed.value; const l = world.list.filter((e) => e.type !== 'tag'); return l.length ? l[Math.floor(Math.random() * l.length)] : null })
-const unmentioned = computed(() => world.list.filter((e) => !world.backlinks.get(e.id)?.length && !['tag', 'calendar', 'attribute_template'].includes(e.type) && !e.excerpt).slice(0, 8))
-const myCharacter = computed(() => world.get(world.viewMember?.characterId ?? null) ?? null)
-const calendarId = computed(() => world.settings.mainCalendarId ?? world.byType.get('calendar')?.[0]?.id ?? null)
-const pinPick = ref<string | null>(null)
-function addPin(id: string | null) { if (id) void world.updateSettings({ dashboardPins: [...new Set([...world.settings.dashboardPins, id])] }); pinPick.value = null }
-function unpin(id: string) { void world.updateSettings({ dashboardPins: world.settings.dashboardPins.filter((x) => x !== id) }) }
+const saved = computed(() => normalizeLayout(world.settings.dashboard, world.settings.dashboardPins))
+const editing = ref(false)
+const draft = ref<DashboardLayout | null>(null)
+const layout = computed(() => (editing.value && draft.value ? draft.value : saved.value))
+const blocks = computed(() => layout.value.blocks)
+const data = useDashData(blocks)
+/** Outside edit mode a block shows only if this viewer may see it and it has something to show. */
+const shown = computed(() => (editing.value ? blocks.value : blocks.value.filter((b) => data.allowed(b) && data.hasContent(b))))
+
+// ---------- editing: changes go to a draft and are saved shortly after (one write per gesture) ----------
+const history = ref<DashboardLayout[]>([])
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+async function flush() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  if (!draft.value) return
+  try { await world.updateSettings({ dashboard: clean(draft.value) }) } catch (e) { toast.error('Не удалось сохранить обзор: ' + errorText(e)) }
+}
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => void flush(), 700)
+}
+function change(fn: (l: DashboardLayout) => void, opts: { record?: boolean; save?: boolean } = {}) {
+  if (!draft.value) return
+  if (opts.record !== false) history.value = [...history.value.slice(-39), clean(draft.value)]
+  const next = clean(draft.value)
+  fn(next)
+  draft.value = next
+  if (opts.save !== false) scheduleSave()
+}
+function startEdit() {
+  draft.value = clean(saved.value)
+  history.value = []
+  editing.value = true
+}
+async function finishEdit() {
+  await flush()
+  editing.value = false
+  draft.value = null
+  settingsFor.value = null
+}
+function undo() {
+  const prev = history.value[history.value.length - 1]
+  if (!prev) return
+  history.value = history.value.slice(0, -1)
+  draft.value = prev
+  scheduleSave()
+}
+function resetLayout() {
+  if (!confirm('Вернуть стандартный вид обзора? Ваши блоки и их настройки будут заменены (можно отменить кнопкой «Отменить», пока не закрыли настройку).')) return
+  change((l) => { Object.assign(l, defaultLayout(world.settings.dashboardPins)) })
+}
+const idx = (id: string) => draft.value?.blocks.findIndex((b) => b.id === id) ?? -1
+
+// ---------- blocks ----------
+const adding = ref(false)
+const settingsFor = ref<string | null>(null)
+const settingsBlock = computed(() => draft.value?.blocks.find((b) => b.id === settingsFor.value) ?? null)
+async function addBlock(type: DashBlockType) {
+  adding.value = false
+  const b = newBlock(type)
+  change((l) => { l.blocks.push(b) })
+  if (kindOf(type).needsSetup) settingsFor.value = b.id
+  await nextTick()
+  document.querySelector(`[data-block-id="${b.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+function saveBlock(b: DashBlock) {
+  const i = idx(b.id)
+  if (i >= 0) change((l) => { l.blocks[i] = b })
+  settingsFor.value = null
+}
+function removeBlock(id: string) {
+  const i = idx(id)
+  if (i >= 0) change((l) => { l.blocks.splice(i, 1) })
+  settingsFor.value = null
+}
+function duplicate(id: string) {
+  const i = idx(id)
+  if (i < 0) return
+  change((l) => { l.blocks.splice(i + 1, 0, { ...clean(l.blocks[i]), id: newBlock(l.blocks[i].type).id }) })
+}
+function nudge(id: string, d: number) {
+  const i = idx(id), j = i + d
+  if (i < 0 || j < 0 || j >= (draft.value?.blocks.length ?? 0)) return
+  change((l) => { const [b] = l.blocks.splice(i, 1); l.blocks.splice(j, 0, b) })
+}
+function setHeight(id: string, h: number) { const i = idx(id); if (i >= 0) change((l) => { l.blocks[i].h = h }) }
+
+// ---------- mouse / touch ----------
+const gridEl = ref<HTMLElement | null>(null)
+let resizing = false
+const { onPointerDown } = useGridEdit(() => gridEl.value, {
+  move: (from, to) => change((l) => { const [b] = l.blocks.splice(from, 1); l.blocks.splice(to, 0, b) }),
+  resize: (i, w, h) => {
+    change((l) => { if (w !== null) l.blocks[i].w = w; if (h !== null) l.blocks[i].h = h }, { record: !resizing, save: false })
+    resizing = true
+  },
+  resizeEnd: () => { if (resizing) scheduleSave(); resizing = false },
+})
+
+function onKey(e: KeyboardEvent) {
+  if (!editing.value || settingsFor.value || adding.value) return
+  const typing = (e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable="true"]')
+  if (!typing && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo() }
+}
+onMounted(() => document.addEventListener('keydown', onKey))
+onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); if (saveTimer) void flush() })
+onBeforeRouteLeave(async () => { if (saveTimer) await flush() })
+
+const GAPS = { sm: '10px', md: '18px', lg: '28px' } as const
+const SHOW_LABEL = { members: 'участникам', masters: 'мастерам' } as const
 </script>
 
 <template>
   <Teleport defer to="#crumbs"><span style="color: var(--text)">Обзор</span></Teleport>
-  <div class="content">
-    <section class="dash-hero">
-      <div v-if="world.world?.headerImageId" class="hero-img"><Thumb :id="world.world.headerImageId" variant="full" /></div>
-      <div class="dash-hero-body">
-        <h1>{{ world.world?.name }}</h1>
-        <p v-if="world.world?.description" class="muted" style="max-width: 760px; font-size: 16px; margin: 6px 0 0">{{ world.world.description }}</p>
+  <Teleport defer to="#topbar-actions">
+    <button v-if="world.isMaster && !editing" class="btn btn-sm btn-ghost" aria-label="Настроить обзор" title="Добавить, убрать, переставить блоки обзора и поменять их размер" @click="startEdit"><Icon name="layout-dashboard" :size="15" /><span class="hide-sm"> Настроить обзор</span></button>
+  </Teleport>
+  <div class="content" :class="{ 'content-wide': layout.wide }">
+    <div v-if="editing" class="db-toolbar card">
+      <div class="db-tb-title"><Icon name="layout-dashboard" :size="17" /> <b>Настройка обзора</b>
+        <span class="faint small hide-sm">Тащите блок за <Icon name="grip-vertical" :size="13" />, размер — за края. Изменения сохраняются сразу и видны всем.</span>
       </div>
-    </section>
-
-    <div class="stat-row" style="margin-bottom: 22px">
-      <RouterLink v-for="s in stats" :key="s.t.key" class="stat" :to="{ name: 'list', params: { wid: world.wid!, type: s.t.key } }">
-        <Icon :name="s.t.icon" :size="17" :style="{ color: s.t.color }" /> <b>{{ s.n }}</b> {{ s.t.plural.toLowerCase() }}
-      </RouterLink>
-      <div v-if="!stats.length" class="card card-pad grow">
-        <template v-if="world.isMaster">
-          <h3 style="margin-top: 0">Мир пока пуст</h3>
-          <p class="muted">Начните с ключевых статей: регион, где начнётся игра, пара персонажей, главная фракция. Ссылки между статьями ставятся через «@» прямо в тексте.</p>
-          <button class="btn btn-primary" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать первую статью</button>
-        </template>
-        <template v-else>
-          <h3 style="margin-top: 0">Здесь пока нет {{ world.isMember ? 'доступных вам' : 'открытых' }} статей</h3>
-          <p class="muted">{{ world.isMember ? 'Мастер ещё не открыл статьи игрокам.' : 'Мастер ещё не опубликовал статьи для гостей. Если вы участник — войдите.' }}</p>
-        </template>
+      <div class="db-tb-actions">
+        <button class="btn btn-sm btn-primary" @click="adding = true"><Icon name="plus" :size="15" /> Блок</button>
+        <div class="db-tb-group" title="Расстояние между блоками">
+          <span class="faint small">Отступы</span>
+          <button v-for="g in (['sm', 'md', 'lg'] as const)" :key="g" class="chip" :class="{ on: (layout.gap ?? 'md') === g }" @click="change((l) => { l.gap = g })">{{ { sm: 'S', md: 'M', lg: 'L' }[g] }}</button>
+        </div>
+        <button class="chip" :class="{ on: layout.wide }" title="Растянуть обзор на всё окно" @click="change((l) => { l.wide = !l.wide })"><Icon name="maximize2" :size="13" /> Во всю ширину</button>
+        <span class="grow" />
+        <button class="btn btn-sm btn-ghost" :disabled="!history.length" title="Отменить (Ctrl+Z)" @click="undo"><Icon name="undo2" :size="15" /><span class="hide-sm"> Отменить</span></button>
+        <button class="btn btn-sm btn-ghost" title="Вернуть стандартный набор блоков" @click="resetLayout"><Icon name="rotate-ccw" :size="15" /><span class="hide-sm"> Стандартный вид</span></button>
+        <button class="btn btn-sm" @click="finishEdit"><Icon name="check" :size="15" /> Готово</button>
       </div>
     </div>
 
-    <div class="dash-grid">
-      <section v-if="myCharacter" class="card card-pad my-char">
-        <h3 class="panel-title"><Icon name="user" /> Мой персонаж</h3>
-        <RouterLink class="row gap" style="align-items: flex-start; color: var(--text)" :to="{ name: 'entity', params: { wid: world.wid!, eid: myCharacter.id } }">
-          <span class="avatar avatar-lg"><Thumb :id="myCharacter.imageId" :crop="cropOf(myCharacter)"><Icon name="user" /></Thumb></span>
-          <span><b style="font-family: var(--font-head); font-size: 22px">{{ myCharacter.name }}</b><br /><span class="muted small">{{ myCharacter.fields?.title || myCharacter.kind }}</span><br /><span class="faint small">{{ myCharacter.tooltip || myCharacter.excerpt }}</span></span>
-        </RouterLink>
-      </section>
-      <section v-if="pins.length || world.isMaster" class="card card-pad" style="grid-column: 1 / -1">
-        <h3 class="panel-title"><Icon name="pin" /> Закреплено</h3>
-        <div class="card-grid">
-          <div v-for="e in pins" :key="e!.id" class="pin-wrap">
-            <RouterLink class="ecard" :to="{ name: 'entity', params: { wid: world.wid!, eid: e!.id } }">
-              <div class="ecard-img"><Thumb :id="e!.imageId" :crop="cropOf(e)"><Icon :name="typeDef(e!.type).icon" :size="34" /></Thumb></div>
-              <div class="ecard-body"><div class="ecard-name">{{ e!.name }}</div><div class="ecard-sub">{{ e!.kind || typeDef(e!.type).label }}</div><div class="ecard-text">{{ e!.tooltip || e!.excerpt }}</div></div>
-            </RouterLink>
-            <button v-if="world.isMaster" class="icon-btn pin-x" title="Открепить" @click="unpin(e!.id)"><Icon name="x" :size="14" /></button>
+    <div class="db-wrap">
+      <div ref="gridEl" class="db-grid" :class="{ editing }" :style="{ gap: GAPS[layout.gap ?? 'md'] }" @pointerdown="editing && onPointerDown($event)">
+        <div v-for="b in shown" :key="b.id" class="db-block" data-block :data-block-id="b.id"
+          :class="['db-' + (b.type === 'hero' ? 'hero' : b.style ?? 'card'), { fixed: b.h > 0 }]"
+          :style="{ '--w': b.w, '--wm': midW(b.w), height: b.h > 0 ? b.h + 'px' : undefined }">
+          <div v-if="editing" class="db-edit-bar">
+            <button class="db-grip" data-block-grip title="Перетащите, чтобы переставить блок"><Icon name="grip-vertical" :size="16" /></button>
+            <Icon :name="kindOf(b.type).icon" :size="14" class="faint" />
+            <span class="ellipsis grow db-eb-title">{{ titleOf(b) }}</span>
+            <span v-if="b.show && b.show !== 'all'" class="badge db-eb-badge" :title="'Блок видят только ' + SHOW_LABEL[b.show]"><Icon :name="b.show === 'masters' ? 'crown' : 'users'" :size="11" /><span class="db-eb-badge-text"> {{ SHOW_LABEL[b.show] }}</span></span>
+            <span v-else-if="!data.hasContent(b)" class="badge db-eb-badge" title="Сейчас блоку нечего показать — зрители его не увидят"><Icon name="eye-off" :size="11" /><span class="db-eb-badge-text"> пуст</span></span>
+            <button class="icon-btn" title="Настройки блока" @click="settingsFor = b.id"><Icon name="settings" :size="15" /></button>
+            <Dropdown placement="bottom-end">
+              <template #trigger><button class="icon-btn" title="Ещё"><Icon name="more-horizontal" :size="15" /></button></template>
+              <div class="menu">
+                <button class="menu-item" @click="nudge(b.id, -1)"><Icon name="arrow-left" :size="15" /> Левее / выше</button>
+                <button class="menu-item" @click="nudge(b.id, 1)"><Icon name="arrow-right" :size="15" /> Правее / ниже</button>
+                <button class="menu-item" @click="duplicate(b.id)"><Icon name="copy" :size="15" /> Копия блока</button>
+                <button v-if="b.h" class="menu-item" @click="setHeight(b.id, 0)"><Icon name="move-vertical" :size="15" /> Высота по содержимому</button>
+                <button class="menu-item danger" @click="removeBlock(b.id)"><Icon name="trash2" :size="15" /> Убрать блок</button>
+              </div>
+            </Dropdown>
+            <button class="icon-btn" title="Убрать блок" @click="removeBlock(b.id)"><Icon name="x" :size="15" /></button>
           </div>
-          <div v-if="world.isMaster" class="stack-sm" style="justify-content: center">
-            <span class="muted small">Закрепите важные статьи для игроков:</span>
-            <EntityPicker v-model="pinPick" placeholder="Закрепить статью…" @update:model-value="addPin" />
-          </div>
+          <div class="db-body"><DashBlockView :block="b" :data="data" :editing="editing" @setup="settingsFor = b.id" /></div>
+          <template v-if="editing">
+            <span class="db-rs db-rs-x" data-block-resize="x" title="Ширина" />
+            <span class="db-rs db-rs-y" data-block-resize="y" title="Высота (двойной щелчок — по содержимому)" @dblclick="setHeight(b.id, 0)" />
+            <span class="db-rs db-rs-xy" data-block-resize="xy" title="Размер" />
+            <span class="db-size-tip">{{ b.w }}/12 · {{ b.h ? b.h + ' px' : 'авто' }}</span>
+          </template>
         </div>
-      </section>
-
-      <section class="card card-pad">
-        <h3 class="panel-title"><Icon name="clock" /> Последние изменения</h3>
-        <div v-for="e in recent" :key="e.id" class="recent-row">
-          <EntityLink :id="e.id" avatar />
-          <span class="faint small grow" style="text-align: right">{{ relativeTime(e.updatedAt) }}</span>
-        </div>
-        <div v-if="!recent.length" class="empty">Пока ничего.</div>
-      </section>
-
-      <section v-if="calendarId" class="card card-pad"><CalendarWidget :calendar-id="calendarId" /></section>
-
-      <section v-if="random" class="card card-pad">
-        <h3 class="panel-title"><Icon name="shuffle" /> Случайная статья <button class="icon-btn" style="margin-left: auto" title="Другая" @click="randomSeed++"><Icon name="refresh-cw" :size="15" /></button></h3>
-        <RouterLink class="row gap" style="align-items: flex-start; color: var(--text)" :to="{ name: 'entity', params: { wid: world.wid!, eid: random.id } }">
-          <span class="avatar avatar-lg"><Thumb :id="random.imageId" :crop="cropOf(random)"><Icon :name="typeDef(random.type).icon" /></Thumb></span>
-          <span><b style="font-family: var(--font-head); font-size: 20px">{{ random.name }}</b><br /><span class="muted small">{{ random.tooltip || random.excerpt || 'Без текста' }}</span></span>
-        </RouterLink>
-      </section>
-
-      <section v-if="world.isMaster && unmentioned.length" class="card card-pad">
-        <h3 class="panel-title"><Icon name="feather" /> Ждут текста</h3>
-        <p class="faint small" style="margin-top: -6px">Статьи без текста и без упоминаний.</p>
-        <div class="stack-sm"><EntityLink v-for="e in unmentioned" :key="e.id" :id="e.id" /></div>
-      </section>
+        <button v-if="editing" class="db-add-tile" @click="adding = true"><Icon name="plus" :size="22" /><span>Добавить блок</span></button>
+      </div>
+      <div v-if="!shown.length && !editing" class="card empty">
+        <Icon name="layout-dashboard" :size="30" />
+        <p>{{ world.isMaster ? 'На обзоре нет блоков.' : 'Здесь пока пусто.' }}</p>
+        <button v-if="world.isMaster" class="btn btn-primary" @click="startEdit"><Icon name="layout-dashboard" :size="15" /> Настроить обзор</button>
+      </div>
     </div>
+
+    <DashAddModal v-if="adding" :present="blocks.map((b) => b.type)" @close="adding = false" @add="addBlock" />
+    <DashBlockSettings v-if="settingsBlock" :key="settingsBlock.id" :block="settingsBlock" @close="settingsFor = null" @save="saveBlock" @remove="removeBlock(settingsBlock.id)" />
   </div>
 </template>
 
 <style scoped>
-.pin-wrap { position: relative; }
-.pin-x { position: absolute; top: 6px; right: 6px; background: var(--surface); opacity: 0; }
-.pin-wrap:hover .pin-x { opacity: 1; }
+.content-wide { max-width: none; }
+.db-wrap { container: dbgrid / inline-size; }
+.db-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: stretch; }
+.db-block { grid-column: span var(--w); position: relative; display: flex; flex-direction: column; min-width: 0; border-radius: 14px; }
+.editing .db-block { container: dbblock / inline-size; }
+.db-card { background: var(--surface); border: 1px solid var(--border); padding: 16px 18px; }
+.db-accent { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); padding: 16px 18px; }
+.db-plain { padding: 0; }
+.db-hero { padding: 0; overflow: hidden; border: 1px solid var(--border); }
+.db-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-body > * { flex: 1; }
+.fixed .db-body { overflow: auto; scrollbar-width: thin; }
+.db-hero.fixed .db-body { overflow: hidden; }
+/* mid-size page column: two blocks per row at most; narrow: one */
+@container dbgrid (max-width: 860px) { .db-block { grid-column: span var(--wm); } }
+@container dbgrid (max-width: 540px) { .db-block { grid-column: span 12; } }
+
+/* ---------- edit mode ---------- */
+.db-toolbar { position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 25; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.db-tb-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.db-tb-title > .icon { color: var(--accent); }
+.db-tb-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.db-tb-group { display: inline-flex; align-items: center; gap: 4px; }
+.editing .db-block { outline: 1px dashed var(--border-strong); outline-offset: 4px; }
+.editing .db-plain, .editing .db-hero { min-height: 90px; }
+.editing .db-body { pointer-events: none; user-select: none; }
+.editing .db-body :deep(.dbv-setup) { pointer-events: auto; }
+.db-edit-bar { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 2px; margin-bottom: 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; min-width: 0; }
+.db-card .db-edit-bar, .db-accent .db-edit-bar { margin: -8px -10px 10px; }
+.db-hero .db-edit-bar { margin: 0; border-radius: 0; border-width: 0 0 1px; }
+.db-edit-bar .icon-btn { width: 26px; height: 26px; flex-shrink: 0; }
+.db-eb-title { font-weight: 600; min-width: 40px; }
+.db-eb-badge { flex-shrink: 0; }
+@container dbblock (max-width: 420px) { .db-eb-badge-text { display: none; } }
+.db-size-tip { position: absolute; right: 14px; bottom: -22px; z-index: 5; padding: 1px 7px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-size: 11.5px; font-weight: 600; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.db-block:has(.db-rs:hover) .db-size-tip, .db-resizing .db-size-tip { opacity: 1; }
+.db-grip { border: 0; background: none; color: var(--text-muted); cursor: grab; padding: 4px 2px; display: inline-flex; touch-action: none; border-radius: 6px; flex-shrink: 0; }
+.db-grip:hover { background: var(--surface-3); color: var(--text); }
+.db-rs { position: absolute; z-index: 3; touch-action: none; }
+.db-rs::after { content: ''; position: absolute; background: var(--accent); border-radius: 3px; opacity: .35; transition: opacity .12s; }
+.db-rs:hover::after, .db-resizing .db-rs::after { opacity: 1; }
+.db-rs-x { top: 25%; bottom: 25%; right: -11px; width: 14px; cursor: ew-resize; }
+.db-rs-x::after { top: 0; bottom: 0; left: 5px; width: 4px; }
+.db-rs-y { left: 30%; right: 30%; bottom: -11px; height: 14px; cursor: ns-resize; }
+.db-rs-y::after { left: 0; right: 0; top: 5px; height: 4px; }
+.db-rs-xy { right: -11px; bottom: -11px; width: 20px; height: 20px; cursor: nwse-resize; }
+.db-rs-xy::after { right: 5px; bottom: 5px; width: 10px; height: 10px; border-radius: 3px; opacity: .6; }
+@container dbgrid (max-width: 860px) { .db-rs-x, .db-rs-xy { display: none; } }
+.db-resizing { outline: 2px solid var(--accent) !important; }
+.db-dragging { z-index: 50; opacity: .92; box-shadow: var(--shadow-lg); cursor: grabbing; transition: none; }
+.db-moving { user-select: none; }
+.db-block.db-drop-left::before, .db-block.db-drop-right::before, .db-block.db-drop-above::before, .db-block.db-drop-below::before {
+  content: ''; position: absolute; background: var(--accent); border-radius: 3px; z-index: 4; box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.db-drop-left::before { left: -9px; top: 0; bottom: 0; width: 4px; }
+.db-drop-right::before { right: -9px; top: 0; bottom: 0; width: 4px; }
+.db-drop-above::before { top: -9px; left: 0; right: 0; height: 4px; }
+.db-drop-below::before { bottom: -9px; left: 0; right: 0; height: 4px; }
+.db-add-tile { grid-column: span 4; min-height: 120px; border: 2px dashed var(--border-strong); border-radius: 14px; background: none; color: var(--text-muted); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font: inherit; }
+.db-add-tile:hover { border-color: var(--accent); color: var(--accent); }
+@container dbgrid (max-width: 860px) { .db-add-tile { grid-column: span 6; } }
+@container dbgrid (max-width: 540px) { .db-add-tile { grid-column: span 12; } }
+@media (max-width: 860px) {
+  .db-toolbar { top: calc(var(--topbar-h) + 4px); }
+  .db-card, .db-accent { padding: 14px; }
+}
 </style>

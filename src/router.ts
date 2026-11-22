@@ -11,12 +11,18 @@ export const router = createRouter({
     { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
     { path: '/join/:wid/:code', name: 'join', component: () => import('@/views/JoinView.vue') },
-    // The level above worlds: one top bar (HubLayout) for the cabinet, campaigns and the service admin.
+    // The level above worlds: worlds, campaigns, music rooms, the cabinet and the service admin. Every page — these
+    // and the world pages — has the same top bar (AppBar).
     {
       path: '/',
       component: () => import('@/components/layout/HubLayout.vue'),
       children: [
-        { path: 'account', name: 'account', component: () => import('@/views/AccountView.vue') },
+        { path: 'worlds', name: 'worlds', component: () => import('@/views/WorldsView.vue') },
+        {
+          path: 'account', name: 'account', component: () => import('@/views/AccountView.vue'),
+          // the worlds list and join requests used to be tabs of the cabinet: old links land in «Миры»
+          beforeEnter: (to) => (to.query.tab === 'worlds' || to.query.tab === 'requests' ? { name: 'worlds', query: to.query.tab === 'requests' ? { tab: 'requests' } : {} } : true),
+        },
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/CampaignsView.vue') },
         { path: 'c/:cid/:tab?', name: 'campaign', component: () => import('@/views/CampaignView.vue') },
         { path: 'cjoin/:cid/:code', name: 'campaignJoin', component: () => import('@/views/CampaignJoinView.vue') },

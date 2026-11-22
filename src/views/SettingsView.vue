@@ -110,14 +110,14 @@ async function deleteWorld() {
     await world.deleteWorld((done, what) => { deleteProgress.value = `${what}: удалено ${done}` })
     toast.success('Мир удалён')
     // leave the world's pages first, then drop its state (links would render without a world id otherwise)
-    await router.replace({ name: 'account' })
+    await router.replace({ name: 'worlds' })
     world.close()
   } catch (e: any) { toast.error('Ошибка удаления: ' + (e?.message ?? e)); deleteProgress.value = null }
 }
 async function leave() {
   if (!confirm(`Выйти из мира «${world.world?.name}»? Вернуться можно будет только по новому приглашению.`)) return
   await world.leaveWorld()
-  await router.replace({ name: 'account' })
+  await router.replace({ name: 'worlds' })
   world.close()
 }
 

@@ -21,7 +21,7 @@ const isPublic = ref(false)
 
 // Signed-in users have their worlds in the personal cabinet; this page is the landing for guests.
 watch(() => [session.ready, session.user], () => {
-  if (session.user) { void router.replace({ name: 'account' }); return }
+  if (session.user) { void router.replace({ name: 'worlds' }); return }
   if (session.ready) loading.value = false
 }, { immediate: true })
 

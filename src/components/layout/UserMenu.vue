@@ -1,20 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSession, type ThemeMode } from '@/stores/session'
 import { useWorld } from '@/stores/world'
-import { isServiceAdmin } from '@/data/admin'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 
-// The portrait button lives in the top bar on every level (hub pages and inside a world).
+// The portrait button at the right end of the app bar (AppBar) on every page. The sections of the service are
+// in the bar itself; this menu is about the person: the cabinet, the theme, signing out.
 // `compact` shows only the portrait; the full variant adds the name next to it.
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: true })
 const session = useSession()
 const world = useWorld()
 const router = useRouter()
-const hasRooms = router.hasRoute('rooms')
-const admin = computed(() => isServiceAdmin(session.user?.uid))
 const THEMES: Array<{ v: ThemeMode; label: string; icon: string }> = [
   { v: 'auto', label: 'Как в системе', icon: 'sliders-horizontal' },
   { v: 'dark', label: 'Тёмная', icon: 'moon' },
@@ -38,11 +35,8 @@ async function logout() { await session.signOut(); world.close(); void router.pu
     <div class="menu">
       <template v-if="session.user">
         <div class="menu-label">{{ session.displayName() }}</div>
-        <RouterLink class="menu-item" :to="{ name: 'account', query: { tab: 'profile' } }"><Icon name="user" :size="15" /> Личный кабинет</RouterLink>
-        <RouterLink class="menu-item" :to="{ name: 'account' }"><Icon name="globe" :size="15" /> Миры</RouterLink>
-        <RouterLink class="menu-item" :to="{ name: 'campaigns' }"><Icon name="swords" :size="15" /> Кампейны</RouterLink>
-        <RouterLink v-if="hasRooms" class="menu-item" :to="{ name: 'rooms' }"><Icon name="headphones" :size="15" /> Музыкальные комнаты</RouterLink>
-        <RouterLink v-if="admin" class="menu-item" :to="{ name: 'admin' }"><Icon name="shield-check" :size="15" /> Админка сервиса</RouterLink>
+        <RouterLink class="menu-item" :to="{ name: 'account' }"><Icon name="user" :size="15" /> Личный кабинет</RouterLink>
+        <RouterLink class="menu-item" :to="{ name: 'account', query: { tab: 'security' } }"><Icon name="key-round" :size="15" /> Вход и безопасность</RouterLink>
         <div class="menu-sep" />
       </template>
       <div class="menu-label">Тема оформления</div>

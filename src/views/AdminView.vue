@@ -133,7 +133,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
     <div v-else-if="!admin" class="card empty" style="max-width: 520px; margin: 40px auto">
       <Icon name="lock" :size="34" />
       <h2>Только для администратора сервиса</h2>
-      <RouterLink class="btn" :to="{ name: 'account' }">В кабинет</RouterLink>
+      <RouterLink class="btn" :to="{ name: 'worlds' }">К мирам</RouterLink>
     </div>
     <template v-else>
       <div class="row gap wrap" style="margin-bottom: 12px">

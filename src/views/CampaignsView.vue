@@ -117,7 +117,7 @@ async function create() {
           </select>
         </label>
         <p v-if="worlds !== null && !runnable.length" class="small" style="margin: 0; color: var(--warning)">
-          Кампейн создаётся в мире, где вы владелец или мастер. <RouterLink :to="{ name: 'account' }">Создайте мир</RouterLink>, а потом возвращайтесь.
+          Кампейн создаётся в мире, где вы владелец или мастер. <RouterLink :to="{ name: 'worlds' }">Создайте мир</RouterLink>, а потом возвращайтесь.
         </p>
         <label class="field"><span>Описание</span><textarea v-model="form.description" class="input" rows="3" placeholder="О чём игра, тон, ожидания…" /></label>
         <div class="row gap wrap">

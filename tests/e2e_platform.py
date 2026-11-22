@@ -63,7 +63,7 @@ def login(pg, email):
     pg.locator('input[type=email]').fill(email)
     pg.locator('input[type=password]').fill('secret123')
     pg.get_by_role('button', name='Войти', exact=True).click()
-    pg.wait_for_url('**/#/account**', timeout=20000)
+    pg.wait_for_url('**/#/worlds**', timeout=20000)
 
 
 def shot(pg, name, full=True): pg.screenshot(path=os.path.join(OUT, name + '.png'), full_page=full)
@@ -85,9 +85,9 @@ with sync_playwright() as p:
 
     step('GM: sign in, portrait in the hub top bar')
     login(gm, GM)
-    check(gm.locator('.hub-top .user-btn').count() == 1, 'portrait button in the hub top bar')
-    check(gm.locator('.hub-nav a', has_text='Кампейны').count() == 1 and gm.locator('.hub-nav a', has_text='Комнаты').count() == 1, 'hub nav has Кампейны and Комнаты')
-    check(gm.locator('.hub-nav a', has_text='Админка').count() == 0, 'no admin link for a normal user')
+    check(gm.locator('.app-bar .user-btn').count() == 1, 'portrait button in the top bar')
+    check(gm.locator('.app-nav a', has_text='Кампейны').count() == 1 and gm.locator('.app-nav a', has_text='Комнаты').count() == 1, 'top bar has Кампейны and Комнаты')
+    check(gm.locator('.app-nav a', has_text='Админка').count() == 0, 'no admin link for a normal user')
 
     step('GM: create a world with a character')
     gm.get_by_role('button', name='Новый мир').first.click()
@@ -362,7 +362,7 @@ with sync_playwright() as p:
     step('Admin')
     ad = b.new_context(viewport={'width': 1366, 'height': 900}).new_page(); watch(ad, 'admin')
     login(ad, 'admin@example.com')
-    check(ad.locator('.hub-nav a', has_text='Админка').count() == 1, 'admin link for the service admin')
+    check(ad.locator('.app-nav a', has_text='Админка').count() == 1, 'admin link for the service admin')
     ad.goto(BASE + '#/admin')
     ad.wait_for_selector('.urow', timeout=20000)
     for t in ['Пользователи', 'Миры', 'Кампейны', 'Комнаты']:
@@ -420,7 +420,7 @@ with sync_playwright() as p:
     step('Mobile layout of the new pages (360 px)')
     CHECK = """() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 ? document.documentElement.scrollWidth : 0"""
     pl.set_viewport_size({'width': 360, 'height': 780})
-    for name, url in [('campaigns', '#/campaigns'), ('campaign', f'#/c/{cid}'), ('campaign-rooms', f'#/c/{cid}/rooms'), ('rooms', '#/rooms'), ('room', f'#/r/{rid}'), ('account', '#/account')]:
+    for name, url in [('campaigns', '#/campaigns'), ('campaign', f'#/c/{cid}'), ('campaign-rooms', f'#/c/{cid}/rooms'), ('rooms', '#/rooms'), ('room', f'#/r/{rid}'), ('worlds', '#/worlds'), ('account', '#/account')]:
         pl.goto(BASE + url); time.sleep(2.5)
         w = pl.evaluate(CHECK)
         check(w == 0, f'{name}: no horizontal scroll' + (f' (page {w}px)' if w else ''))

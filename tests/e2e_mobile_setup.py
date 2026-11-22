@@ -138,7 +138,7 @@ with sync_playwright() as p:
     pg.locator('input[type=email]').fill(EMAIL)
     pg.locator('input[type=password]').fill('secret123')
     pg.get_by_role('button', name='Зарегистрироваться').click()
-    pg.wait_for_selector('.acc-wrap, input[placeholder="Дезремон"]', timeout=30000)
+    pg.wait_for_selector('.world-grid, input[placeholder="Дезремон"]', timeout=30000)
     if not pg.locator('input[placeholder="Дезремон"]').count():
         pg.get_by_role('button', name='Новый мир').first.click()
     pg.locator('input[placeholder="Дезремон"]').fill('E2E мобильная ' + RUN)

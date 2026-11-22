@@ -50,7 +50,7 @@ with sync_playwright() as p:
         pg.on('pageerror', lambda e: errs.append('pageerror: ' + str(e)[:500]))
         pg.goto(BASE + '#/login')
         pg.locator('input[type=email]').fill(EMAIL); pg.locator('input[type=password]').fill('secret123')
-        pg.get_by_role('button', name='Войти', exact=True).click(); pg.wait_for_url('**/#/account**', timeout=20000)
+        pg.get_by_role('button', name='Войти', exact=True).click(); pg.wait_for_url('**/#/worlds**', timeout=20000)
         if label == 'desktop':
             pg.get_by_role('button', name='Новый мир').first.click()
             pg.locator('input[placeholder="Дезремон"]').fill('Картографы ' + RUN)

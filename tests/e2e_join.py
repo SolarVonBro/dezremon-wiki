@@ -105,7 +105,7 @@ with sync_playwright() as p:
     def owner_sees():
         own.goto(state['world']); own.wait_for_selector('.sb-badge', timeout=20000)
         assert own.locator('.sb-badge').inner_text().strip() == '1', 'badge count'
-        own.goto(BASE + '#/account?tab=requests'); own.wait_for_selector('text=Гость Просящий', timeout=20000)
+        own.goto(BASE + '#/worlds?tab=requests'); own.wait_for_selector('text=Гость Просящий', timeout=20000)
         assert own.locator('text=пустите пожалуйста').count() == 1, 'message not shown in cabinet'
         shot(own, 'j4-cabinet-requests')
         own.goto(state['world'] + '/settings/members'); own.wait_for_selector('text=Заявки на вступление', timeout=20000)
@@ -122,7 +122,7 @@ with sync_playwright() as p:
         vis.goto(state['world'] + '/t/character'); vis.wait_for_selector('.ecard', timeout=20000)
         assert vis.locator('.ecard', has_text='Тайный союзник').count() == 1, 'accepted visitor does not see members article'
         shot(vis, 'j6-member-now')
-        vis.goto(BASE + '#/account'); vis.wait_for_selector('text=Миры, где я участвую', timeout=20000)
+        vis.goto(BASE + '#/worlds'); vis.wait_for_selector('text=Миры, где я участвую', timeout=20000)
         assert vis.locator('.wcard', has_text='E2E заявки').count() == 1, 'world not in cabinet'
 
     def reject_and_ban():

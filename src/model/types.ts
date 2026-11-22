@@ -55,6 +55,63 @@ export interface WorldSettings {
   /** Calendar used for "current date" widgets and reminders by default. */
   mainCalendarId: string | null
   accent: string | null
+  /** The world overview page built from blocks (null → the standard layout, see src/components/dashboard/blocks.ts). */
+  dashboard?: DashboardLayout | null
+}
+
+export type DashBlockType =
+  | 'hero' | 'stats' | 'text' | 'pins' | 'entity' | 'list' | 'recent' | 'calendar' | 'map' | 'image' | 'links'
+  | 'character' | 'campaigns' | 'random' | 'waiting'
+
+/** One block of the overview page. Common fields first, then type-specific settings (unused ones are absent). */
+export interface DashBlock {
+  id: string
+  type: DashBlockType
+  /** Width in twelfths of the row (12 = full width). */
+  w: number
+  /** Fixed height in px (the content scrolls inside); 0 = as tall as the content. */
+  h: number
+  /** Own title ('' → the default one of the block type). */
+  title?: string
+  hideTitle?: boolean
+  /** Who sees the block: everybody who can open the world, members only, masters only. */
+  show?: 'all' | 'members' | 'masters'
+  /** card: framed; plain: no frame; accent: tinted with the accent colour */
+  style?: 'card' | 'plain' | 'accent'
+  /** pins: articles to show */
+  ids?: string[]
+  /** entity / map: the article */
+  entityId?: string | null
+  /** entity: card or the whole text; pins / list: cards, rows or tiles */
+  view?: 'card' | 'full' | 'cards' | 'rows' | 'tiles'
+  calendarId?: string | null
+  /** stats / recent / random / list: only these entity types ([] → all) */
+  types?: string[]
+  /** list: only articles with this tag */
+  tagId?: string | null
+  sort?: 'recent' | 'name' | 'created'
+  limit?: number
+  /** text */
+  html?: string
+  /** image */
+  imageId?: string | null
+  caption?: string
+  fit?: 'cover' | 'contain'
+  /** links: buttons to articles or web pages */
+  links?: Array<{ label: string; url?: string; entityId?: string | null }>
+  /** hero */
+  heroSize?: 'sm' | 'md' | 'lg'
+  align?: 'left' | 'center'
+  showDescription?: boolean
+}
+
+export interface DashboardLayout {
+  v: 1
+  blocks: DashBlock[]
+  /** Space between blocks. */
+  gap?: 'sm' | 'md' | 'lg'
+  /** Use the whole width of the window instead of the reading width. */
+  wide?: boolean
 }
 
 export interface Member {

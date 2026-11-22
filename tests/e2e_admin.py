@@ -88,7 +88,7 @@ with sync_playwright() as p:
         pl.goto(state['invite'])
         pl.get_by_role('button', name='Принять приглашение').click()
         pl.wait_for_selector('.dash-hero h1', timeout=20000)
-        pl.goto(BASE + '#/account')
+        pl.goto(BASE + '#/worlds')
         pl.wait_for_selector('text=Миры, где я участвую', timeout=20000)
         pl.wait_for_selector('.wcard-name', timeout=15000)
         assert 'E2E админка' in pl.locator('.world-grid').last.inner_text(), 'world not in "participating"'
