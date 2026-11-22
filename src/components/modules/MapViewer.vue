@@ -416,7 +416,7 @@ function buildLayer(m: MapMarker, c: Ctx): L.Layer {
       ? L.circle([m.lat, m.lng], { ...style, radius: Math.max(1, m.radius) })
       : L.polygon(m.points.map((p) => [p.lat, p.lng] as L.LatLngTuple), style)
     layer.bindTooltip(escapeHtml(title), { sticky: true, direction: 'top', className: 'dw-map-tip' })
-    layer.on('click', (e: L.LeafletMouseEvent) => onLayerClick(m.id, e))
+    layer.on('click', (e: L.LeafletMouseEvent) => onLayerClick(m.id, e, true))
     return layer
   }
   const spec = m.shape === 'label'
@@ -427,7 +427,7 @@ function buildLayer(m: MapMarker, c: Ctx): L.Layer {
     draggable: c.editable, autoPan: true, keyboard: false, riseOnHover: true, opacity: Math.max(0.15, m.opacity),
   })
   if (m.shape === 'marker') mk.bindTooltip(escapeHtml(title), { direction: 'top', offset: [0, spec.top + 2], className: 'dw-map-tip' })
-  mk.on('click', (e: L.LeafletMouseEvent) => onLayerClick(m.id, e))
+  mk.on('click', (e: L.LeafletMouseEvent) => onLayerClick(m.id, e, false))
   mk.on('dragstart', () => { if (activeId.value === m.id) popup?.close() })
   mk.on('dragend', () => onDragEnd(m.id, mk.getLatLng()))
   return mk
@@ -454,8 +454,14 @@ function syncMarkers() {
   syncPopup()
 }
 
-function onLayerClick(id: string, e: L.LeafletMouseEvent) {
-  if (mode.value !== 'select') return // let the click reach the map (placing / drawing over shapes)
+/** `bubbles`: shapes pass their clicks on to the map; Leaflet markers (pins, labels) do not. */
+function onLayerClick(id: string, e: L.LeafletMouseEvent, bubbles: boolean) {
+  if (mode.value !== 'select') {
+    // placing / drawing on top of an existing mark: put the new one there (shapes already reach the map; a pin
+    // would swallow the click — with a finger it is easy to hit one)
+    if (!bubbles) { L.DomEvent.stopPropagation(e as unknown as Event); onMapClick(e) }
+    return
+  }
   L.DomEvent.stopPropagation(e as unknown as Event)
   if (id === DRAFT_ID || id === draftKey.value) return
   if (isEditing.value) openEditor(id)
@@ -977,8 +983,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="dw-body">
-        <div ref="stageEl" class="dw-stage">
-          <div ref="mapEl" class="dw-canvas" :class="{ 'is-placing': mode !== 'select' }" />
+        <!-- the placing class lives on the stage: Vue rewrites the whole className of an element with :class, and
+             Leaflet keeps its own classes (leaflet-container…) on mapEl — losing them collapsed the map image -->
+        <div ref="stageEl" class="dw-stage" :class="{ 'is-placing': mode !== 'select' }">
+          <div ref="mapEl" class="dw-canvas" />
 
           <div class="dw-ctrl">
             <button type="button" title="Приблизить" @click="zoomIn"><Icon name="zoom-in" :size="17" /></button>
@@ -1072,7 +1080,7 @@ onBeforeUnmount(() => {
 .is-fs .dw-stage { height: auto; min-height: 0; }
 /* own stacking context: Leaflet's z-indexes stay below the controls drawn over the map */
 .dw-canvas { position: absolute; inset: 0; z-index: 0; }
-.dw-canvas.is-placing, .dw-canvas.is-placing :deep(.leaflet-interactive) { cursor: crosshair; }
+.dw-stage.is-placing .dw-canvas, .dw-stage.is-placing .dw-canvas :deep(.leaflet-interactive) { cursor: crosshair; }
 
 .dw-ctrl { position: absolute; left: 10px; top: 10px; z-index: 2; display: flex; flex-direction: column; gap: 4px; }
 .dw-ctrl button { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
@@ -1085,7 +1093,10 @@ onBeforeUnmount(() => {
 
 .dw-hint { position: absolute; left: 50%; bottom: 14px; z-index: 3; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px);
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; padding: 8px 12px; font-size: 13px;
-  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  /* the hint covers the bottom of the map: clicks on its text still reach the map (only its buttons are buttons) */
+  pointer-events: none; opacity: .94; }
+.dw-hint button { pointer-events: auto; }
 
 .dw-status { position: absolute; left: 50%; top: 12px; z-index: 2; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px;
   padding: 5px 12px; border-radius: 999px; font-size: 13px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
