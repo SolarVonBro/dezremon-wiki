@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Design lab (#/design, not linked anywhere): every kind of UI the site has, drawn statically with the site's own
-// classes, under six candidate designs (variants.css). No real logic — a place to compare looks.
+// classes, under the candidate designs (variants.css). No real logic — a place to compare looks.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '@/components/common/Icon.vue'
@@ -9,6 +9,7 @@ import { DESIGNS, LAB_FONTS } from './design-lab/designs'
 import { castle, forest, landscape, mapArt, portrait } from './design-lab/art'
 import './design-lab/lab.css'
 import './design-lab/variants.css'
+import './design-lab/variants2.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,21 +27,26 @@ watch(() => route.query.d, (d) => { if (typeof d === 'string' && DESIGNS.some((x
 function onKey(e: KeyboardEvent) {
   if ((e.target as HTMLElement)?.closest('input, textarea, select')) return
   const i = DESIGNS.findIndex((d) => d.id === current.value)
-  if (/^[1-6]$/.test(e.key)) pick(DESIGNS[Number(e.key) - 1].id)
+  // 1–9 → designs 1–9, 0 → design 10; the arrows go through all of them
+  const n = e.key === '0' ? 10 : /^[1-9]$/.test(e.key) ? Number(e.key) : 0
+  if (n && DESIGNS[n - 1]) pick(DESIGNS[n - 1].id)
   else if (e.key === 'ArrowRight') pick(DESIGNS[(i + 1) % DESIGNS.length].id)
   else if (e.key === 'ArrowLeft') pick(DESIGNS[(i + DESIGNS.length - 1) % DESIGNS.length].id)
 }
 function go(id: string) { document.getElementById('dl-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
-let fontLink: HTMLLinkElement | null = null
+let fontLinks: HTMLLinkElement[] = []
 onMounted(() => {
   document.addEventListener('keydown', onKey)
-  fontLink = document.createElement('link')
-  fontLink.rel = 'stylesheet'
-  fontLink.href = LAB_FONTS
-  document.head.appendChild(fontLink)
+  fontLinks = LAB_FONTS.map((href) => {
+    const l = document.createElement('link')
+    l.rel = 'stylesheet'
+    l.href = href
+    document.head.appendChild(l)
+    return l
+  })
   document.title = 'Лаборатория дизайна'
 })
-onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); fontLink?.remove() })
+onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); fontLinks.forEach((l) => l.remove()) })
 
 const SECTIONS = [
   ['app', 'Экран приложения'], ['controls', 'Кнопки и поля'], ['article', 'Статья'], ['lists', 'Списки'],
@@ -82,7 +88,7 @@ const PLAYLIST = [
       <div class="dl-switch-row">
         <span class="dl-title"><Icon name="palette" :size="18" /> Лаборатория дизайна</span>
         <div class="dl-designs" role="tablist">
-          <button v-for="(d, i) in DESIGNS" :key="d.id" class="dl-design" :class="{ on: d.id === cur.id }" role="tab" :aria-selected="d.id === cur.id" :title="d.mood + ' (клавиша ' + (i + 1) + ')'" @click="pick(d.id)">
+          <button v-for="(d, i) in DESIGNS" :key="d.id" class="dl-design" :class="{ on: d.id === cur.id }" role="tab" :aria-selected="d.id === cur.id" :title="d.mood + (i < 10 ? ' (клавиша ' + ((i + 1) % 10) + ')' : '')" @click="pick(d.id)">
             <span class="dl-sw"><i v-for="c in d.swatch" :key="c" :style="{ background: c }" /></span>
             <span><b>{{ i + 1 }}</b> {{ d.name }}</span>
           </button>
@@ -90,7 +96,7 @@ const PLAYLIST = [
       </div>
       <div class="dl-about">
         <b>{{ cur.name }}</b> — {{ cur.mood }}. {{ cur.about }} <span class="dl-fonts">Шрифты: {{ cur.fonts }}.</span>
-        <span class="dl-keys">Переключение: клавиши 1–6 или ← →.</span>
+        <span class="dl-keys">Переключение: клавиши 1–9 и 0 (десятый) или ← →.</span>
       </div>
       <nav class="dl-toc"><a v-for="s in SECTIONS" :key="s[0]" :href="'#dl-' + s[0]" @click.prevent="go(s[0])">{{ s[1] }}</a></nav>
     </header>

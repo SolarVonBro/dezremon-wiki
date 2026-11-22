@@ -40,14 +40,56 @@ export const DESIGNS: Design[] = [
     about: 'Нейтральный графит без оттенков, волосяные линии, плотная вёрстка, один электрический синий акцент — как профессиональный редактор. Максимально нейтральный фон для чужих картинок и текстов.',
     fonts: 'Onest (интерфейс и заголовки) · Literata (статьи)', swatch: ['#0a0a0b', '#4c8dff', '#ededef'],
   },
+  // ---------- the second set: other directions entirely ----------
+  {
+    id: 'neon', name: 'Неон', mood: 'Киберпанк и синтвейв',
+    about: 'Чёрный фон с неоновой сеткой, пурпурный и бирюзовый с свечением, срезанные углы у кнопок и карточек, моноширинные подписи. Для мира, где магия — это код.',
+    fonts: 'Russo One (заголовки) · Exo 2 (интерфейс и статьи) · JetBrains Mono (подписи)', swatch: ['#07060d', '#ff2bd6', '#00f0ff'],
+  },
+  {
+    id: 'abyss', name: 'Бездна', mood: 'Глубоководье и биолюминесценция',
+    about: 'Глубокий сине-зелёный океан, светящийся бирюзовый и коралловые искры, мягкие «пузырьковые» формы, волнистые подчёркивания заголовков, свет сверху как сквозь толщу воды.',
+    fonts: 'Philosopher (заголовки) · Rubik (интерфейс) · Source Serif 4 (статьи)', swatch: ['#031117', '#2ee6c5', '#ff7a8a'],
+  },
+  {
+    id: 'brutal', name: 'Брутализм', mood: 'Необрутализм: грубо и честно',
+    about: 'Плоские блоки с толстыми светлыми рамками и жёсткими тенями без размытия, кислотно-жёлтый акцент, тяжёлые заголовки капслоком, моноширинный интерфейс. Дерзко и очень читаемо.',
+    fonts: 'Rubik Mono One (заголовки) · IBM Plex Mono (интерфейс) · Golos Text (статьи)', swatch: ['#232323', '#e9ff32', '#f2f2ea'],
+  },
+  {
+    id: 'pixel', name: 'Пиксель', mood: 'Ретро-JRPG',
+    about: 'Окна как в консольных ролевых играх: синие панели с белой рамкой, пиксельный шрифт заголовков, курсор ▶ у выбранного пункта, звёздное небо из пикселей. Ностальгия по 16 битам.',
+    fonts: 'Press Start 2P (заголовки) · PT Mono (интерфейс) · PT Sans (статьи)', swatch: ['#0b0d1f', '#2b3cab', '#ffe066'],
+  },
+  {
+    id: 'glass', name: 'Витраж', mood: 'Готический собор',
+    about: 'Тёмный камень и цветной свет сквозь витражи: рубин, сапфир, изумруд, толстые «свинцовые» рамки, стрельчатая арка у шапки статьи, старославянский шрифт заголовков.',
+    fonts: 'Ruslan Display (большие заголовки) · EB Garamond (статьи и подзаголовки) · Commissioner (интерфейс)', swatch: ['#0a0709', '#e0284f', '#2f6bff'],
+  },
+  {
+    id: 'chalk', name: 'Мел', mood: 'Доска мастера',
+    about: 'Сланцевая доска с меловой пылью, рамки «от руки», рукописные заголовки, цветные мелки — жёлтый, розовый, голубой. Как записи мастера между сессиями.',
+    fonts: 'Caveat (заголовки) · Jost (интерфейс) · Alice (статьи)', swatch: ['#1c2823', '#ffe27a', '#ff9ec7'],
+  },
 ]
 
-/** Fonts of all six designs (loaded only on the lab page). */
-export const LAB_FONTS = 'https://fonts.googleapis.com/css2?' + [
-  'Unbounded:wght@400;500;600;700', 'Manrope:wght@400;500;600;700',
-  'Forum', 'Alegreya:ital,wght@0,400;0,500;0,700;1,400', 'Alegreya+Sans:wght@400;500;700',
-  'Oswald:wght@400;500;600', 'IBM+Plex+Sans:wght@400;500;600', 'IBM+Plex+Serif:ital,wght@0,400;0,600;1,400',
-  'Kurale', 'Nunito:wght@400;600;700', 'Vollkorn:ital,wght@0,400;0,600;1,400',
-  'Tenor+Sans', 'Ysabeau+Office:wght@400;500;600;700', 'Spectral:ital,wght@0,300;0,400;0,600;1,400',
-  'Onest:wght@400;500;600;700', 'Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400',
-].map((f) => 'family=' + f).join('&') + '&display=swap'
+const css2 = (families: string[]) => 'https://fonts.googleapis.com/css2?' + families.map((f) => 'family=' + f).join('&') + '&display=swap'
+/** Fonts of all the designs (loaded only on the lab page). */
+export const LAB_FONTS = [
+  css2([
+    'Unbounded:wght@400;500;600;700', 'Manrope:wght@400;500;600;700',
+    'Forum', 'Alegreya:ital,wght@0,400;0,500;0,700;1,400', 'Alegreya+Sans:wght@400;500;700',
+    'Oswald:wght@400;500;600', 'IBM+Plex+Sans:wght@400;500;600', 'IBM+Plex+Serif:ital,wght@0,400;0,600;1,400',
+    'Kurale', 'Nunito:wght@400;600;700', 'Vollkorn:ital,wght@0,400;0,600;1,400',
+    'Tenor+Sans', 'Ysabeau+Office:wght@400;500;600;700', 'Spectral:ital,wght@0,300;0,400;0,600;1,400',
+    'Onest:wght@400;500;600;700', 'Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400',
+  ]),
+  css2([
+    'Russo+One', 'Exo+2:ital,wght@0,400;0,500;0,600;0,700;1,400',
+    'Philosopher:ital,wght@0,400;0,700;1,400', 'Rubik:wght@400;500;600;700', 'Source+Serif+4:ital,wght@0,400;0,600;1,400',
+    'Rubik+Mono+One', 'IBM+Plex+Mono:wght@400;500;600', 'Golos+Text:wght@400;500;600',
+    'Press+Start+2P', 'PT+Mono', 'PT+Sans:ital,wght@0,400;0,700;1,400',
+    'Ruslan+Display', 'EB+Garamond:ital,wght@0,400;0,500;0,600;1,400', 'Commissioner:wght@400;500;600;700',
+    'Caveat:wght@500;700', 'Jost:wght@400;500;600', 'Alice',
+  ]),
+]
