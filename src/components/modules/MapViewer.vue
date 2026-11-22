@@ -38,7 +38,8 @@ type Mode = 'select' | MarkerShape
 type Dims = { w: number; h: number }
 interface Ctx { entity: Entity | undefined; thumb: string | null; editable: boolean; active: boolean }
 
-const props = defineProps<{ entity: Entity; editing: boolean }>()
+/** `embedded`: a map inside another page (an overview block) — fills its container, no marker list beside it. */
+const props = defineProps<{ entity: Entity; editing: boolean; embedded?: boolean }>()
 const world = useWorld()
 const gallery = useGallery()
 const route = useRoute()
@@ -75,7 +76,7 @@ const layerOn = ref<Record<string, boolean>>({}) // viewer-local; missing = show
 const baseLayerId = ref<string | null>(null)
 const fullscreen = ref(false)
 const showLegend = ref(false)
-const sideOpen = ref(true)
+const sideOpen = ref(!props.embedded)
 const imageDialog = ref(false)
 const manageTab = ref<'layers' | 'groups' | null>(null)
 const busy = ref(false)
@@ -202,10 +203,41 @@ function initMap(el: HTMLElement) {
   m.on('mousemove', onMapMove)
   m.on('popupclose', (e: L.PopupEvent) => { if (e.popup === popup) activeId.value = null })
   map = m
+  if (props.embedded) embed(m)
   ro = new ResizeObserver(onResize)
   ro.observe(el)
   void loadBase()
 }
+
+/**
+ * An embedded map must not trap the page: the wheel zooms only after a click inside the map (until the pointer
+ * leaves it), and on touch screens one finger scrolls the page while two fingers zoom. Full screen = a normal map.
+ */
+const coarsePointer = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+function embed(m: L.Map) {
+  m.scrollWheelZoom.disable()
+  if (coarsePointer) m.dragging.disable()
+  m.on('click', () => { if (!fullscreen.value) m.scrollWheelZoom.enable() })
+  m.on('mouseout', () => { if (!fullscreen.value) m.scrollWheelZoom.disable() })
+  // until the viewer moves the map, it stays fitted when its box changes (the overview settles, edit mode ends…)
+  m.on('dragstart', () => { autoFit = false })
+  m.getContainer().addEventListener('wheel', () => { if (m.scrollWheelZoom.enabled()) autoFit = false }, { passive: true })
+  m.getContainer().addEventListener('touchstart', (e) => { if (e.touches.length > 1) autoFit = false }, { passive: true })
+}
+/** Embedded: the map is still in its initial view (re-fitted on resize). */
+let autoFit = true
+/** Full screen on/off: the next resize keeps the centre of the view. */
+let keepCentre = false
+watch(fullscreen, (on) => {
+  if (!map) return
+  // the box changes a lot: keep what was in the middle of the map in the middle (other resizes keep the top-left
+  // corner, so opening the marker list does not shift the picture) — applied by onResize once the size is known
+  keepCentre = true
+  setTimeout(() => { keepCentre = false }, 1500)
+  if (!props.embedded) return
+  if (on) { map.scrollWheelZoom.enable(); map.dragging.enable() }
+  else { map.scrollWheelZoom.disable(); if (coarsePointer) map.dragging.disable() }
+})
 
 function destroyMap() {
   ro?.disconnect()
@@ -230,10 +262,15 @@ function destroyMap() {
 
 function onResize() {
   if (!map) return
-  map.invalidateSize({ pan: false })
+  const refit = props.embedded && autoFit && !fullscreen.value && ready.value && !pendingView
+  // Usually the top-left corner stays put (opening the marker list does not shift the picture). Full screen on/off
+  // and a self-fitting embedded map keep the centre instead — set right here: moving the view afterwards would race
+  // Leaflet's own animated pan back inside the map bounds.
+  map.invalidateSize({ pan: keepCentre || refit })
+  keepCentre = false
   if (!dims.value) return
   updateZoomLimits()
-  if (pendingView) initialView()
+  if (pendingView || refit) initialView()
 }
 
 // ---------- base image & coordinate space ----------
@@ -777,9 +814,13 @@ function toggleEdit() {
 }
 
 // ---------- toolbar actions ----------
-function zoomIn() { map?.zoomIn() }
-function zoomOut() { map?.zoomOut() }
-function fitAll() { if (map && dims.value) map.flyToBounds(bounds(), { duration: 0.5 }) }
+// (an embedded map stops re-fitting itself on resize once the viewer zooms; «Показать всю карту» brings that back)
+function zoomIn() { autoFit = false; map?.zoomIn() }
+function zoomOut() { autoFit = false; map?.zoomOut() }
+function fitAll() {
+  autoFit = true
+  if (map && dims.value) map.flyToBounds(bounds(), { duration: 0.5 })
+}
 
 async function onBaseFiles(files: File[]) {
   if (!files.length) return
@@ -941,7 +982,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="dw-map" :class="{ 'is-fs': fullscreen }">
+  <div class="dw-map" :class="{ 'is-fs': fullscreen, 'is-embedded': embedded && !fullscreen }">
     <!-- no image yet -->
     <div v-if="!mainImageId" class="dw-empty">
       <Icon name="map" :size="44" />
@@ -997,7 +1038,7 @@ onBeforeUnmount(() => {
             <button type="button" :class="{ on: fullscreen }" :title="fullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'" @click="fullscreen = !fullscreen">
               <Icon :name="fullscreen ? 'minimize2' : 'maximize2'" :size="17" />
             </button>
-            <button type="button" class="dw-ctrl-side" :class="{ on: sideOpen || !!editDraft }" title="Список меток" @click="sideOpen = !sideOpen">
+            <button v-if="!embedded || fullscreen" type="button" class="dw-ctrl-side" :class="{ on: sideOpen || !!editDraft }" title="Список меток" @click="sideOpen = !sideOpen">
               <Icon name="panel-right-open" :size="17" />
             </button>
           </div>
@@ -1028,7 +1069,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <aside class="dw-side" :class="{ wide: !!editDraft, collapsed: !sideOpen && !editDraft }">
+        <aside v-if="!embedded || fullscreen" class="dw-side" :class="{ wide: !!editDraft, collapsed: !sideOpen && !editDraft }">
           <button type="button" class="dw-side-head" :aria-expanded="sideOpen || !!editDraft" @click="sideOpen = !sideOpen">
             <Icon name="map-pin" :size="15" />
             <span class="grow">Метки <span class="faint">({{ markers.length }})</span></span>
@@ -1074,6 +1115,10 @@ onBeforeUnmount(() => {
 .dw-tools-hint { padding: 0 8px; }
 
 .dw-body { display: flex; gap: 10px; align-items: stretch; }
+/* embedded: the map takes the whole box it is given */
+.dw-map.is-embedded { height: 100%; gap: 0; }
+.dw-map.is-embedded .dw-body { flex: 1 1 auto; min-height: 0; height: 100%; }
+.dw-map.is-embedded .dw-stage { height: 100%; min-height: 160px; }
 .is-fs .dw-body { flex: 1 1 auto; min-height: 0; }
 .dw-stage { position: relative; flex: 1 1 auto; min-width: 0; height: 70vh; min-height: 380px; overflow: hidden;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }

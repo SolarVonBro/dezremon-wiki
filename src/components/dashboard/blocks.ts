@@ -2,6 +2,7 @@
 // defaults and the standard layout used until a master customises the page.
 import type { DashBlock, DashBlockType, DashboardLayout } from '@/model/types'
 import { randomId } from '@/data/util'
+import { clampX, flowPositions } from './layout'
 
 export interface BlockKind {
   type: DashBlockType
@@ -51,22 +52,24 @@ export function newBlock(type: DashBlockType): DashBlock {
   return { id: randomId(8), type, w: 4, h: 0, ...structuredClone(kindOf(type).defaults) }
 }
 
-/** The page until a master customises it (the same blocks the overview always had). */
+/**
+ * The page until a master customises it (the blocks the overview always had). The player's character opens the
+ * row of small blocks: whoever has none (the master) sees «Случайная статья» move up into its place.
+ */
 export function defaultLayout(pins: string[] = []): DashboardLayout {
   const b = (id: string, type: DashBlockType, extra: Partial<DashBlock> = {}): DashBlock => ({ ...newBlock(type), id, ...extra })
-  return {
-    v: 1, gap: 'md', wide: false,
-    blocks: [
-      b('hero', 'hero'),
-      b('stats', 'stats'),
-      b('character', 'character'),
-      b('pins', 'pins', { ids: pins }),
-      b('recent', 'recent', { limit: 14 }),
-      b('calendar', 'calendar'),
-      b('random', 'random'),
-      b('waiting', 'waiting'),
-    ],
-  }
+  const blocks = [
+    b('hero', 'hero'),
+    b('stats', 'stats'),
+    b('pins', 'pins', { ids: pins }),
+    b('character', 'character'),
+    b('recent', 'recent', { limit: 14 }),
+    b('calendar', 'calendar'),
+    b('random', 'random'),
+    b('waiting', 'waiting'),
+  ]
+  flowPositions(blocks)
+  return { v: 1, gap: 'md', wide: false, blocks }
 }
 
 /** Tolerates layouts written by older or newer versions: unknown blocks are dropped, sizes clamped. */
@@ -75,11 +78,16 @@ export function normalizeLayout(raw: DashboardLayout | null | undefined, pins: s
   const blocks = raw.blocks
     .filter((b) => b && KIND.has(b.type) && typeof b.id === 'string')
     .map((b) => ({ ...b, w: clampW(b.w), h: clampH(b.h) }))
+  // saved before blocks had positions: place them the way the page used to flow
+  if (blocks.some((b) => typeof b.x !== 'number' || typeof b.y !== 'number')) flowPositions(blocks)
+  for (const b of blocks) b.x = clampX(b.x, b.w)
   return { v: 1, blocks, gap: raw.gap ?? 'md', wide: !!raw.wide }
 }
 
 export const clampW = (w: unknown) => Math.min(12, Math.max(MIN_W, Math.round(Number(w) || 12)))
 export const clampH = (h: unknown) => { const n = Math.round(Number(h) || 0); return n <= 0 ? 0 : Math.min(MAX_H, Math.max(MIN_H, n)) }
+
+export const GAP_PX = { sm: 10, md: 18, lg: 28 } as const
 
 /** Width on mid-size screens (two columns at most): narrow blocks take half, wide ones the full row. */
 export const midW = (w: number) => (w <= 6 ? 6 : 12)

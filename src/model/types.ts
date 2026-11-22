@@ -67,6 +67,11 @@ export type DashBlockType =
 export interface DashBlock {
   id: string
   type: DashBlockType
+  /** Column the block starts at (0–11). */
+  x?: number
+  /** Place in the vertical order: the block's top (in 4 px rows) when the layout was saved. Blocks keep their
+   *  columns and move up as far as the blocks above them allow (src/components/dashboard/layout.ts). */
+  y?: number
   /** Width in twelfths of the row (12 = full width). */
   w: number
   /** Fixed height in px (the content scrolls inside); 0 = as tall as the content. */

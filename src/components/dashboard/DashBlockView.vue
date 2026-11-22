@@ -19,7 +19,7 @@ import type { DashData } from './useDashData'
 import type { DashBlock, Entity } from '@/model/types'
 
 const CalendarWidget = defineAsyncComponent(() => import('@/components/modules/CalendarWidget.vue'))
-const MapPreview = defineAsyncComponent(() => import('@/components/modules/MapPreview.vue'))
+const MapViewer = defineAsyncComponent(() => import('@/components/modules/MapViewer.vue'))
 
 const props = defineProps<{ block: DashBlock; data: DashData; editing?: boolean }>()
 const emit = defineEmits<{ setup: [] }>()
@@ -45,6 +45,12 @@ const view = computed(() => b.value.view ?? (b.value.type === 'pins' ? 'cards' :
 const sub = (e: Entity) => e.kind || typeDef(e.type).label
 const text = (e: Entity) => e.tooltip || e.excerpt
 const to = (e: Entity) => ({ name: 'entity', params: { wid: wid.value, eid: e.id } })
+/** A map block of automatic height takes the proportions of the map (within reason). */
+const mapAspect = computed(() => {
+  const f = props.data.entity(b.value)?.fields ?? {}
+  const w = Number(f.mapWidth ?? f.width), h = Number(f.mapHeight ?? f.height)
+  return w > 0 && h > 0 ? String(Math.min(2.2, Math.max(0.8, w / h))) : '4 / 3'
+})
 const heroHeight = computed(() => ({ sm: 120, md: 180, lg: 300 })[b.value.heroSize ?? 'md'])
 
 async function zoomImage() {
@@ -59,11 +65,12 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 </script>
 
 <template>
-  <div class="dbv" :class="'dbv-' + b.type">
+  <div class="dbv" :class="'dbv--' + b.type">
     <h3 v-if="showTitle" class="panel-title dbv-title">
       <Icon :name="kind.icon" /> <span class="ellipsis grow">{{ titleOf(b) }}</span>
       <button v-if="b.type === 'random' && !editing" class="icon-btn" title="Другая статья" @click="data.reroll(b)"><Icon name="refresh-cw" :size="15" /></button>
       <RouterLink v-if="b.type === 'list' && b.types?.length === 1 && !b.tagId && !editing" class="icon-btn" title="Весь раздел" :to="{ name: 'list', params: { wid, type: b.types[0] } }"><Icon name="chevron-right" :size="16" /></RouterLink>
+      <RouterLink v-if="b.type === 'map' && data.entity(b) && !editing" class="icon-btn" title="Открыть страницу карты" :to="to(data.entity(b)!)"><Icon name="external-link" :size="15" /></RouterLink>
     </h3>
 
     <!-- ============ hero ============ -->
@@ -159,10 +166,11 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
     <CalendarWidget v-else-if="b.type === 'calendar'" :calendar-id="b.calendarId ?? null" :limit="b.limit || 5" class="dbv-cal" />
 
     <!-- ============ map ============ -->
+    <!-- the real map: zoom, markers with popups, layers, full screen (the full-size picture, not a thumbnail) -->
     <template v-else-if="b.type === 'map'">
-      <RouterLink v-if="data.entity(b)" class="dbv-map" :to="to(data.entity(b)!)">
-        <MapPreview :entity="data.entity(b)!" markers />
-      </RouterLink>
+      <div v-if="data.entity(b)" class="dbv-mapbox" :class="{ fill: b.h > 0 }" :style="b.h > 0 ? undefined : { aspectRatio: mapAspect }">
+        <MapViewer :entity="data.entity(b)!" :editing="false" embedded />
+      </div>
       <p v-else class="dbv-empty">{{ b.entityId ? 'Карта недоступна или удалена.' : 'Карта не выбрана.' }}</p>
     </template>
 
@@ -255,7 +263,8 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 .dbv-entity-head { display: inline-flex; align-items: center; gap: 6px; font: 700 20px var(--font-head); color: var(--text); margin-bottom: 8px; }
 
 .dbv-cal { border: 0 !important; background: none !important; box-shadow: none !important; margin: -4px -6px; }
-.dbv-map { display: block; }
+.dbv-mapbox { position: relative; width: 100%; min-height: 220px; max-height: 75vh; }
+.dbv-mapbox.fill { flex: 1; min-height: 0; max-height: none; }
 
 .dbv-figure { margin: 0; display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
 .dbv-img { padding: 0; border: 0; background: var(--surface-3); border-radius: 10px; overflow: hidden; cursor: zoom-in; display: flex; align-items: center; justify-content: center; color: var(--text-faint); min-height: 120px; }
@@ -270,5 +279,5 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 .dbv-link:hover { border-color: var(--accent); background: var(--surface-2); }
 .dbv-link > .grow { display: flex; flex-direction: column; min-width: 0; }
 .dbv-link b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbv-campaigns .dbv-link + .dbv-link { margin-top: 6px; }
+.dbv--campaigns .dbv-link + .dbv-link { margin-top: 6px; }
 </style>
