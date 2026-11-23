@@ -54,7 +54,7 @@ const campaignsChecked = new Set<string>()
 watch(() => [world.wid, world.status, world.world?.ownerId] as const, ([w, st, owner]) => {
   if (!w || st !== 'ready' || !session.user || owner !== session.user.uid || campaignsChecked.has(w)) return
   campaignsChecked.add(w)
-  void ensureCampaignTags(session.user).then((msg) => { if (msg) toast.success(msg) }).catch((e) => console.warn('campaign tags', e))
+  void ensureCampaignTags(session.me!).then((msg) => { if (msg) toast.success(msg) }).catch((e) => console.warn('campaign tags', e))
 }, { immediate: true })
 const autoTag = computed(() => (world.autoCampaignTagId ? world.get(world.autoCampaignTagId) ?? null : null))
 

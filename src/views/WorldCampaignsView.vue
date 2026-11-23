@@ -49,7 +49,7 @@ async function create() {
   if (!session.user || !form.value.name.trim() || busy.value) return
   busy.value = true
   try {
-    const cid = await createWorldCampaign(session.user, {
+    const cid = await createWorldCampaign(session.me!, {
       name: form.value.name.trim(), description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(), cover: null,
       format: form.value.format, intro: cleanIntro(form.value.intro),
     })

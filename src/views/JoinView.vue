@@ -30,7 +30,7 @@ async function accept() {
   if (!session.user) return
   busy.value = true
   try {
-    await acceptInvite(wid, code, session.user)
+    await acceptInvite(wid, code, session.me!)
     void router.replace({ name: 'dashboard', params: { wid } })
   } catch (e: any) { error.value = e?.message ?? String(e); state.value = 'error' } finally { busy.value = false }
 }

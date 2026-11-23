@@ -7,12 +7,13 @@ import type { PublicProfile } from '@/model/types'
 const KEY = 'dw.profile.'
 
 /** Writes the public card when the name or photo changed since the last time (no read, at most one write). */
-export async function publishProfile(u: { uid: string; displayName: string | null; photoURL: string | null; metadata?: { creationTime?: string } }) {
+/** `photo`: the picture to publish (the user's own one, or the sign-in provider's photo when left out). */
+export async function publishProfile(u: { uid: string; displayName: string | null; photoURL: string | null; metadata?: { creationTime?: string } }, photo?: string | null) {
   const p: PublicProfile = {
-    uid: u.uid, displayName: (u.displayName || 'Без имени').slice(0, 100), photoURL: u.photoURL ?? null,
+    uid: u.uid, displayName: (u.displayName || 'Без имени').slice(0, 100), photoURL: photo !== undefined ? photo : u.photoURL ?? null,
     since: Date.parse(u.metadata?.creationTime ?? '') || Date.now(), updatedAt: Date.now(),
   }
-  const sig = `${p.displayName}|${p.photoURL ?? ''}|${p.since}`
+  const sig = `${p.displayName}|${(p.photoURL ?? '').length}:${(p.photoURL ?? '').slice(-40)}|${p.since}`
   try { if (localStorage.getItem(KEY + u.uid) === sig) return } catch { /* private mode: write anyway */ }
   await setDoc(doc(db, 'profiles', u.uid), p)
   try { localStorage.setItem(KEY + u.uid, sig) } catch { /* private mode */ }

@@ -49,7 +49,7 @@ const countText = (p: RoomPlaylist) => `${p.items.length} ${plural(p.items.lengt
 async function create() {
   const name = prompt('Название нового плейлиста (например: Бой, Таверна, Город):', '')
   if (!name?.trim() || !session.user) return
-  try { emit('select', await createPlaylist(props.rid, session.user, name.trim(), [], props.playlists.length)) } catch (e) { toast.error('Не получилось: ' + errorText(e)) }
+  try { emit('select', await createPlaylist(props.rid, session.me!, name.trim(), [], props.playlists.length)) } catch (e) { toast.error('Не получилось: ' + errorText(e)) }
 }
 function playFrom(p: RoomPlaylist, itemId: string | null, t: RoomTrack | null = targetOf(p.id)) {
   if (!t || !props.canControl) return

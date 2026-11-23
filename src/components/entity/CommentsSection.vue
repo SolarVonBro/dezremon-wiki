@@ -61,7 +61,7 @@ watch(target, async (id) => {
 }, { immediate: true })
 
 // ---------- writing ----------
-const author = () => ({ uid: world.uid!, name: world.member?.displayName || session.displayName(), photo: session.user?.photoURL ?? null })
+const author = () => ({ uid: world.uid!, name: world.member?.displayName || session.displayName(), photo: session.photo })
 const text = ref('')
 const busy = ref(false)
 const replyTo = ref<{ thread: string; c: Comment } | null>(null)

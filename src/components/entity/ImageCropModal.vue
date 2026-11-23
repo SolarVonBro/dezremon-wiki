@@ -11,7 +11,7 @@ import type { Entity } from '@/model/types'
 // `imageId` (an image of the world) or `src` starting from `initial`, and hands the result back through `save`.
 const props = defineProps<{
   entity?: Entity; field?: CropField
-  imageId?: string | null; src?: string | null; initial?: ImageCrop | null; title?: string; kind?: 'cover' | 'background'
+  imageId?: string | null; src?: string | null; initial?: ImageCrop | null; title?: string; kind?: 'cover' | 'background' | 'avatar'
 }>()
 const emit = defineEmits<{ close: []; save: [crop: ImageCrop | null] }>()
 const world = useWorld()
@@ -27,7 +27,9 @@ onMounted(async () => {
 })
 
 const style = computed(() => cropStyle(crop.value))
-const PREVIEWS = computed(() => props.kind === 'cover'
+const PREVIEWS = computed(() => props.kind === 'avatar'
+  ? [{ label: 'Кабинет', w: 120, h: 120, round: true }, { label: 'Меню и комментарии', w: 40, h: 40, round: true }, { label: 'Списки участников', w: 64, h: 64, round: true }]
+  : props.kind === 'cover'
   ? [{ label: 'Обложка на странице игры', w: 260, h: 146, round: false }, { label: 'Карточка в списке игр', w: 280, h: 120, round: false }, { label: 'Строка в «Играх»', w: 72, h: 44, round: false }]
   : props.kind === 'background'
     ? [{ label: 'Фон на широком экране', w: 320, h: 180, round: false }, { label: 'Фон на телефоне', w: 104, h: 190, round: false }]

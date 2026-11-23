@@ -30,7 +30,7 @@ async function create() {
   if (!session.user || !name.value.trim()) return
   creating.value = true
   try {
-    const id = await createWorld(session.user, name.value.trim(), description.value.trim(), isPublic.value)
+    const id = await createWorld(session.me!, name.value.trim(), description.value.trim(), isPublic.value)
     void router.push({ name: 'dashboard', params: { wid: id } })
   } catch (e: any) { toast.error('Не удалось создать мир: ' + (e?.message ?? e)) }
   finally { creating.value = false }

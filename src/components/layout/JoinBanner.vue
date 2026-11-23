@@ -74,7 +74,7 @@ async function send() {
   if (!session.user) return
   busy.value = true
   try {
-    request.value = await sendJoinRequest(props.wid, session.user, message.value, route.fullPath, worldName.value)
+    request.value = await sendJoinRequest(props.wid, session.me!, message.value, route.fullPath, worldName.value)
     asking.value = false
     toast.success('Заявка отправлена — мастер увидит её в настройках мира')
   } catch (e: any) { toast.error(e?.message ?? String(e)) } finally { busy.value = false }

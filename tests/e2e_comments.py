@@ -222,7 +222,7 @@ with sync_playwright() as p:
 
     print('== one\'s own page from the account menu; the player block links there too')
     pl.locator('.app-bar .user-btn').click()
-    pl.locator('.menu .menu-item', has_text='Моя страница').click()
+    pl.locator('.menu .menu-item', has_text='Личный кабинет').click()
     pl.wait_for_selector('.u-head', timeout=15000)
     check('это вы' in pl.locator('.u-head').inner_text() and 'Миры' in pl.locator('.user-page').inner_text(), 'own page: «это вы», «Миры»')
     pl.goto(BASE + f'#/w/{W}/e/hero'); pl.wait_for_selector('.char-player', timeout=15000)

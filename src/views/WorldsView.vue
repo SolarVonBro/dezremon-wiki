@@ -78,7 +78,7 @@ async function create() {
   if (!session.user || !newWorld.value.name.trim()) return
   createBusy.value = true
   try {
-    const id = await createWorld(session.user, newWorld.value.name.trim(), newWorld.value.description.trim(), newWorld.value.isPublic)
+    const id = await createWorld(session.me!, newWorld.value.name.trim(), newWorld.value.description.trim(), newWorld.value.isPublic)
     void router.push({ name: 'dashboard', params: { wid: id } })
   } catch (e: any) { toast.error('Не удалось создать мир: ' + (e?.message ?? e)) } finally { createBusy.value = false }
 }

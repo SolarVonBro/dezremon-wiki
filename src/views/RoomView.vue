@@ -46,7 +46,7 @@ watch(() => [session.ready, session.user?.uid] as const, ([ready, u]) => {
   presence?.stop(); presence = null
   if (ready && !u) { void router.replace({ name: 'login', query: { next: route.fullPath } }); return }
   if (!u || !session.user) return
-  const user = session.user
+  const user = session.me!
   stops.push(watchRoom(rid, (r) => {
     room.value = r
     if (r && !entered && (!r.memberUids.includes(user.uid) || r.lastActiveAt < Date.now() - 30 * 60000)) { entered = true; void enterRoom(rid, user.uid).catch(() => {}) }
@@ -85,12 +85,12 @@ function selectPlaylist(pid: string) {
 }
 // older rooms have no playlists yet: whoever controls the music creates the default one
 watch(() => [playlistsLoaded.value, playlists.value.length, canControl.value] as const, ([loaded, n, can]) => {
-  if (loaded && !n && can && session.user) void ensureDefaultPlaylist(rid, session.user).catch(() => {})
+  if (loaded && !n && can && session.user) void ensureDefaultPlaylist(rid, session.me!).catch(() => {})
 }, { immediate: true })
 // rooms made while the music had its own queue: it moves into «Основной» (once, by whoever controls the music)
 let migrated = false
 watch(() => [main.value?.queue.length ?? 0, canControl.value] as const, ([n, can]) => {
-  if (n && can && !migrated && main.value && session.user) { migrated = true; void migrateQueueToPlaylist(rid, main.value.id, session.user).catch(() => { migrated = false }) }
+  if (n && can && !migrated && main.value && session.user) { migrated = true; void migrateQueueToPlaylist(rid, main.value.id, session.me!).catch(() => { migrated = false }) }
 }, { immediate: true })
 
 // ---------- presence ----------

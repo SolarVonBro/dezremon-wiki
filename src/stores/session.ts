@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile, sendEmailVerification, EmailAuthProvider,
   reauthenticateWithCredential, reauthenticateWithPopup, updatePassword, linkWithCredential, linkWithPopup, unlink, deleteUser,
   type User,
 } from 'firebase/auth'
-import { collectionGroup, deleteDoc, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore'
+import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
 import { setUserTheme, type UserTheme } from '@/themes/apply'
 import { publishProfile } from '@/data/profileCard'
@@ -43,15 +43,28 @@ export const useSession = defineStore('session', () => {
   let resolveReady: () => void
   const whenReady = new Promise<void>((r) => (resolveReady = r))
 
+  /**
+   * The user's own picture (users/{uid}.avatar: a small framed square as a data URL), shown instead of the sign-in
+   * provider's photo everywhere: worlds, games, comments, rooms. The source and the frame are kept for re-framing.
+   */
+  const avatar = ref<string | null>(null)
+  /** The picture to show and to copy into new records (own picture → the provider's photo → none). */
+  const photo = computed(() => { void rev.value; return avatar.value ?? user.value?.photoURL ?? null })
+  /** The current user as new records copy him (name, e-mail, picture). */
+  const me = computed(() => { void rev.value; const u = user.value; return u ? { uid: u.uid, displayName: u.displayName, email: u.email, photoURL: photo.value } : null })
+
   onAuthStateChanged(auth, (u) => {
     user.value = u
+    avatar.value = null
     ready.value = true
     resolveReady()
     if (u) {
       void setDoc(doc(db, 'users', u.uid), {
         uid: u.uid, displayName: u.displayName ?? u.email ?? 'Без имени', email: u.email ?? '', photoURL: u.photoURL ?? null, lastSeen: Date.now(),
       }, { merge: true }).catch(() => {})
-      void publishProfile(u).catch(() => {})
+      void getDoc(doc(db, 'users', u.uid)).then((s) => {
+        if (user.value?.uid === u.uid) avatar.value = (s.data()?.avatar as string | undefined) ?? null
+      }).catch(() => {}).finally(() => { void publishProfile(u, photo.value).catch(() => {}) })
     }
   })
 
@@ -75,7 +88,7 @@ export const useSession = defineStore('session', () => {
       if (name) {
         await updateProfile(cred.user, { displayName: name })
         await setDoc(doc(db, 'users', cred.user.uid), { displayName: name }, { merge: true }).catch(() => {})
-        void publishProfile(cred.user).catch(() => {})
+        void publishProfile(cred.user, photo.value).catch(() => {})
       }
       user.value = auth.currentUser
       rev.value++
@@ -100,7 +113,7 @@ export const useSession = defineStore('session', () => {
     if (!u || !name.trim()) return
     await updateProfile(u, { displayName: name.trim() })
     await setDoc(doc(db, 'users', u.uid), { displayName: name.trim() }, { merge: true })
-    await publishProfile(u).catch(() => {})
+    await publishProfile(u, photo.value).catch(() => {})
     const ms = await myMemberships()
     for (let i = 0; i < ms.length; i += 400) {
       const b = writeBatch(db)
@@ -108,6 +121,36 @@ export const useSession = defineStore('session', () => {
       await b.commit()
     }
     rev.value++
+  }
+  /**
+   * Sets or removes the user's own picture: kept in users/{uid} (with its source and frame), published on the public
+   * card and copied into the member records of every world and the participant records of every game.
+   */
+  async function setAvatar(next: { image: string; source: string; crop: { x: number; y: number; zoom: number } | null } | null) {
+    const u = auth.currentUser
+    if (!u) return
+    await setDoc(doc(db, 'users', u.uid), next
+      ? { avatar: next.image, avatarSource: next.source, avatarCrop: next.crop }
+      : { avatar: deleteField(), avatarSource: deleteField(), avatarCrop: deleteField() }, { merge: true })
+    avatar.value = next?.image ?? null
+    const p = photo.value
+    await publishProfile(u, p).catch(() => {})
+    const ms = await myMemberships()
+    for (let i = 0; i < ms.length; i += 400) {
+      const b = writeBatch(db)
+      ms.slice(i, i + 400).forEach((d) => b.update(d.ref, { photoURL: p }))
+      await b.commit()
+    }
+    const games = await getDocs(query(collection(db, 'campaigns'), where('memberUids', 'array-contains', u.uid))).catch(() => null)
+    await Promise.all((games?.docs ?? []).map((g) => updateDoc(doc(db, 'campaigns', g.id, 'participants', u.uid), { photoURL: p }).catch(() => {})))
+    rev.value++
+  }
+  /** The source picture and frame of the own picture (to frame it again). */
+  async function avatarSource(): Promise<{ source: string; crop: { x: number; y: number; zoom: number } | null } | null> {
+    const u = auth.currentUser
+    if (!u) return null
+    const d = (await getDoc(doc(db, 'users', u.uid))).data()
+    return d?.avatarSource ? { source: d.avatarSource as string, crop: (d.avatarCrop as { x: number; y: number; zoom: number } | null) ?? null } : null
   }
   async function reauth(password?: string) {
     const u = auth.currentUser!
@@ -150,12 +193,14 @@ export const useSession = defineStore('session', () => {
     for (const d of ms) await deleteDoc(d.ref)
     await deleteDoc(doc(db, 'users', u.uid)).catch(() => {})
     await deleteDoc(doc(db, 'profiles', u.uid)).catch(() => {})
+    avatar.value = null
     await deleteUser(u)
   }
 
   return {
     user, ready, registering, whenReady, theme, textSize, signInGoogle, signInEmail, register, resetPassword, signOut, displayName,
     rev, providers, updateDisplayName, changePassword, addPassword, linkGoogle, unlinkProvider, sendVerification, deleteAccount,
+    avatar, photo, me, setAvatar, avatarSource,
   }
 })
 

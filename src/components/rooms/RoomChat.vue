@@ -24,7 +24,7 @@ async function send() {
   const t = text.value.trim()
   if (!t || !session.user) return
   text.value = ''
-  try { await sendMessage(props.rid, session.user, t) } catch (e: any) { text.value = t; toast.error('Не отправилось: ' + errorText(e)) }
+  try { await sendMessage(props.rid, session.me!, t) } catch (e: any) { text.value = t; toast.error('Не отправилось: ' + errorText(e)) }
 }
 const time = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 </script>

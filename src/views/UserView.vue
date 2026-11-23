@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { loadUserPage, type UserPage } from '@/data/profiles'
 import { STATUS_LABELS, ROLE_LABELS } from '@/data/campaigns'
 import { formatDate, plural, relativeTime } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import WorldImage from '@/components/common/WorldImage.vue'
+import AccountSettings from '@/components/account/AccountSettings.vue'
 import type { Role } from '@/model/types'
 
-// A user's page: the public card and what the viewer shares with them — worlds (role, characters) and campaigns.
+// A user's page. For somebody else: the public card and what the viewer shares with them — worlds (role, characters)
+// and games. For oneself it is the personal cabinet: the same overview plus profile (name, picture), sign-in and
+// appearance tabs (#/account leads here).
 const route = useRoute()
+const router = useRouter()
 const session = useSession()
 const uid = computed(() => route.params.uid as string)
 const me = computed(() => session.user?.uid ?? null)
@@ -28,7 +32,19 @@ watch([uid, me, () => session.ready], async ([u]) => {
 watch(() => page.value?.name, (n) => { document.title = `${n || 'Пользователь'} — Вики сеттинга` }, { immediate: true })
 
 const characters = computed(() => (page.value?.worlds ?? []).flatMap((w) => w.characters.map((c) => ({ ...c, world: w }))))
-const found = computed(() => !!page.value && (!!page.value.profile || page.value.worlds.length > 0))
+const found = computed(() => own.value || (!!page.value && (!!page.value.profile || page.value.worlds.length > 0)))
+
+type Tab = 'overview' | 'profile' | 'security' | 'appearance'
+const TABS: Array<{ k: Tab; label: string; icon: string }> = [
+  { k: 'overview', label: 'Обзор', icon: 'layout-dashboard' }, { k: 'profile', label: 'Профиль', icon: 'user' },
+  { k: 'security', label: 'Вход и безопасность', icon: 'key-round' }, { k: 'appearance', label: 'Оформление', icon: 'palette' },
+]
+const tab = computed<Tab>(() => (own.value && TABS.some((t) => t.k === route.query.tab) ? route.query.tab as Tab : 'overview'))
+function setTab(t: Tab) { void router.replace({ query: t === 'overview' ? {} : { tab: t } }) }
+// one's own name and picture come from the session (they change right here)
+const name = computed(() => (own.value ? session.displayName() : page.value?.name) || 'Без имени')
+const photo = computed(() => (own.value ? session.photo : page.value?.photoURL) ?? null)
+const since = computed(() => page.value?.profile?.since ?? (own.value && session.user?.metadata.creationTime ? Date.parse(session.user.metadata.creationTime) : 0))
 </script>
 
 <template>
@@ -38,26 +54,36 @@ const found = computed(() => !!page.value && (!!page.value.profile || page.value
       <Icon name="user" :size="34" />
       <p>Пользователь не найден{{ session.user ? ' или у вас нет общих миров' : '' }}.</p>
     </div>
-    <template v-else-if="page">
+    <template v-else-if="page || own">
       <div class="card card-pad u-head">
-        <span class="avatar round u-ava"><img v-if="page.photoURL" :src="page.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="30" /></span>
+        <span class="u-ava-wrap">
+          <span class="avatar round u-ava"><img v-if="photo" :src="photo" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="30" /></span>
+          <button v-if="own" type="button" class="u-ava-btn" title="Сменить фото" @click="setTab('profile')"><Icon name="camera" :size="14" /></button>
+        </span>
         <div class="grow">
-          <h1 class="u-name">{{ page.name || 'Без имени' }} <span v-if="own" class="badge badge-public">это вы</span></h1>
+          <h1 class="u-name">{{ name }} <span v-if="own" class="badge badge-public">это вы</span></h1>
+          <div v-if="own && session.user?.email" class="muted small">{{ session.user.email }}
+            <span v-if="session.user.emailVerified" class="badge badge-public"><Icon name="check" :size="11" /> почта подтверждена</span>
+          </div>
           <div class="muted small u-facts">
-            <span v-if="page.profile?.since"><Icon name="calendar" :size="13" /> В сервисе с {{ formatDate(page.profile.since).split(',')[0] }}</span>
-            <span v-if="page.worlds.length"><Icon name="globe" :size="13" /> {{ page.worlds.length }} {{ plural(page.worlds.length, 'мир', 'мира', 'миров') }}{{ own ? '' : ' вместе с вами' }}</span>
+            <span v-if="since"><Icon name="calendar" :size="13" /> В сервисе с {{ formatDate(since).split(',')[0] }}</span>
+            <span v-if="page?.worlds.length"><Icon name="globe" :size="13" /> {{ page.worlds.length }} {{ plural(page.worlds.length, 'мир', 'мира', 'миров') }}{{ own ? '' : ' вместе с вами' }}</span>
             <span v-if="characters.length"><Icon name="user" :size="13" /> {{ characters.length }} {{ plural(characters.length, 'персонаж', 'персонажа', 'персонажей') }}</span>
           </div>
         </div>
-        <RouterLink v-if="own" class="btn btn-sm" :to="{ name: 'account' }"><Icon name="settings" :size="14" /> Имя и вход</RouterLink>
       </div>
+
+      <div v-if="own" class="tabs">
+        <button v-for="t in TABS" :key="t.k" class="tab" :class="{ on: tab === t.k }" @click="setTab(t.k)"><Icon :name="t.icon" :size="16" /> {{ t.label }}</button>
+      </div>
+      <AccountSettings v-if="own && tab !== 'overview'" :tab="tab as 'profile' | 'security' | 'appearance'" />
 
       <p v-if="!session.user" class="card card-pad muted">
         <RouterLink :to="{ name: 'login', query: { next: route.fullPath } }">Войдите</RouterLink>, чтобы увидеть общие миры, персонажей и игры.
       </p>
       <p v-else-if="!own" class="faint small" style="margin: 0 2px 14px">Здесь видно только то, что у вас общее: миры и игры, где вы оба участники, и персонажи, которых вы можете открыть.</p>
 
-      <template v-if="session.user">
+      <template v-if="session.user && tab === 'overview' && page">
         <h2 class="u-h">Персонажи</h2>
         <div v-if="!characters.length" class="faint small u-empty">{{ own ? 'За вами пока не закреплён ни один персонаж.' : 'В общих мирах персонажей нет.' }}</div>
         <div v-else class="u-grid">
@@ -104,10 +130,15 @@ const found = computed(() => !!page.value && (!!page.value.profile || page.value
 </template>
 
 <style scoped>
-.user-page { max-width: 900px; margin: 0 auto; padding: 22px 24px 60px; }
+.user-page { max-width: 980px; margin: 0 auto; padding: 22px 24px 60px; }
 @media (max-width: 640px) { .user-page { padding: 16px 16px 48px; } }
 .u-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .u-ava { width: 72px; height: 72px; }
+.u-ava-wrap { position: relative; flex: none; }
+.u-ava-btn {
+  position: absolute; right: -2px; bottom: -2px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-fg);
+}
 .u-name { margin: 0 0 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .u-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .u-facts span { display: inline-flex; align-items: center; gap: 5px; }

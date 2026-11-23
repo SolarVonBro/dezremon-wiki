@@ -41,7 +41,7 @@ async function create() {
   const c = campaigns.value.find((x) => x.id === form.value.campaignId) ?? null
   busy.value = true
   try {
-    const id = await createRoom(session.user, { name: form.value.name.trim(), campaignId: c?.id ?? null, campaignName: c?.name ?? '', access: c ? form.value.access : 'link', controlMode: form.value.controlMode })
+    const id = await createRoom(session.me!, { name: form.value.name.trim(), campaignId: c?.id ?? null, campaignName: c?.name ?? '', access: c ? form.value.access : 'link', controlMode: form.value.controlMode })
     creating.value = false
     void router.push({ name: 'room', params: { rid: id } })
   } catch (e: any) { toast.error('Не удалось создать комнату: ' + errorText(e)) } finally { busy.value = false }
