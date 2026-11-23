@@ -6,7 +6,7 @@ import Icon from './Icon.vue'
 import Dropdown from './Dropdown.vue'
 
 // A member of the open world, with search by name or e-mail. You first, then players, then masters.
-const props = withDefaults(defineProps<{ modelValue: string | null | undefined; placeholder?: string; label?: string }>(), { placeholder: 'Выберите участника…', label: 'Участник' })
+const props = withDefaults(defineProps<{ modelValue: string | null | undefined; placeholder?: string; label?: string; exclude?: string[] }>(), { placeholder: 'Выберите участника…', label: 'Участник' })
 const emit = defineEmits<{ 'update:modelValue': [uid: string] }>()
 const world = useWorld()
 const q = ref('')
@@ -15,7 +15,7 @@ const dd = ref<InstanceType<typeof Dropdown> | null>(null)
 const ROLE: Record<Role, string> = { owner: 'владелец', master: 'мастер', player: 'игрок' }
 
 const current = computed(() => world.members.find((m) => m.uid === props.modelValue) ?? null)
-const sorted = computed(() => [...world.members].sort((a, b) =>
+const sorted = computed(() => world.members.filter((m) => !props.exclude?.includes(m.uid)).sort((a, b) =>
   Number(b.uid === world.uid) - Number(a.uid === world.uid) || Number(a.role !== 'player') - Number(b.role !== 'player') || a.displayName.localeCompare(b.displayName)))
 const found = computed(() => {
   const s = q.value.trim().toLowerCase()

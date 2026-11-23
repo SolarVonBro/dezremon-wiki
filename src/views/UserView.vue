@@ -88,7 +88,7 @@ const found = computed(() => !!page.value && (!!page.value.profile || page.value
         <template v-if="page.campaigns.length">
           <h2 class="u-h">{{ own ? 'Кампейны' : 'Общие кампейны' }}</h2>
           <div class="stack-sm">
-            <RouterLink v-for="c in page.campaigns" :key="c.id" class="card u-world" :to="{ name: 'campaign', params: { cid: c.id } }">
+            <RouterLink v-for="c in page.campaigns" :key="c.id" class="card u-world" :to="c.worldId ? { name: 'wcampaign', params: { wid: c.worldId, cid: c.id } } : { name: 'campaign', params: { cid: c.id } }">
               <span class="u-world-img"><Icon name="swords" :size="20" /></span>
               <span class="grow" style="min-width: 0">
                 <span class="u-world-name ellipsis">{{ c.name }}</span>

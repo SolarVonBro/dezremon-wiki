@@ -1,14 +1,15 @@
-// Campaigns: a game campaign that runs in a setting (world) but is stored next to it, not inside it.
-// The binding is the single field campaign.worldId (+ the denormalized worldName). Detaching a campaign later
-// = setting worldId to null; nothing else in the campaign tree depends on the world.
+// Campaigns: a game campaign played in a world. It lives on the world's pages (#/w/{wid}/campaigns/{cid}) and is
+// stored next to worlds (campaigns/{cid}), bound by campaign.worldId (+ the denormalized worldName). The world's
+// masters run every campaign of their world; its players are members of the world (added by a GM or a world
+// master) or people who joined by a campaign invite. World-side helpers (the campaign's tag…) are in worldCampaigns.ts.
 import {
-  arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
+  arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { now, randomId } from './util'
 import { deleteCampaignTree } from './admin'
 import { acceptInvite } from '@/stores/world'
-import type { Campaign, CampaignInvite, CampaignParticipant, CampaignRole, CampaignSession, CampaignStatus } from '@/model/types'
+import type { Campaign, CampaignInvite, CampaignParticipant, CampaignRole, CampaignSession, CampaignStatus, Member } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
 
@@ -22,15 +23,25 @@ const nameOf = (u: UserLike) => u.displayName || u.email || 'Без имени'
 export function normalizeCampaign(id: string, d: any): Campaign {
   return {
     name: '', description: '', cover: null, worldId: null, worldName: '', ownerId: '', gmUids: [], memberUids: [], status: 'active',
-    schedule: '', nextSessionAt: null, createdAt: 0, updatedAt: 0, ...d, id,
+    schedule: '', nextSessionAt: null, tagId: null, characters: {}, createdAt: 0, updatedAt: 0, ...d, id,
   }
 }
 
+/** The characters a participant plays in the campaign now (campaign.characters, plus the older single characterId). */
+export function currentCharacters(c: Campaign, p: Pick<CampaignParticipant, 'uid' | 'characterId'> | string): string[] {
+  const uid = typeof p === 'string' ? p : p.uid
+  const old = typeof p === 'string' ? null : p.characterId
+  return [...new Set([...(c.characters?.[uid] ?? []), ...(old ? [old] : [])])]
+}
+
 // ---------- campaigns ----------
-export async function createCampaign(user: UserLike, data: Pick<Campaign, 'name' | 'description' | 'worldId' | 'worldName' | 'status' | 'schedule' | 'cover'>): Promise<string> {
-  const ref = doc(collection(db, 'campaigns'))
+export const newCampaignId = () => doc(collection(db, 'campaigns')).id
+
+export async function createCampaign(user: UserLike, data: Pick<Campaign, 'name' | 'description' | 'worldId' | 'worldName' | 'status' | 'schedule' | 'cover'> & { tagId?: string | null }, id = newCampaignId()): Promise<string> {
+  if (!data.worldId) throw new Error('Кампейн создаётся в мире')
+  const ref = doc(db, 'campaigns', id)
   const t = now()
-  const c: Omit<Campaign, 'id'> = { ...data, ownerId: user.uid, gmUids: [user.uid], memberUids: [user.uid], nextSessionAt: null, createdAt: t, updatedAt: t }
+  const c: Omit<Campaign, 'id'> = { tagId: null, characters: {}, ...data, ownerId: user.uid, gmUids: [user.uid], memberUids: [user.uid], nextSessionAt: null, createdAt: t, updatedAt: t }
   const p: CampaignParticipant = { uid: user.uid, role: 'gm', displayName: nameOf(user), photoURL: user.photoURL ?? null, characterId: null, characterName: '', joinedAt: t }
   const b = writeBatch(db)
   b.set(ref, c)
@@ -44,10 +55,11 @@ export function watchMyCampaigns(uid: string, cb: (rows: Campaign[]) => void, on
     (s) => cb(s.docs.map((d) => normalizeCampaign(d.id, d.data())).sort((a, b) => b.updatedAt - a.updatedAt)), onErr)
 }
 
-/** Campaigns played in a world, among those the user takes part in. */
-export function watchWorldCampaigns(wid: string, uid: string, cb: (rows: Campaign[]) => void) {
-  return onSnapshot(query(collection(db, 'campaigns'), where('worldId', '==', wid), where('memberUids', 'array-contains', uid)),
-    (s) => cb(s.docs.map((d) => normalizeCampaign(d.id, d.data())).sort((a, b) => a.name.localeCompare(b.name, 'ru'))), () => cb([]))
+/** Campaigns played in a world: all of them for its masters (`all`), otherwise those the user takes part in. */
+export function watchWorldCampaigns(wid: string, uid: string, cb: (rows: Campaign[]) => void, all = false) {
+  const q = all ? query(collection(db, 'campaigns'), where('worldId', '==', wid))
+    : query(collection(db, 'campaigns'), where('worldId', '==', wid), where('memberUids', 'array-contains', uid))
+  return onSnapshot(q, (s) => cb(s.docs.map((d) => normalizeCampaign(d.id, d.data())).sort((a, b) => a.name.localeCompare(b.name, 'ru'))), () => cb([]))
 }
 
 export function watchCampaign(cid: string, cb: (c: Campaign | null) => void, onErr: (e: unknown) => void) {
@@ -67,6 +79,35 @@ export function watchParticipants(cid: string, cb: (rows: CampaignParticipant[])
 export const updateParticipant = (cid: string, uid: string, patch: Partial<Pick<CampaignParticipant, 'characterId' | 'characterName' | 'displayName' | 'photoURL'>>) =>
   updateDoc(doc(db, 'campaigns', cid, 'participants', uid), patch)
 
+/**
+ * A GM or a world master adds members of the campaign's world (participant docs + memberUids in one batch),
+ * optionally with the characters each of them plays in it.
+ */
+export async function addParticipants(cid: string, people: Array<Pick<Member, 'uid' | 'displayName' | 'photoURL'> & { role?: CampaignRole; characters?: string[] }>) {
+  if (!people.length) return
+  const t = now()
+  const b = writeBatch(db)
+  const patch: Record<string, unknown> = { memberUids: arrayUnion(...people.map((p) => p.uid)), updatedAt: t }
+  const gms = people.filter((p) => p.role === 'gm').map((p) => p.uid)
+  if (gms.length) patch.gmUids = arrayUnion(...gms)
+  for (const p of people) {
+    const part: CampaignParticipant = { uid: p.uid, role: p.role ?? 'player', displayName: p.displayName || 'Без имени', photoURL: p.photoURL ?? null, characterId: null, characterName: '', joinedAt: t }
+    b.set(doc(db, 'campaigns', cid, 'participants', p.uid), part)
+    if (p.characters?.length) patch[`characters.${p.uid}`] = p.characters
+  }
+  b.update(campRef(cid), patch)
+  await b.commit()
+}
+
+/** The characters a participant plays in the campaign now (the participant himself, a GM or a world master). */
+export async function setCampaignCharacters(cid: string, uid: string, ids: string[], p?: CampaignParticipant) {
+  const b = writeBatch(db)
+  b.update(campRef(cid), { [`characters.${uid}`]: [...new Set(ids)], updatedAt: now() })
+  // the older single character is folded into the list
+  if (p?.characterId) b.update(doc(db, 'campaigns', cid, 'participants', uid), { characterId: null })
+  await b.commit()
+}
+
 /** GM: make a player a co-GM or back (participant role + campaign.gmUids in one batch). */
 export async function setParticipantRole(cid: string, uid: string, role: CampaignRole) {
   const b = writeBatch(db)
@@ -76,10 +117,11 @@ export async function setParticipantRole(cid: string, uid: string, role: Campaig
 }
 
 /** GM removes somebody, or a participant leaves (the owner cannot leave his campaign). */
-export async function removeParticipant(cid: string, uid: string) {
+export async function removeParticipant(cid: string, uid: string, leaving = false) {
   const b = writeBatch(db)
   b.delete(doc(db, 'campaigns', cid, 'participants', uid))
-  b.update(campRef(cid), { memberUids: arrayRemove(uid), gmUids: arrayRemove(uid), updatedAt: now() })
+  // leaving touches nothing but the member lists (rules); a GM also drops the participant's characters
+  b.update(campRef(cid), { memberUids: arrayRemove(uid), gmUids: arrayRemove(uid), ...(leaving ? {} : { [`characters.${uid}`]: deleteField() }), updatedAt: now() })
   await b.commit()
 }
 

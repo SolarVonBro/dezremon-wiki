@@ -31,7 +31,8 @@ async function accept() {
   try {
     const r = await acceptCampaignInvite(cid, code, session.user)
     if (r.worldError) toast.info('В кампейн вы вступили, но в мир войти не удалось: ' + r.worldError)
-    void router.replace({ name: 'campaign', params: { cid } })
+    // the campaign lives inside its world
+    void router.replace(invite.value?.worldId ? { name: 'wcampaign', params: { wid: invite.value.worldId, cid } } : { name: 'campaign', params: { cid } })
   } catch (e: any) { error.value = errorText(e); state.value = 'error' } finally { busy.value = false }
 }
 </script>

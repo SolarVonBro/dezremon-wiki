@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { useSession } from './session'
-import { isServiceAdmin } from '@/data/admin'
+import { deleteCampaignTree, isServiceAdmin } from '@/data/admin'
 import { cache } from '@/data/cache'
 import { syncCollection, type SyncHandle } from '@/data/sync'
 import { canSee, characterIdsOf, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
@@ -16,6 +16,7 @@ import { watchWorldRequests } from '@/data/joinRequests'
 import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
 import { clean, excerptOf, htmlToText, now, plural, randomId, sortByName } from '@/data/util'
 import { CHAR_TAG_COLOUR, CHAR_TYPE_KIND, CHAR_TYPES, charTypeFix, charTypeOfKind, type CharTagIds, type CharType } from '@/data/charType'
+import { isCampaignTag } from '@/data/campaignTags'
 import { setCustomTypes, typeDef } from '@/model/entityTypes'
 import type {
   Attribute, Ban, Comment, Entity, Invite, JoinRequest, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
@@ -128,6 +129,24 @@ export const useWorld = defineStore('world', () => {
     return out
   })
   const recent = computed(() => [...list.value].sort((a, b) => b.updatedAt - a.updatedAt))
+  /** Campaign tags of the world the viewer sees (src/data/campaignTags.ts), by name. */
+  const campaignTags = computed(() => tags.value.filter((t) => isCampaignTag(t)))
+  /**
+   * The campaign whose tag goes on new articles (except tags): chosen above the article lists, remembered per world
+   * on this device. `auto` off — nothing is added; the creation window can still pick a campaign for one article.
+   */
+  const campaignTagPref = ref<{ tagId: string | null; auto: boolean }>({ tagId: null, auto: false })
+  const prefKey = () => `dw.campTag.${wid.value}`
+  function loadCampaignTagPref() {
+    let v: any = null
+    try { v = JSON.parse(localStorage.getItem(prefKey()) ?? 'null') } catch { /* private mode */ }
+    campaignTagPref.value = { tagId: typeof v?.tagId === 'string' ? v.tagId : null, auto: !!v?.auto }
+  }
+  watch(campaignTagPref, (v) => { if (wid.value) try { localStorage.setItem(prefKey(), JSON.stringify(v)) } catch { /* private mode */ } }, { deep: true })
+  const autoCampaignTagId = computed(() => {
+    const p = campaignTagPref.value
+    return p.auto && p.tagId && campaignTags.value.some((t) => t.id === p.tagId) ? p.tagId : null
+  })
   const visibleRelations = computed(() => {
     const a = viewAccess.value
     const pub = !!world.value?.isPublic
@@ -214,6 +233,7 @@ export const useWorld = defineStore('world', () => {
       world.value = { ...(ws.data() as World), id }
       member.value = ms?.exists() ? (ms.data() as Member) : null
       setCustomTypes(settings.value.customTypes)
+      loadCampaignTagPref()
       if (!member.value && !world.value.isPublic && !isServiceAdmin(u?.uid)) { deny(id, token); return }
       startLive(id, token)
       await startSync(token)
@@ -377,7 +397,8 @@ export const useWorld = defineStore('world', () => {
     return isMaster.value ? settings.value.defaultVisibility : 'members'
   }
 
-  function newEntityData(type: string, name: string, extra: Partial<Entity> = {}): Entity {
+  /** `campaignTagId`: the campaign tag to put on it (null — none); left out — the one switched on above the lists. */
+  function newEntityData(type: string, name: string, extra: Partial<Entity> = {}, campaignTagId?: string | null): Entity {
     const autoTags = tags.value.filter((t) => t.fields?.isAutoApplied).map((t) => t.id)
     const tmplAttrs: Attribute[] = []
     for (const t of byType.value.get('attribute_template') ?? []) {
@@ -388,6 +409,8 @@ export const useWorld = defineStore('world', () => {
       tagIds: autoTags, attributes: tmplAttrs, visibility: defaultVisibility(), allowedUids: [],
       ...stamp(), ...extra,
     })
+    const ct = campaignTagId !== undefined ? campaignTagId : autoCampaignTagId.value
+    if (ct && type !== 'tag' && !e.tagIds.includes(ct)) e.tagIds = [...e.tagIds, ct]
     return { ...e, ...charTypeFix(null, e, charTagIds.value) }
   }
 
@@ -397,8 +420,8 @@ export const useWorld = defineStore('world', () => {
     return { ...patch, ...charTypeFix(prev, normalizeEntity({ ...prev, ...patch }), charTagIds.value) }
   }
 
-  async function createEntity(type: string, name: string, extra: Partial<Entity> = {}, html = ''): Promise<string> {
-    const e = newEntityData(type, name, extra)
+  async function createEntity(type: string, name: string, extra: Partial<Entity> = {}, html = '', opts: { campaignTagId?: string | null } = {}): Promise<string> {
+    const e = newEntityData(type, name, extra, 'campaignTagId' in opts ? opts.campaignTagId : undefined)
     const readable = stripSecrets(html)
     const secret = isMaster.value && hasSecretBlocks(html)
     e.excerpt = excerptOf(readable)
@@ -799,6 +822,9 @@ export const useWorld = defineStore('world', () => {
       'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'revisions', 'bookmarks',
       'comments', 'invites', 'joinRequests', 'bans', 'members']
     let done = 0
+    // campaigns are played in the world and live on its pages: they go with it
+    const camps = await getDocs(query(collection(db, 'campaigns'), where('worldId', '==', w))).catch(() => null)
+    for (const c of camps?.docs ?? []) await deleteCampaignTree(c.id).catch((e) => console.warn('campaign', c.id, e))
     for (const name of names) {
       const snap = await getDocs(coll(w, name))
       const refs = snap.docs.filter((d) => !(name === 'members' && d.id === me)).map((d) => d.ref)
@@ -920,7 +946,7 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, charTagIds, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, charTagIds, campaignTags, campaignTagPref, autoCampaignTagId, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,

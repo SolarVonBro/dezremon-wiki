@@ -11,7 +11,9 @@ import EntityPicker from '@/components/common/EntityPicker.vue'
 import MultiSelect from '@/components/common/MultiSelect.vue'
 import { toast } from '@/components/common/toast'
 import { characterIdsOf } from '@/data/access'
-import type { Entity, Member, Role } from '@/model/types'
+import { addParticipants, removeParticipant } from '@/data/campaigns'
+import { worldCampaigns } from '@/data/worldCampaigns'
+import type { Campaign, Entity, Member, Role } from '@/model/types'
 
 const props = defineProps<{ member: Member }>()
 const emit = defineEmits<{ close: [] }>()
@@ -52,6 +54,17 @@ function openCharacter(e: Entity) { void act(() => world.openToMember(e, m.value
 const typeOptions = computed(() => allTypes().filter((t) => world.enabledTypes(t.key) && !world.settings.playerCreateTypes.includes(t.key)).map((t) => ({ value: t.key, label: t.plural, icon: t.icon, color: t.color })))
 const defaultTypes = computed(() => world.settings.playerCreateTypes.map((k) => typeDef(k).plural).join(', ') || 'ничего')
 function setCreateTypes(v: string[]) { void act(() => world.updateMember(m.value.uid, { createTypes: v }), 'Права обновлены') }
+
+// ---------- campaigns of the world (masters add members to them here or in the campaign's settings) ----------
+const campaignsOf = computed(() => worldCampaigns.value.filter((c) => c.memberUids.includes(m.value.uid)))
+function toggleCampaign(c: Campaign, on: boolean) {
+  if (on) {
+    const tagged = characterIdsOf(m.value).filter((id) => c.tagId && world.getAny(id)?.tagIds?.includes(c.tagId))
+    void act(() => addParticipants(c.id, [{ uid: m.value.uid, displayName: m.value.displayName, photoURL: m.value.photoURL, characters: tagged }]), `${m.value.displayName} в кампейне «${c.name}»`)
+  } else {
+    void act(() => removeParticipant(c.id, m.value.uid), `${m.value.displayName} больше не в «${c.name}»`)
+  }
+}
 
 // ---------- per-article access ----------
 const sharedWith = computed(() => [...world.entities.values()].filter((e) => !e.deleted && e.visibility === 'custom' && (e.allowedUids ?? []).includes(m.value.uid)))
@@ -133,6 +146,15 @@ function viewAs() {
           </div>
           <EntityPicker :model-value="addChar" :types="['character']" :allow-create="false" placeholder="Добавить персонажа…" @update:model-value="addCharacter" />
           <span class="faint small">Участник найдёт их в меню мира: «Мои персонажи». Закрепить персонажа можно и на его странице, в блоке «Игрок». У персонажа один игрок: если он был у другого участника, то перейдёт к этому.</span>
+        </section>
+        <section v-if="world.isMaster" class="card card-pad stack-sm mm-camps">
+          <div class="section-title">Кампейны ({{ campaignsOf.length }})</div>
+          <label v-for="c in worldCampaigns" :key="c.id" class="check small" :title="c.ownerId === m.uid ? 'Создатель кампейна остаётся в нём' : ''">
+            <input type="checkbox" :checked="c.memberUids.includes(m.uid)" :disabled="busy || c.ownerId === m.uid" @change="toggleCampaign(c, ($event.target as HTMLInputElement).checked)" />
+            <span class="grow">{{ c.name }}</span><span v-if="c.gmUids.includes(m.uid)" class="faint">ведёт</span>
+          </label>
+          <span v-if="!worldCampaigns.length" class="faint small">В мире пока нет кампейнов.</span>
+          <span v-else class="faint small">Отмеченные кампейны участник видит в меню мира. Его персонажи с тегом кампейна станут текущими в нём.</span>
         </section>
         <section v-if="m.role === 'player'" class="card card-pad stack-sm">
           <div class="section-title">Может создавать</div>

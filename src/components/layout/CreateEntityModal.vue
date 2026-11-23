@@ -36,6 +36,9 @@ const ownerUid = ref<string | null>(world.member || !world.isMaster ? world.uid 
 const ownerIsMe = computed(() => ownerUid.value === world.uid)
 const ownerName = computed(() => (ownerIsMe.value ? 'вы' : world.memberName(ownerUid.value ?? '')))
 watch(own, (v) => { if (v && !charType.value) charType.value = 'pc' })
+// the campaign whose tag the new article gets (not for tags); starts with the one switched on above the lists
+const campaignTagId = ref<string | null>(world.autoCampaignTagId)
+const showCampaign = computed(() => type.value !== 'tag' && world.campaignTags.length > 0)
 watch(templateId, (id) => { const t = charTypeOfKind(id ? world.get(id)?.kind : null); if (t) charType.value = t })
 
 async function create() {
@@ -52,7 +55,7 @@ async function create() {
     }
     // the chosen type wins over the template's; «no type» keeps a free-form type of the template («бог»)
     if (isChar.value) extra.kind = charType.value ? CHAR_TYPE_KIND[charType.value] : (tpl && !charTypeOfKind(tpl.kind) ? tpl.kind : '')
-    const id = await world.createEntity(type.value, name.value, extra, html)
+    const id = await world.createEntity(type.value, name.value, extra, html, { campaignTagId: showCampaign.value ? campaignTagId.value : null })
     if (owner) void world.assignCharacter(id, owner)
     emit('created', id)
   } finally { busy.value = false }
@@ -79,6 +82,12 @@ async function create() {
         <MemberPicker v-if="own && world.isMaster" v-model="ownerUid" label="Чей персонаж" />
         <span v-if="own" class="faint small">Статью увидят только {{ ownerName }} и мастера, а в меню мира она появится в разделе «Мои персонажи»{{ ownerIsMe ? '' : ' у игрока' }}. Видимость можно поменять позже.</span>
       </div>
+      <label v-if="showCampaign" class="field"><span>Кампейн</span>
+        <select v-model="campaignTagId" class="input" aria-label="Кампейн">
+          <option :value="null">— без кампейна —</option>
+          <option v-for="t in world.campaignTags" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+      </label>
       <div v-if="!(isChar && own)" class="field"><span>Кто видит</span><VisibilitySelect v-model="vis" /></div>
       <div class="row gap wrap">
         <button class="btn btn-primary" :disabled="!name.trim() || busy"><Icon name="plus" :size="16" /> Создать и редактировать</button>

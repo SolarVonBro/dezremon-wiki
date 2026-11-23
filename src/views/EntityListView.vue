@@ -7,17 +7,19 @@ import { relativeTime } from '@/data/util'
 import { VISIBILITY_SHORT } from '@/data/access'
 import { useListFilters, applyFilters, NONE, type Tri } from '@/composables/useListFilters'
 import Icon from '@/components/common/Icon.vue'
-import Thumb from '@/components/common/Thumb.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import TreeNode from '@/components/entity/TreeNode.vue'
+import EntityCard from '@/components/entity/EntityCard.vue'
 import MultiSelect, { type MultiOption } from '@/components/common/MultiSelect.vue'
-import { cropOf } from '@/data/crop'
 import { createRequest } from '@/components/layout/createRequest'
 import Dropdown from '@/components/common/Dropdown.vue'
 import Modal from '@/components/common/Modal.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import VisibilitySelect from '@/components/common/VisibilitySelect.vue'
 import { toast } from '@/components/common/toast'
+import { charTypeOfKind } from '@/data/charType'
+import { isCampaignTag } from '@/data/campaignTags'
+import { worldCampaigns } from '@/data/worldCampaigns'
 import type { Entity, Visibility } from '@/model/types'
 
 const route = useRoute()
@@ -28,8 +30,10 @@ const def = computed(() => typeDef(type.value))
 
 function readPref<T>(k: string, d: T): T { try { return (JSON.parse(localStorage.getItem('dw.list.' + k) ?? 'null') as T) ?? d } catch { return d } }
 function writePref(k: string, v: unknown) { try { localStorage.setItem('dw.list.' + k, JSON.stringify(v)) } catch { /* ignore */ } }
-const view = ref<'cards' | 'table' | 'tree'>(readPref('view', 'cards'))
+const view = ref<'cards' | 'table' | 'tree' | 'campaigns'>(readPref('view', 'cards'))
 watch(view, (v) => writePref('view', v))
+/** «По кампейнам» exists for characters only; the tree only for types with a parent. */
+const shownView = computed(() => (view.value === 'campaigns' && type.value !== 'character') || (view.value === 'tree' && !def.value.parentLabel) ? 'cards' : view.value)
 const panelOpen = ref<boolean>(readPref('panel', false))
 watch(panelOpen, (v) => writePref('panel', v))
 
@@ -104,6 +108,45 @@ const items = computed(() => applyFilters(f, { all: all.value, fieldDefs: filter
 const roots = computed(() => items.value.filter((e) => !e.parentId || !items.value.some((p) => p.id === e.parentId)))
 function open(e: Entity) { void router.push({ name: 'entity', params: { wid: world.wid!, eid: e.id } }) }
 
+// ---------- characters by campaign: a group per campaign (its tag, or its players' current characters), inside it
+// PCs, then NPCs, then the rest; in every run the characters with both a picture and a text come first ----------
+const richness = (e: Entity) => (e.imageId ? 1 : 0) + (e.excerpt?.trim() ? 1 : 0)
+const byRichness = (a: Entity, b: Entity) => richness(b) - richness(a) || a.name.localeCompare(b.name, 'ru')
+const KIND_RUNS = [{ key: 'pc', label: 'Игровые персонажи' }, { key: 'npc', label: 'NPC' }, { key: '', label: 'Без типа' }] as const
+function runs(list: Entity[]) {
+  return KIND_RUNS.map((r) => ({ ...r, items: list.filter((e) => (charTypeOfKind(e.kind) ?? '') === r.key).sort(byRichness) })).filter((r) => r.items.length)
+}
+const campaignGroups = computed(() => {
+  if (shownView.value !== 'campaigns') return []
+  const groups: Array<{ key: string; title: string; colour: string | null; tagId: string | null; cid: string | null; ids: Set<string> }> = []
+  for (const t of world.campaignTags) {
+    const c = worldCampaigns.value.find((x) => x.tagId === t.id || x.id === t.fields?.campaignId) ?? null
+    groups.push({ key: t.id, title: t.name, colour: t.fields?.colour ?? null, tagId: t.id, cid: c?.id ?? null, ids: new Set(Object.values(c?.characters ?? {}).flat()) })
+  }
+  for (const c of worldCampaigns.value) {
+    if (groups.some((g) => g.cid === c.id)) continue
+    groups.push({ key: c.id, title: '⚔ ' + c.name, colour: null, tagId: null, cid: c.id, ids: new Set(Object.values(c.characters ?? {}).flat()) })
+  }
+  const placed = new Set<string>()
+  const out = groups.map((g) => {
+    const list = items.value.filter((e) => (g.tagId && e.tagIds.includes(g.tagId)) || g.ids.has(e.id))
+    list.forEach((e) => placed.add(e.id))
+    return { ...g, count: list.length, runs: runs(list) }
+  }).filter((g) => g.count)
+  const rest = items.value.filter((e) => !placed.has(e.id))
+  if (rest.length) out.push({ key: '_none', title: 'Вне кампейнов', colour: null, tagId: null, cid: null, ids: new Set(), count: rest.length, runs: runs(rest) })
+  return out
+})
+
+// ---------- the campaign whose tag goes on new articles (all sections; kept per world on this device) ----------
+const showCampaignBar = computed(() => world.campaignTags.length > 0 && !!world.member && !world.preview)
+// the tags page: how many articles carry each tag
+const tagUse = computed(() => {
+  const m = new Map<string, number>()
+  if (type.value === 'tag') for (const e of world.list) for (const t of e.tagIds) m.set(t, (m.get(t) ?? 0) + 1)
+  return m
+})
+
 function setSort(s: 'name' | 'updated' | 'created') {
   if (f.sort === s) f.dir = f.dir === 'asc' ? 'desc' : 'asc'
   else { f.sort = s; f.dir = s === 'name' ? 'asc' : 'desc' }
@@ -177,6 +220,18 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
       <button v-if="world.canCreate(type)" class="btn btn-primary" @click="createRequest = { type }"><Icon name="plus" :size="16" /> Создать {{ def.acc }}</button>
     </div>
 
+    <div v-if="showCampaignBar" class="camp-bar" :class="{ on: !!world.autoCampaignTagId }">
+      <Icon name="swords" :size="16" />
+      <span class="small">Кампейн для новых статей</span>
+      <select v-model="world.campaignTagPref.tagId" class="input input-sm camp-bar-select" aria-label="Кампейн для новых статей">
+        <option :value="null">— не выбран —</option>
+        <option v-for="t in world.campaignTags" :key="t.id" :value="t.id">{{ t.name }}</option>
+      </select>
+      <label class="check small" :title="world.campaignTagPref.tagId ? '' : 'Сначала выберите кампейн'">
+        <input v-model="world.campaignTagPref.auto" type="checkbox" :disabled="!world.campaignTagPref.tagId" /> Добавлять его тег ко всем новым статьям (кроме тегов)
+      </label>
+    </div>
+
     <div class="list-toolbar">
       <div class="search-box">
         <Icon name="search" :size="15" class="faint" />
@@ -209,9 +264,10 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
         </div>
       </Dropdown>
       <div class="row gap-sm">
-        <button class="icon-btn" :class="{ on: view === 'cards' }" title="Карточки" @click="view = 'cards'"><Icon name="layout-grid" /></button>
-        <button class="icon-btn" :class="{ on: view === 'table' }" title="Таблица" @click="view = 'table'"><Icon name="layout-list" /></button>
+        <button class="icon-btn" :class="{ on: shownView === 'cards' }" title="Карточки" @click="view = 'cards'"><Icon name="layout-grid" /></button>
+        <button class="icon-btn" :class="{ on: shownView === 'table' }" title="Таблица" @click="view = 'table'"><Icon name="layout-list" /></button>
         <button v-if="def.parentLabel" class="icon-btn" :class="{ on: view === 'tree' }" title="Дерево" @click="view = 'tree'"><Icon name="git-branch" /></button>
+        <button v-if="type === 'character'" class="icon-btn" :class="{ on: shownView === 'campaigns' }" title="По кампейнам: внутри PC, затем NPC" @click="view = 'campaigns'"><Icon name="swords" /></button>
       </div>
     </div>
 
@@ -275,34 +331,41 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
       <button v-if="active" class="btn" @click="clear"><Icon name="x" :size="14" /> Очистить фильтры</button>
     </div>
 
-    <div v-else-if="view === 'cards'" class="card-grid">
-      <RouterLink v-for="e in items" :key="e.id" class="ecard" :to="{ name: 'entity', params: { wid: world.wid!, eid: e.id } }">
-        <div class="ecard-img"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon :name="def.icon" :size="38" :style="{ color: def.color, opacity: 0.6 }" /></Thumb></div>
-        <div class="ecard-body">
-          <div class="ecard-name">{{ e.name }}</div>
-          <div class="ecard-sub">
-            {{ e.kind || def.label }}
-            <span v-if="e.visibility !== 'members'" class="badge" :class="{ 'badge-secret': e.visibility === 'master' || e.visibility === 'custom', 'badge-public': e.visibility === 'public' }" style="margin-left: 4px">{{ VISIBILITY_SHORT[e.visibility] }}</span>
-            <span v-if="e.fields?.isDead" class="badge badge-dead" style="margin-left: 4px">†</span>
-          </div>
-          <div v-if="e.tooltip || e.excerpt" class="ecard-text">{{ e.tooltip || e.excerpt }}</div>
-        </div>
-      </RouterLink>
+    <div v-else-if="shownView === 'cards'" class="card-grid">
+      <EntityCard v-for="e in items" :key="e.id" :entity="e" :uses="tagUse.get(e.id)" />
     </div>
 
-    <div v-else-if="view === 'table'" class="card" style="overflow-x: auto">
+    <div v-else-if="shownView === 'campaigns'" class="stack camp-groups">
+      <section v-for="g in campaignGroups" :key="g.key" class="camp-group">
+        <h2 class="camp-group-head">
+          <RouterLink v-if="g.cid" :to="{ name: 'wcampaign', params: { wid: world.wid!, cid: g.cid } }" class="camp-group-title" :style="{ '--tag-color': g.colour || 'var(--accent)' }">{{ g.title }}</RouterLink>
+          <span v-else class="camp-group-title" :style="{ '--tag-color': g.colour || 'var(--border)' }">{{ g.title }}</span>
+          <span class="faint" style="font-size: 15px">{{ g.count }}</span>
+        </h2>
+        <template v-for="r in g.runs" :key="r.key">
+          <div class="section-title camp-run">{{ r.label }} · {{ r.items.length }}</div>
+          <div class="card-grid"><EntityCard v-for="e in r.items" :key="e.id" :entity="e" /></div>
+        </template>
+      </section>
+    </div>
+
+    <div v-else-if="shownView === 'table'" class="card" style="overflow-x: auto">
       <table class="table">
         <thead>
           <tr>
             <th class="sortable" @click="setSort('name')">Название <Icon v-if="f.sort === 'name'" :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="12" /></th>
-            <th>Подтип</th><th v-if="def.parentLabel">{{ def.parentLabel }}</th><th>Теги</th><th>Видимость</th>
+            <th v-if="type === 'tag'">Цвет</th><th v-if="type === 'tag'">Статей</th><th v-else>Подтип</th><th v-if="def.parentLabel">{{ def.parentLabel }}</th><th>Теги</th><th>Видимость</th>
             <th class="sortable" @click="setSort('updated')">Изменено <Icon v-if="f.sort === 'updated'" :name="f.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="12" /></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="e in items" :key="e.id" style="cursor: pointer" @click="open(e)">
-            <td><EntityLink :id="e.id" avatar /></td>
-            <td class="muted">{{ e.kind }}</td>
+            <td><EntityLink :id="e.id" avatar /><span v-if="isCampaignTag(e)" class="badge" style="margin-left: 6px" title="Тег кампейна"><Icon name="swords" :size="11" /> кампейн</span></td>
+            <template v-if="type === 'tag'">
+              <td><span class="tag-chip" :style="{ '--tag-color': e.fields?.colour }" :title="e.fields?.colour || 'цвет по умолчанию'">{{ e.fields?.colour || 'по умолчанию' }}</span></td>
+              <td class="muted">{{ tagUse.get(e.id) ?? 0 }}</td>
+            </template>
+            <td v-else class="muted">{{ e.kind }}</td>
             <td v-if="def.parentLabel"><EntityLink v-if="e.parentId" :id="e.parentId" @click.stop /></td>
             <td><span v-for="t in e.tagIds.slice(0, 3)" :key="t" class="tag-chip" style="margin-right: 4px" :style="{ '--tag-color': world.get(t)?.fields?.colour }">{{ world.get(t)?.name }}</span></td>
             <td class="small">{{ VISIBILITY_SHORT[e.visibility] }}</td>
@@ -345,4 +408,13 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button { border: 0; background: none; padding: 0 7px; font-size: 11.5px; cursor: pointer; color: var(--text-muted); }
 .seg button.on { background: var(--accent); color: var(--accent-fg); }
+.camp-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: -6px 0 14px; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); }
+.camp-bar.on { border-style: solid; border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--accent-soft); color: var(--text); }
+.camp-bar > .icon { color: var(--accent); }
+.camp-bar-select { width: auto; min-width: 180px; max-width: 100%; }
+.camp-groups { gap: 26px; }
+.camp-group-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; font-size: 22px; }
+.camp-group-title { color: var(--text); text-decoration: none; padding-left: 10px; border-left: 4px solid var(--tag-color); }
+a.camp-group-title:hover { color: var(--accent); }
+.camp-run { margin: 10px 0 8px; }
 </style>

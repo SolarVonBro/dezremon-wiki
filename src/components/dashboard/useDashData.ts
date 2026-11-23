@@ -1,9 +1,9 @@
 // What each overview block shows, computed from the world store (so the page can also hide blocks that have
 // nothing to show for this viewer — a player without a character, an empty list…).
-import { computed, onBeforeUnmount, reactive, watch, type Ref } from 'vue'
+import { computed, reactive, watch, type Ref } from 'vue'
 import { useWorld } from '@/stores/world'
 import { allTypes } from '@/model/entityTypes'
-import { watchWorldCampaigns } from '@/data/campaigns'
+import { worldCampaigns } from '@/data/worldCampaigns'
 import { safeUrl } from './links'
 import type { Campaign, DashBlock, Entity } from '@/model/types'
 
@@ -60,14 +60,8 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
   }, { immediate: true })
   const random = (b: DashBlock) => world.get(picks.get(b.id) ?? null) ?? null
 
-  // ---------- campaigns of this world the viewer takes part in (only watched while such a block exists) ----------
-  const campaigns = reactive({ rows: [] as Campaign[] })
-  let stop: (() => void) | null = null
-  watch(() => [blocks.value.some((b) => b.type === 'campaigns'), world.wid, world.uid] as const, ([need, w, u]) => {
-    stop?.(); stop = null; campaigns.rows = []
-    if (need && w && u) stop = watchWorldCampaigns(w, u, (r) => { campaigns.rows = r })
-  }, { immediate: true })
-  onBeforeUnmount(() => stop?.())
+  // ---------- campaigns of this world (followed by the world layout: all for masters, one's own for players) ----------
+  const campaigns = reactive({ get rows(): Campaign[] { return worldCampaigns.value } })
 
   /** Whether the block has anything to show to the current viewer (empty blocks are hidden outside edit mode). */
   function hasContent(b: DashBlock): boolean {

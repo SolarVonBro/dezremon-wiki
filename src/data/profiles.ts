@@ -18,7 +18,7 @@ export interface PageWorld {
   member: Member
   characters: PageCharacter[]
 }
-export interface PageCampaign { id: string; name: string; status: CampaignStatus; worldName: string; role: CampaignRole; characterName: string }
+export interface PageCampaign { id: string; name: string; status: CampaignStatus; worldId: string | null; worldName: string; role: CampaignRole; characterName: string }
 export interface UserPage {
   profile: PublicProfile | null
   /** name / photo to show (the card, or the member record of a shared world for accounts without a card yet) */
@@ -58,7 +58,7 @@ export async function loadUserPage(target: string, viewer: string | null): Promi
       const c = d.data()
       const p = await getDoc(doc(db, 'campaigns', d.id, 'participants', target)).catch(() => null)
       const part = p?.exists() ? (p.data() as CampaignParticipant) : null
-      campaigns.push({ id: d.id, name: c.name ?? '', status: c.status ?? 'planning', worldName: c.worldName ?? '', role: part?.role ?? 'player', characterName: part?.characterName ?? '' })
+      campaigns.push({ id: d.id, name: c.name ?? '', status: c.status ?? 'planning', worldId: c.worldId ?? null, worldName: c.worldName ?? '', role: part?.role ?? 'player', characterName: part?.characterName ?? '' })
     }))
     campaigns.sort((a, b) => a.name.localeCompare(b.name))
   }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { worldCampaigns } from '@/data/worldCampaigns'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
@@ -90,7 +91,7 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
       </div>
       <div style="overflow-x: auto">
         <table class="table">
-          <thead><tr><th>Участник</th><th>Роль</th><th>Персонажи</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
+          <thead><tr><th>Участник</th><th>Роль</th><th>Персонажи</th><th>Кампейны</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
           <tbody>
             <tr v-for="m in members" :key="m.uid">
               <td>
@@ -107,6 +108,7 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
                 <div v-if="m.createTypes?.length" class="faint small">+ права: {{ m.createTypes.length }}</div>
               </td>
               <td><div v-if="characterIdsOf(m).length" class="stack-sm"><EntityLink v-for="id in characterIdsOf(m)" :key="id" :id="id" avatar /></div><span v-else class="faint">—</span></td>
+              <td class="small"><template v-if="worldCampaigns.some((c) => c.memberUids.includes(m.uid))">{{ worldCampaigns.filter((c) => c.memberUids.includes(m.uid)).map((c) => c.name).join(', ') }}</template><span v-else class="faint">—</span></td>
               <td>{{ authoredBy.get(m.uid) ?? 0 }}</td>
               <td class="faint small nowrap">{{ m.lastSeenAt ? relativeTime(m.lastSeenAt) : '—' }}</td>
               <td class="faint small nowrap">{{ formatDate(m.joinedAt).split(',')[0] }}</td>

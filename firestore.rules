@@ -294,27 +294,37 @@ service cloud.firestore {
     }
 
     // ---------------- campaigns ----------------
-    // A campaign exists next to worlds. worldId only names the setting it is played in (optional in the model,
-    // so a campaign can be detached later). memberUids/gmUids mirror the participants subcollection.
+    // A campaign is played in a world (worldId, required on creation) and lives on its pages, but is stored next to
+    // it. The world's masters run every campaign of their world (as its GMs do); players of a campaign are members of
+    // the world that a GM or a world master adds, or people who join by a campaign invite. memberUids/gmUids mirror the
+    // participants subcollection so rules and "my campaigns" need no extra reads. `characters` maps a participant's
+    // uid to the world characters he plays in this campaign now.
     match /campaigns/{c} {
       function campPath() { return /databases/$(database)/documents/campaigns/$(c); }
       function camp() { return get(campPath()).data; }
       function inCamp(d) { return signedIn() && uid() in d.memberUids; }
       function isGM(d) { return signedIn() && uid() in d.gmUids; }
+      function worldMaster(d) { return signedIn() && d.get('worldId', null) is string && isMaster(d.worldId); }
+      function runs(d) { return isAdmin() || isGM(d) || worldMaster(d); }
       function partAfter() { return getAfter(/databases/$(database)/documents/campaigns/$(c)/participants/$(uid())).data; }
-      function worldOk(d) { return d.get('worldId', null) == null || isMaster(d.worldId); }
+      function worldOk(d) { return d.get('worldId', null) is string && isMaster(d.worldId); }
 
-      allow get: if isAdmin() || inCamp(resource.data);
-      allow list: if isAdmin() || (signedIn() && uid() in resource.data.memberUids);
+      allow get: if isAdmin() || inCamp(resource.data) || worldMaster(resource.data);
+      allow list: if isAdmin() || (signedIn() && uid() in resource.data.memberUids) || worldMaster(resource.data);
       allow create: if signedIn() && !serviceBanned() && request.resource.data.ownerId == uid()
         && request.resource.data.gmUids == [uid()] && request.resource.data.memberUids == [uid()]
         && worldOk(request.resource.data);
       allow update: if isAdmin()
-        // GMs edit everything except the owner; GMs stay a subset of members; a new world must be theirs to run
-        || (isGM(resource.data) && request.resource.data.ownerId == resource.data.ownerId
+        // GMs and the world's masters edit everything except the owner and the world; GMs stay a subset of members
+        || ((isGM(resource.data) || worldMaster(resource.data)) && request.resource.data.ownerId == resource.data.ownerId
             && resource.data.ownerId in request.resource.data.gmUids
             && request.resource.data.memberUids.hasAll(request.resource.data.gmUids)
-            && (request.resource.data.get('worldId', null) == resource.data.get('worldId', null) || worldOk(request.resource.data)))
+            && (request.resource.data.get('worldId', null) == resource.data.get('worldId', null)
+                || (resource.data.get('worldId', null) == null && worldOk(request.resource.data))))
+        // a participant names the characters he plays now: only his own entry of `characters`
+        || (inCamp(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['characters', 'updatedAt'])
+            && request.resource.data.get('characters', {}).diff(resource.data.get('characters', {})).affectedKeys().hasOnly([uid()]))
         // joining by invite: the user appends only himself, in one batch with his participant doc (invite checked there)
         || (signedIn() && !(uid() in resource.data.memberUids) && !serviceBanned()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'gmUids', 'updatedAt'])
@@ -326,7 +336,8 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'gmUids', 'updatedAt'])
             && request.resource.data.memberUids == resource.data.memberUids.removeAll([uid()])
             && request.resource.data.gmUids == resource.data.gmUids.removeAll([uid()]));
-      allow delete: if isAdmin() || (signedIn() && resource.data.ownerId == uid());
+      allow delete: if isAdmin() || (signedIn() && resource.data.ownerId == uid())
+        || (resource.data.get('worldId', null) is string && isOwner(resource.data.worldId));
 
       function cinviteOk(code, role) {
         let inv = get(/databases/$(database)/documents/campaigns/$(c)/invites/$(code)).data;
@@ -334,27 +345,30 @@ service cloud.firestore {
       }
 
       match /participants/{u} {
-        allow read: if isAdmin() || inCamp(camp());
-        allow create: if signedIn() && u == uid() && request.resource.data.uid == uid() && !serviceBanned() && (
+        allow read: if isAdmin() || inCamp(camp()) || worldMaster(camp());
+        allow create: if (signedIn() && u == uid() && request.resource.data.uid == uid() && !serviceBanned() && (
             // the creator, in one batch with the campaign
             (request.resource.data.role == 'gm' && getAfter(campPath()).data.ownerId == uid())
             || (request.resource.data.role in ['gm', 'player'] && cinviteOk(request.resource.data.inviteCode, request.resource.data.role))
-          );
-        allow update: if isAdmin()
-          || (isGM(camp()) && request.resource.data.uid == resource.data.uid)
+          ))
+          // whoever runs the campaign adds a member of its world (in one batch with memberUids)
+          || (runs(getAfter(campPath()).data) && request.resource.data.uid == u && request.resource.data.role in ['gm', 'player']
+              && getAfter(campPath()).data.get('worldId', null) is string
+              && exists(/databases/$(database)/documents/worlds/$(getAfter(campPath()).data.worldId)/members/$(u)));
+        allow update: if (runs(camp()) && request.resource.data.uid == resource.data.uid)
           // a participant edits his own name/character, not his role
           || (signedIn() && u == uid() && request.resource.data.uid == uid() && request.resource.data.role == resource.data.role);
-        allow delete: if isAdmin() || (signedIn() && u == uid()) || isGM(camp());
+        allow delete: if isAdmin() || (signedIn() && u == uid()) || runs(camp());
       }
 
       match /sessions/{s} {
-        allow read: if isAdmin() || inCamp(camp());
-        allow write: if isAdmin() || isGM(camp());
+        allow read: if isAdmin() || inCamp(camp()) || worldMaster(camp());
+        allow write: if runs(camp());
       }
 
       match /invites/{code} {
         allow get: if signedIn();
-        allow list, create, delete: if isAdmin() || isGM(camp());
+        allow list, create, delete: if runs(camp());
         allow update: if false;
       }
     }

@@ -531,10 +531,10 @@ export type CampaignRole = 'gm' | 'player'
 export type CampaignStatus = 'planning' | 'active' | 'paused' | 'finished'
 
 /**
- * campaigns/{cid}. A campaign exists next to worlds, not inside one: `worldId` only names the setting it is
- * played in. The UI requires a world for now; the model keeps it nullable so a campaign can be detached later
- * (nothing else in the campaign points into the world except optional character links of participants).
- * memberUids/gmUids mirror the participants subcollection so rules and "my campaigns" need no extra reads.
+ * campaigns/{cid}. A campaign is played in a world and lives on that world's pages (#/w/{wid}/campaigns/{cid});
+ * it is stored next to worlds so its players need no world-wide queries. `worldId` is required on creation (old
+ * records may lack it). The world's masters run every campaign of their world. memberUids/gmUids mirror the
+ * participants subcollection so rules and "my campaigns" need no extra reads.
  */
 export interface Campaign {
   id: string
@@ -552,6 +552,10 @@ export interface Campaign {
   /** Free text: "по пятницам в 19:00". */
   schedule: string
   nextSessionAt: number | null
+  /** The campaign's tag in its world (a tag article with fields.campaignId = this id, named «⚔ name»). */
+  tagId?: string | null
+  /** Characters of the world each participant plays in this campaign now: uid → entity ids. */
+  characters?: Record<string, string[]>
   createdAt: number
   updatedAt: number
 }
@@ -562,7 +566,7 @@ export interface CampaignParticipant {
   role: CampaignRole
   displayName: string
   photoURL: string | null
-  /** Player character: an article of campaign.worldId (optional) and/or just a name. */
+  /** Before campaign.characters: one character (an article of the world) and/or just a name. Still shown. */
   characterId: string | null
   characterName: string
   joinedAt: number

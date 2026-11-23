@@ -24,7 +24,8 @@ export const router = createRouter({
           beforeEnter: (to) => (to.query.tab === 'worlds' || to.query.tab === 'requests' ? { name: 'worlds', query: to.query.tab === 'requests' ? { tab: 'requests' } : {} } : true),
         },
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/CampaignsView.vue') },
-        { path: 'c/:cid/:tab?', name: 'campaign', component: () => import('@/views/CampaignView.vue') },
+        // older links to a campaign: they lead to its page inside its world
+        { path: 'c/:cid/:tab?', name: 'campaign', component: () => import('@/views/CampaignRedirectView.vue') },
         { path: 'cjoin/:cid/:code', name: 'campaignJoin', component: () => import('@/views/CampaignJoinView.vue') },
         { path: 'rooms', name: 'rooms', component: () => import('@/views/RoomsView.vue') },
         { path: 'r/:rid', name: 'room', component: () => import('@/views/RoomView.vue') },
@@ -43,6 +44,8 @@ export const router = createRouter({
         { path: 'search', name: 'search', component: () => import('@/views/SearchView.vue') },
         { path: 'graph', name: 'graph', component: () => import('@/views/GraphView.vue') },
         { path: 'gallery', name: 'gallery', component: () => import('@/views/GalleryView.vue') },
+        { path: 'campaigns', name: 'wcampaigns', component: () => import('@/views/WorldCampaignsView.vue') },
+        { path: 'campaigns/:cid/:tab?', name: 'wcampaign', component: () => import('@/views/WorldCampaignView.vue') },
         { path: 'settings/:tab?', name: 'settings', component: () => import('@/views/SettingsView.vue') },
       ],
     },

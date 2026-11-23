@@ -1,0 +1,293 @@
+"""Campaigns inside worlds. The owner's visit turns a tag in quotes into a campaign (with the players of the tagged
+   characters) and gives an older campaign its tag «⚔ name»; masters create campaigns from the world (the tag
+   appears), add world members in the campaign's settings or in the member's card; players pick their current
+   characters; characters can be listed by campaign (PCs, then NPCs; picture and text first); a campaign tag can go
+   on every new article (switch above the lists, select in the creation window); the tags page shows colour plaques
+   and marks campaign tags; the global «Кампейны» page lists campaigns and leads into the world; old links redirect.
+   EMULATORS ONLY:
+   firebase emulators:start --only firestore,auth --project demo-dezremon
+   MSYS_NO_PATHCONV=1 BASE_PATH=/ npx vite build --mode emulator && npx vite preview --port 4174
+   python tests/e2e_campaigns.py <screenshots dir>"""
+import sys, os, json, random, time, urllib.request, urllib.error
+sys.stdout.reconfigure(encoding='utf-8')
+from playwright.sync_api import sync_playwright
+
+BASE = os.environ.get('E2E_URL', 'http://localhost:4174/')
+OUT = sys.argv[1] if len(sys.argv) > 1 else 'e2e-campaigns'
+os.makedirs(OUT, exist_ok=True)
+RUN = str(random.randint(1000, 9999))
+GM, AN, BO = f'gm{RUN}@example.com', f'an{RUN}@example.com', f'bo{RUN}@example.com'
+FS = 'http://127.0.0.1:8080/v1/projects/demo-dezremon/databases/(default)/documents'
+PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+
+def rest(method, url, body=None):
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={'Authorization': 'Bearer owner', 'Content-Type': 'application/json'})
+    return json.loads(urllib.request.urlopen(req).read() or b'{}')
+
+
+def enc(v):
+    if v is None: return {'nullValue': None}
+    if isinstance(v, bool): return {'booleanValue': v}
+    if isinstance(v, int): return {'integerValue': str(v)}
+    if isinstance(v, str): return {'stringValue': v}
+    if isinstance(v, list): return {'arrayValue': {'values': [enc(x) for x in v]}}
+    if isinstance(v, dict): return {'mapValue': {'fields': {k: enc(x) for k, x in v.items()}}}
+    raise TypeError(v)
+
+
+def dec(v):
+    if 'stringValue' in v: return v['stringValue']
+    if 'integerValue' in v: return int(v['integerValue'])
+    if 'booleanValue' in v: return v['booleanValue']
+    if 'nullValue' in v: return None
+    if 'arrayValue' in v: return [dec(x) for x in v['arrayValue'].get('values', [])]
+    if 'mapValue' in v: return {k: dec(x) for k, x in v['mapValue'].get('fields', {}).items()}
+    return v
+
+
+def put(path, data): rest('PATCH', f'{FS}/{path}', {'fields': {k: enc(x) for k, x in data.items()}})
+
+
+def get(path):
+    try:
+        return {k: dec(x) for k, x in rest('GET', f'{FS}/{path}')['fields'].items()}
+    except urllib.error.HTTPError:
+        return None
+
+
+def query(coll, field, value, parent=''):
+    res = rest('POST', f'{FS}{parent}:runQuery', {'structuredQuery': {'from': [{'collectionId': coll}], 'where': {
+        'fieldFilter': {'field': {'fieldPath': field}, 'op': 'EQUAL', 'value': enc(value)}}}})
+    return [{**{k: dec(x) for k, x in r['document']['fields'].items()}, '_id': r['document']['name'].split('/')[-1]} for r in res if 'document' in r]
+
+
+def account(email, name):
+    return rest('POST', 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-dezremon/accounts',
+                {'email': email, 'password': 'secret123', 'displayName': name})['localId']
+
+
+GM_UID, AN_UID, BO_UID = account(GM, 'Мастер Игры'), account(AN, 'Анна'), account(BO, 'Борис')
+FAILS = []
+
+
+def check(cond, what):
+    print('ok  ' if cond else 'FAIL', what, flush=True)
+    if not cond: FAILS.append(what)
+
+
+def wait_for(fn, timeout=12):
+    t = time.time()
+    while time.time() - t < timeout:
+        try:
+            if fn(): return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
+T0 = int(time.time() * 1000) - 3600_000
+W = 'camps' + RUN
+WORLD = 'Мир кампаний ' + RUN
+QC = f'{W}_qtag'
+put(f'worlds/{W}', {'name': WORLD, 'description': '', 'ownerId': GM_UID, 'isPublic': False, 'imageId': None, 'headerImageId': None, 'aclVersion': 0,
+                    'createdAt': T0, 'updatedAt': T0, 'settings': {'disabledTypes': [], 'customTypes': [], 'playerCreateTypes': ['journal', 'note'],
+                    'playersCanPost': True, 'defaultVisibility': 'members', 'dashboardPins': [], 'mainCalendarId': None, 'accent': None}})
+for uid, role, name, email, chars in [(GM_UID, 'owner', 'Мастер Игры', GM, []), (AN_UID, 'player', 'Анна', AN, ['anvar']), (BO_UID, 'player', 'Борис', BO, ['lira'])]:
+    put(f'worlds/{W}/members/{uid}', {'uid': uid, 'role': role, 'displayName': name, 'email': email, 'photoURL': None, 'joinedAt': T0, 'characterIds': chars})
+
+
+def ent(eid, typ, name, **extra):
+    put(f'worlds/{W}/entities/{eid}', {'id': eid, 'type': typ, 'name': name, 'kind': '', 'tagIds': [], 'visibility': 'members', 'allowedUids': [], 'excerpt': '',
+                                       'createdBy': GM_UID, 'updatedBy': GM_UID, 'createdAt': T0, 'updatedAt': T0, 'deleted': False, 'bodyRev': 0, **extra})
+
+
+put(f'worlds/{W}/images/img1', {'id': 'img1', 'name': 'p', 'mime': 'image/png', 'width': 1, 'height': 1, 'size': 70, 'chunkCount': 0, 'thumb': PNG, 'folder': '',
+                                'visibility': 'members', 'allowedUids': [], 'createdBy': GM_UID, 'updatedBy': GM_UID, 'createdAt': T0, 'updatedAt': T0, 'deleted': False})
+ent('qtag', 'tag', '"Вторая Лавина"', fields={'colour': '#336699'})
+ent('plain', 'tag', 'Война', fields={'colour': '#aa3333'})
+ent('tag-pc', 'tag', 'PC', fields={'charType': 'pc'})
+ent('tag-npc', 'tag', 'NPC', fields={'charType': 'npc'})
+ent('lira', 'character', 'Лира', kind='PC', tagIds=['qtag', 'tag-pc'])
+ent('anvar', 'character', 'Сир Анвар', kind='PC', tagIds=['qtag', 'tag-pc'], excerpt='Рыцарь ордена.', imageId='img1')
+ent('merchant', 'character', 'Торговец', kind='NPC', tagIds=['qtag', 'tag-npc'])
+ent('guard', 'character', 'Страж ворот', kind='NPC', tagIds=['qtag', 'tag-npc'], excerpt='Стоит у ворот.', imageId='img1')
+ent('loner', 'character', 'Отшельник', kind='NPC', tagIds=['tag-npc'])
+put('campaigns/old1', {'name': 'Старая игра', 'description': '', 'cover': None, 'worldId': W, 'worldName': WORLD, 'ownerId': GM_UID, 'gmUids': [GM_UID],
+                       'memberUids': [GM_UID], 'status': 'active', 'schedule': '', 'nextSessionAt': None, 'createdAt': T0, 'updatedAt': T0})
+put(f'campaigns/old1/participants/{GM_UID}', {'uid': GM_UID, 'role': 'gm', 'displayName': 'Мастер Игры', 'photoURL': None, 'characterId': None, 'characterName': '', 'joinedAt': T0})
+
+with sync_playwright() as p:
+    b = p.chromium.launch(channel='chrome')
+    errs = []
+
+    def page():
+        pg = b.new_context(viewport={'width': 1440, 'height': 960}).new_page()
+        pg.on('console', lambda m: errs.append(f'{m.type}: {m.text[:300]}') if m.type == 'error' else None)
+        pg.on('pageerror', lambda e: errs.append('pageerror: ' + str(e)[:400]))
+        pg.on('dialog', lambda d: d.accept())
+        return pg
+
+    def login(pg, email):
+        pg.goto(BASE + '#/login')
+        pg.locator('input[type=email]').fill(email); pg.locator('input[type=password]').fill('secret123')
+        pg.get_by_role('button', name='Войти', exact=True).click()
+        pg.wait_for_url('**/#/worlds**', timeout=20000)
+
+    gm = page()
+    login(gm, GM)
+
+    print('== the owner\'s visit sorts out older data')
+    gm.goto(BASE + f'#/w/{W}'); gm.wait_for_selector('.db-grid', timeout=20000)
+    toast = gm.locator('.toast', has_text='Создано')
+    check(wait_for(lambda: toast.count() > 0), 'a toast tells what was created')
+    check(wait_for(lambda: get(f'campaigns/{QC}') is not None), 'the tag in quotes became a campaign')
+    c = get(f'campaigns/{QC}')
+    check(c['name'] == 'Вторая Лавина' and c['worldId'] == W and c['tagId'] == 'qtag', f'campaign «Вторая Лавина» bound to the world and the tag ({c["name"]}, {c.get("tagId")})')
+    check(wait_for(lambda: sorted(get(f'campaigns/{QC}')['memberUids']) == sorted([GM_UID, AN_UID, BO_UID])), 'the players of the tagged characters are in it')
+    c = get(f'campaigns/{QC}')
+    check(c.get('characters', {}).get(AN_UID) == ['anvar'] and c.get('characters', {}).get(BO_UID) == ['lira'], f'with their characters as current ones ({c.get("characters")})')
+    t = get(f'worlds/{W}/entities/qtag')
+    check(t['name'] == '⚔ Вторая Лавина' and t['fields']['campaignId'] == QC and t['fields']['colour'] == '#336699', f'the tag is «⚔ Вторая Лавина», colour kept ({t["name"]})')
+    check(wait_for(lambda: get('campaigns/old1').get('tagId')), 'the older campaign got a tag')
+    ot = get(f'worlds/{W}/entities/{get("campaigns/old1")["tagId"]}')
+    check(ot['name'] == '⚔ Старая игра' and ot['fields']['campaignId'] == 'old1', f'named «⚔ Старая игра» ({ot["name"]})')
+    check(get(f'worlds/{W}/entities/plain')['name'] == 'Война', 'other tags untouched')
+    check(wait_for(lambda: gm.locator('.sidebar .sb-link', has_text='Вторая Лавина').count() == 1 and gm.locator('.sidebar .sb-link', has_text='Старая игра').count() == 1), 'both in the sidebar')
+
+    print('== the global page lists campaigns and leads into the world')
+    gm.locator('.app-bar .app-nav a', has_text='Кампейны').click(); gm.wait_for_selector('.camp-row', timeout=15000)
+    check(gm.locator('.camp-row').count() == 2 and gm.get_by_role('button', name='Новый кампейн').count() == 0, 'two rows, no creating there')
+    check(WORLD in gm.locator('.camp-row', has_text='Вторая Лавина').inner_text(), 'a row names the world')
+    gm.screenshot(path=os.path.join(OUT, 'k-1-global.png'))
+    gm.locator('.camp-row', has_text='Вторая Лавина').click()
+    gm.wait_for_url(f'**/w/{W}/campaigns/{QC}', timeout=15000); gm.wait_for_selector('.c-hero h1', timeout=15000)
+    check(True, 'the row opens the campaign inside its world')
+    ov = gm.locator('.ov-person', has_text='Анна')
+    check(wait_for(lambda: 'Сир Анвар' in ov.inner_text()) and 'Лира' in gm.locator('.ov-person', has_text='Борис').inner_text(), 'overview: players with their characters')
+    gm.screenshot(path=os.path.join(OUT, 'k-2-campaign.png'))
+
+    print('== a master creates a campaign from the world; its tag appears')
+    gm.goto(BASE + f'#/w/{W}/campaigns'); gm.wait_for_selector('.page-head', timeout=15000)
+    gm.get_by_role('button', name='Новый кампейн').click()
+    gm.locator('.modal input[placeholder="Тени над Вельмором"]').fill('Третья кампания')
+    gm.locator('.modal').get_by_role('button', name='Создать кампейн').click()
+    gm.wait_for_selector('.c-hero h1', timeout=20000)
+    cid = gm.url.split('/campaigns/')[1].split('/')[0]
+    check(wait_for(lambda: any(e['name'] == '⚔ Третья кампания' and e.get('fields', {}).get('campaignId') == cid for e in query('entities', 'type', 'tag', f'/worlds/{W}'))), 'tag «⚔ Третья кампания» in the world')
+    check(get(f'campaigns/{cid}')['tagId'], 'the campaign knows its tag')
+
+    print('== settings: add a member of the world; rename (the tag follows)')
+    gm.locator('.tabs .tab', has_text='Настройки').click(); gm.wait_for_selector('.member-picker', timeout=10000)
+    gm.locator('.member-picker').click(); gm.locator('.member-picker-menu input').fill('Анн'); gm.locator('.member-picker-menu input').press('Enter')
+    check(wait_for(lambda: AN_UID in get(f'campaigns/{cid}')['memberUids']), 'Анна added')
+    name = gm.locator('label.field', has_text='Название').locator('input')
+    name.fill('Третья кампания 2'); gm.get_by_role('button', name='Сохранить').click()
+    check(wait_for(lambda: get(f'worlds/{W}/entities/{get(f"campaigns/{cid}")["tagId"]}')['name'] == '⚔ Третья кампания 2'), 'renaming the campaign renames its tag')
+
+    print('== the member card: campaigns of the world')
+    gm.goto(BASE + f'#/w/{W}/settings/members'); gm.wait_for_selector('tr', timeout=15000)
+    gm.locator('tr', has_text='Анна').get_by_role('button', name='Права').click(); gm.wait_for_selector('.mm-camps', timeout=10000)
+    camps = gm.locator('.mm-camps')
+    check(camps.locator('label', has_text='Вторая Лавина').locator('input').is_checked() and camps.locator('label', has_text='Третья кампания 2').locator('input').is_checked(), 'her campaigns are checked')
+    camps.locator('label', has_text='Третья кампания 2').locator('input').uncheck()
+    check(wait_for(lambda: AN_UID not in get(f'campaigns/{cid}')['memberUids']), 'unchecking takes her out')
+    camps.locator('label', has_text='Старая игра').locator('input').check()
+    check(wait_for(lambda: AN_UID in get('campaigns/old1')['memberUids']), 'checking adds her')
+    gm.screenshot(path=os.path.join(OUT, 'k-3-member-card.png'))
+    gm.locator('.modal-head .icon-btn').first.click(); gm.wait_for_timeout(300)
+
+    print('== characters by campaign')
+    gm.goto(BASE + f'#/w/{W}/t/character'); gm.wait_for_selector('.page-head', timeout=15000)
+    gm.locator('button[title^="По кампейнам"]').click(); gm.wait_for_selector('.camp-group', timeout=10000)
+    heads = [x.strip() for x in gm.locator('.camp-group-head .camp-group-title').all_inner_texts()]
+    check(heads == ['⚔ Вторая Лавина', 'Вне кампейнов'], f'groups: the campaign, then the rest ({heads})')
+    g = gm.locator('.camp-group').first
+    runs = [x.strip().lower() for x in g.locator('.camp-run').all_inner_texts()]
+    check(runs == ['игровые персонажи · 2', 'npc · 2'], f'PCs first, then NPCs ({runs})')
+    names = [x.strip() for x in g.locator('.ecard-name').all_inner_texts()]
+    check(names == ['Сир Анвар', 'Лира', 'Страж ворот', 'Торговец'], f'picture and text first in each run ({names})')
+    check([x.strip() for x in gm.locator('.camp-group').nth(1).locator('.ecard-name').all_inner_texts()] == ['Отшельник'], 'the rest outside campaigns')
+    gm.screenshot(path=os.path.join(OUT, 'k-4-by-campaign.png'))
+
+    print('== the campaign tag on new articles')
+    bar = gm.locator('.camp-bar')
+    bar.locator('select').select_option(label='⚔ Вторая Лавина')
+    bar.locator('input[type=checkbox]').check()
+    check(wait_for(lambda: gm.locator('.sidebar .sb-autotag', has_text='Вторая Лавина').count() == 1), 'the sidebar shows the tag goes on new articles')
+    gm.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
+    gm.locator('.modal .type-tile', has_text='Заметка').click()
+    sel = gm.locator('.modal label.field', has_text='Кампейн').locator('select')
+    check(sel.locator('option:checked').inner_text() == '⚔ Вторая Лавина', 'the creation window preselects it')
+    gm.locator('.modal input[maxlength="200"]').fill('Слухи о лавине')
+    gm.screenshot(path=os.path.join(OUT, 'k-5-create.png'))
+    gm.get_by_role('button', name='Создать и редактировать').click(); gm.wait_for_url('**/e/**', timeout=15000)
+    nid = gm.url.split('/e/')[1].split('?')[0]
+    check(wait_for(lambda: 'qtag' in get(f'worlds/{W}/entities/{nid}')['tagIds']), 'the note carries the campaign tag')
+    sid = gm.evaluate("""async () => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('world').createEntity('location', 'Перевал', {})""")
+    tid = gm.evaluate("""async () => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('world').createEntity('tag', 'Новый тег', {})""")
+    check(wait_for(lambda: 'qtag' in get(f'worlds/{W}/entities/{sid}')['tagIds']), 'any new article gets it (a location made elsewhere)')
+    check(wait_for(lambda: get(f'worlds/{W}/entities/{tid}') is not None and 'qtag' not in get(f'worlds/{W}/entities/{tid}')['tagIds']), 'but not a new tag')
+    gm.goto(BASE + f'#/w/{W}/t/note'); gm.wait_for_selector('.page-head', timeout=15000)
+    gm.get_by_role('button', name='Создать заметку').click()
+    gm.locator('.modal label.field', has_text='Кампейн').locator('select').select_option(label='— без кампейна —')
+    gm.locator('.modal input[maxlength="200"]').fill('Без кампейна')
+    gm.get_by_role('button', name='Создать и редактировать').click(); gm.wait_for_url('**/e/**', timeout=15000)
+    n2 = gm.url.split('/e/')[1].split('?')[0]
+    check(wait_for(lambda: get(f'worlds/{W}/entities/{n2}') is not None and 'qtag' not in get(f'worlds/{W}/entities/{n2}')['tagIds']), '«без кампейна» in the window wins over the switch')
+    gm.goto(BASE + f'#/w/{W}/t/note'); gm.wait_for_selector('.camp-bar', timeout=15000)
+    gm.locator('.camp-bar input[type=checkbox]').uncheck()
+    check(wait_for(lambda: gm.locator('.sidebar .sb-autotag').count() == 0), 'switched off: the sidebar mark goes')
+
+    print('== the tags page')
+    gm.goto(BASE + f'#/w/{W}/t/tag'); gm.wait_for_selector('.page-head', timeout=15000)
+    gm.locator('button[title="Карточки"]').click(); gm.wait_for_selector('.ecard-tag', timeout=10000)
+    camp_card = gm.locator('.ecard-tag', has_text='Вторая Лавина')
+    plain_card = gm.locator('.ecard-tag', has_text='Война')
+    check(camp_card.locator('.ecard-plaque').count() == 1 and camp_card.locator('.badge-campaign').count() == 1, 'a campaign tag: plaque and the campaign mark')
+    check(plain_card.locator('.ecard-plaque').count() == 1 and plain_card.locator('.badge-campaign').count() == 0, 'an ordinary tag: plaque, no mark')
+    col = plain_card.locator('.ecard-plaque').evaluate("e => getComputedStyle(e).getPropertyValue('--tag-color').trim()")
+    check(col == '#aa3333', f'the plaque has the tag colour ({col})')
+    check('статей' in camp_card.inner_text() or 'статьи' in camp_card.inner_text(), 'how many articles carry it')
+    gm.screenshot(path=os.path.join(OUT, 'k-6-tags.png'))
+    gm.locator('button[title="Таблица"]').click(); gm.wait_for_selector('table', timeout=5000)
+    check(gm.locator('th', has_text='Цвет').count() == 1 and gm.locator('tr', has_text='Вторая Лавина').locator('.badge', has_text='кампейн').count() == 1, 'table: colour column and the campaign mark')
+    gm.locator('button[title="Карточки"]').click()
+
+    print('== a player')
+    an = page()
+    login(an, AN)
+    an.locator('.app-bar .app-nav a', has_text='Кампейны').click(); an.wait_for_selector('.camp-row', timeout=15000)
+    rows = [x for x in an.locator('.camp-row .camp-name').all_inner_texts()]
+    check(sorted(rows) == ['Вторая Лавина', 'Старая игра'], f'her campaigns only ({rows})')
+    an.goto(BASE + f'#/w/{W}'); an.wait_for_selector('.db-grid', timeout=20000)
+    check(wait_for(lambda: an.locator('.sidebar .sb-link', has_text='Вторая Лавина').count() == 1) and an.locator('.sidebar .sb-link', has_text='Третья').count() == 0, 'world sidebar: hers, not the others')
+    an.goto(BASE + f'#/w/{W}/campaigns/{QC}/people'); an.wait_for_selector('.person', timeout=15000)
+    check(an.locator('.person', has_text='Борис').get_by_role('button', name='Персонажи').count() == 0, 'she cannot change Boris\'s characters')
+    an.locator('.person', has_text='Анна').get_by_role('button', name='Персонажи').click()
+    own = an.locator('.modal .own-char', has_text='Сир Анвар').locator('input')
+    check(own.is_checked(), 'her character is offered and checked')
+    own.uncheck(); an.get_by_role('button', name='Сохранить').click()
+    check(wait_for(lambda: get(f'campaigns/{QC}').get('characters', {}).get(AN_UID) == []), 'she changes her current characters')
+    an.goto(BASE + f'#/w/{W}/campaigns/{cid}'); an.wait_for_selector('.content', timeout=15000)
+    check(wait_for(lambda: 'Кампейн недоступен' in an.locator('.content').inner_text()), 'a campaign she is not in is closed to her')
+    an.goto(BASE + f'#/c/{QC}')
+    # (the address is read from the page: Playwright's page.url can miss a replaceState right after a hash goto)
+    check(wait_for(lambda: f'/w/{W}/campaigns/{QC}' in an.evaluate('location.hash')) and an.locator('.c-hero h1').inner_text() == 'Вторая Лавина',
+          f'an old link #/c/… leads into the world ({an.evaluate("location.hash")})')
+
+    print('== phone width')
+    an.set_viewport_size({'width': 390, 'height': 844})
+    for nm, url in [('global', '#/campaigns'), ('campaign', f'#/w/{W}/campaigns/{QC}'), ('characters', f'#/w/{W}/t/character')]:
+        an.goto(BASE + url); an.wait_for_timeout(2500)
+        check(an.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), f'{nm}: no sideways scroll on a phone')
+        an.screenshot(path=os.path.join(OUT, f'k-7-phone-{nm}.png'))
+
+    real = [x for x in errs if 'favicon' not in x]
+    check(not real, f'no console errors ({real[:5]})')
+    b.close()
+
+print('\nFAILED:' if FAILS else '\nALL OK', *FAILS, sep='\n  ')
+sys.exit(1 if FAILS else 0)

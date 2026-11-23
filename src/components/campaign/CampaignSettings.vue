@@ -2,7 +2,9 @@
 import { errorText } from '@/data/util'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { updateCampaign, deleteCampaign, STATUS_LABELS } from '@/data/campaigns'
+import { updateCampaign, STATUS_LABELS } from '@/data/campaigns'
+import { deleteWorldCampaign, renameCampaignTag } from '@/data/worldCampaigns'
+import { useWorld } from '@/stores/world'
 import { processImage } from '@/data/images'
 import { toLocalInput, fromLocalInput } from './dates'
 import Icon from '@/components/common/Icon.vue'
@@ -12,6 +14,7 @@ import type { Campaign, CampaignStatus } from '@/model/types'
 
 const props = defineProps<{ campaign: Campaign; isOwner: boolean }>()
 const router = useRouter()
+const world = useWorld()
 const c = props.campaign
 const form = ref({
   name: c.name, description: c.description, status: c.status as CampaignStatus, schedule: c.schedule,
@@ -28,10 +31,14 @@ async function save() {
   if (!form.value.name.trim()) return
   busy.value = true
   try {
+    const name = form.value.name.trim()
+    // the live campaign may already carry the new name when the write returns: remember the old one first
+    const before = { ...props.campaign }
     await updateCampaign(c.id, {
-      name: form.value.name.trim(), description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(),
+      name, description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(),
       nextSessionAt: fromLocalInput(form.value.next), cover: form.value.cover,
     })
+    if (name !== before.name) await renameCampaignTag(before, name)
     toast.success('Сохранено')
   } catch (e: any) { toast.error('Не удалось сохранить: ' + errorText(e)) } finally { busy.value = false }
 }
@@ -40,9 +47,9 @@ const confirmName = ref('')
 async function remove() {
   busy.value = true
   try {
-    await deleteCampaign(c.id)
+    await deleteWorldCampaign(props.campaign)
     toast.success('Кампейн удалён')
-    void router.replace({ name: 'campaigns' })
+    void router.replace({ name: 'wcampaigns', params: { wid: world.wid! } })
   } catch (e: any) { toast.error('Не удалось удалить: ' + errorText(e)) } finally { busy.value = false }
 }
 </script>
@@ -67,15 +74,13 @@ async function remove() {
           <button v-if="form.cover" class="btn btn-sm btn-ghost" @click="form.cover = null">Убрать</button>
         </div>
       </div>
-      <div class="field"><span>Мир</span>
-        <div class="muted"><Icon name="globe" :size="14" /> {{ campaign.worldName || 'не выбран' }} <span class="faint small">— кампейн привязан к миру при создании</span></div>
-      </div>
+      <p class="faint small" style="margin: 0">Тег кампейна в мире переименуется вместе с ним.</p>
       <div><button class="btn btn-primary" :disabled="busy || !form.name.trim()" @click="save"><Icon name="check" :size="15" /> Сохранить</button></div>
     </section>
 
     <section v-if="isOwner" class="card card-pad stack danger-zone">
       <h3 class="panel-title" style="margin: 0"><Icon name="triangle-alert" /> Удаление</h3>
-      <p class="small muted" style="margin: 0">Удалится кампейн с журналом сессий, участниками и приглашениями. Мир и его статьи не затрагиваются. Чтобы подтвердить, введите название кампейна.</p>
+      <p class="small muted" style="margin: 0">Удалится кампейн с журналом сессий, списком игроков и приглашениями. Статьи мира не затрагиваются, тег кампейна останется обычным тегом. Чтобы подтвердить, введите название кампейна.</p>
       <div class="row gap wrap">
         <input v-model="confirmName" class="input" style="max-width: 320px" :placeholder="campaign.name" />
         <button class="btn btn-danger" :disabled="busy || confirmName.trim() !== campaign.name" @click="remove"><Icon name="trash2" :size="14" /> Удалить кампейн</button>

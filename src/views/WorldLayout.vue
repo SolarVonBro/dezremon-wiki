@@ -19,6 +19,9 @@ import JoinBanner from '@/components/layout/JoinBanner.vue'
 import { createRequest } from '@/components/layout/createRequest'
 import { unsavedEditors } from '@/composables/useAutosave'
 import { cacheWorldTheme, cachedWorldTheme, setWorldTheme } from '@/themes/apply'
+import { ensureCampaignTags, followWorldCampaigns } from '@/data/worldCampaigns'
+import { isMasterRole } from '@/data/access'
+import { toast } from '@/components/common/toast'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +42,21 @@ watch([() => route.params.wid as string, () => world.status, () => world.world?.
   } else setWorldTheme(cachedWorldTheme(wid))
 }, { immediate: true })
 watch(() => route.fullPath, () => { sidebarOpen.value = false })
+
+// campaigns of this world (all for its masters, one's own for players): sidebar, character groups, member cards…
+watch(() => [world.wid, world.uid, world.role, world.status] as const, ([w, u, r, st]) => {
+  if (st === 'ready' && w && u && world.member) followWorldCampaigns(w, u, isMasterRole(r))
+  else if (st !== 'loading') followWorldCampaigns(null, null, false)
+}, { immediate: true })
+onBeforeUnmount(() => followWorldCampaigns(null, null, false))
+// the owner's first visit after the update: tags in quotes become campaigns, campaigns get their tags
+const campaignsChecked = new Set<string>()
+watch(() => [world.wid, world.status, world.world?.ownerId] as const, ([w, st, owner]) => {
+  if (!w || st !== 'ready' || !session.user || owner !== session.user.uid || campaignsChecked.has(w)) return
+  campaignsChecked.add(w)
+  void ensureCampaignTags(session.user).then((msg) => { if (msg) toast.success(msg) }).catch((e) => console.warn('campaign tags', e))
+}, { immediate: true })
+const autoTag = computed(() => (world.autoCampaignTagId ? world.get(world.autoCampaignTagId) ?? null : null))
 
 const types = computed(() => allTypes().filter((t) => world.enabledTypes(t.key)))
 const counts = computed(() => {
@@ -140,6 +158,11 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       <div class="sb-search"><QuickSearch /></div>
       <div v-if="world.isMember && !world.preview" class="sb-section" style="padding-top: 0">
         <button class="btn btn-primary" style="width: 100%" title="Создать статью (N)" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать</button>
+        <div v-if="autoTag" class="sb-autotag" title="Этот тег кампейна добавляется ко всем новым статьям (кроме тегов). Выбор — над списком статей любого раздела.">
+          <span class="tag-chip" :style="{ '--tag-color': autoTag.fields?.colour }">{{ autoTag.name }}</span>
+          <span class="faint small grow">к новым статьям</span>
+          <button class="icon-btn" style="width: 20px; height: 20px" title="Не добавлять тег кампейна к новым статьям" @click="world.campaignTagPref.auto = false"><Icon name="x" :size="12" /></button>
+        </div>
       </div>
       <nav class="sb-section">
         <RouterLink class="sb-link" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }" active-class="" exact-active-class="active"><Icon name="layout-dashboard" :size="17" /> Обзор</RouterLink>
@@ -186,7 +209,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       </div>
       <div v-if="world.status === 'loading'" class="content empty"><Icon name="refresh-cw" class="spin" :size="28" /><p>Загрузка мира…</p></div>
       <RouterView v-else v-slot="{ Component }">
-        <component :is="Component" :key="route.params.eid ?? route.name" />
+        <component :is="Component" :key="route.params.eid ?? route.params.cid ?? route.name" />
       </RouterView>
     </div>
     <CreateEntityModal v-if="createRequest" :initial-type="createRequest.type" :parent-id="createRequest.parentId" :mine="createRequest.mine" @close="createRequest = null" @created="(id) => { createRequest = null; router.push({ name: 'entity', params: { wid: world.wid!, eid: id }, query: { edit: '1' } }) }" />

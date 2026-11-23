@@ -1,162 +1,119 @@
 <script setup lang="ts">
-// Campaign participants (GMs and players with their characters) and invite links.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useSession } from '@/stores/session'
+// The campaign's players and the characters of the world each of them plays in it now («текущие персонажи»).
+// A participant picks his own; GMs and the world's masters pick anyone's. Adding and removing players is in Settings.
+import { computed, ref } from 'vue'
 import { useWorld } from '@/stores/world'
-import {
-  ROLE_LABELS, createCampaignInvite, deleteCampaignInvite, inviteUrl, removeParticipant, setParticipantRole, updateParticipant, watchCampaignInvites,
-} from '@/data/campaigns'
-import { formatDate, relativeTime, errorText } from '@/data/util'
+import { ROLE_LABELS, currentCharacters, setCampaignCharacters } from '@/data/campaigns'
+import { characterIdsOf } from '@/data/access'
+import { charTypeOfKind } from '@/data/charType'
+import { cropOf } from '@/data/crop'
+import { formatDate, errorText } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
+import Thumb from '@/components/common/Thumb.vue'
 import Modal from '@/components/common/Modal.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import { toast } from '@/components/common/toast'
-import type { Campaign, CampaignInvite, CampaignParticipant, CampaignRole } from '@/model/types'
+import type { Campaign, CampaignParticipant, Entity } from '@/model/types'
 
-const props = defineProps<{ campaign: Campaign; participants: CampaignParticipant[]; isGm: boolean; worldReady: boolean }>()
-const session = useSession()
+const props = defineProps<{ campaign: Campaign; participants: CampaignParticipant[]; isGm: boolean }>()
 const world = useWorld()
-const uid = computed(() => session.user?.uid ?? '')
+const uid = computed(() => world.uid ?? '')
 
-function characterEntity(p: CampaignParticipant) {
-  return props.worldReady && p.characterId ? world.get(p.characterId) ?? null : null
-}
+const people = computed(() => [...props.participants].sort((a, b) => (a.role === b.role ? a.displayName.localeCompare(b.displayName, 'ru') : a.role === 'gm' ? -1 : 1)))
+const chars = (p: CampaignParticipant) => currentCharacters(props.campaign, p).map((id) => world.get(id)).filter((e): e is Entity => !!e)
+const canEdit = (p: CampaignParticipant) => !world.preview && (props.isGm || p.uid === uid.value)
 
-// ---------- character ----------
-const editing = ref<{ uid: string; name: string; characterId: string | null; characterName: string } | null>(null)
-function editCharacter(p: CampaignParticipant) {
-  editing.value = { uid: p.uid, name: p.displayName, characterId: p.characterId, characterName: p.characterName }
-}
-watch(() => editing.value?.characterId, (id) => {
-  if (!editing.value || !id) return
-  const e = world.get(id)
-  if (e) editing.value.characterName = e.name
+// ---------- choosing the current characters ----------
+const editing = ref<{ p: CampaignParticipant; ids: string[] } | null>(null)
+const pick = ref<string | null>(null)
+function edit(p: CampaignParticipant) { editing.value = { p, ids: currentCharacters(props.campaign, p) } }
+/** The characters the member plays in the world: offered first. */
+const own = computed(() => {
+  const m = editing.value ? world.members.find((x) => x.uid === editing.value!.p.uid) : null
+  return characterIdsOf(m).map((id) => world.get(id)).filter((e): e is Entity => !!e)
 })
-async function saveCharacter() {
+const others = computed(() => (editing.value?.ids ?? []).filter((id) => !own.value.some((e) => e.id === id)).map((id) => world.get(id)).filter((e): e is Entity => !!e))
+function toggle(id: string) {
   const f = editing.value
   if (!f) return
-  try {
-    await updateParticipant(props.campaign.id, f.uid, { characterId: f.characterId || null, characterName: f.characterName.trim() })
-    editing.value = null
-  } catch (e: any) { toast.error('Не удалось сохранить: ' + errorText(e)) }
+  f.ids = f.ids.includes(id) ? f.ids.filter((x) => x !== id) : [...f.ids, id]
 }
-
-// ---------- roles ----------
-async function setRole(p: CampaignParticipant, role: CampaignRole) {
-  try { await setParticipantRole(props.campaign.id, p.uid, role) } catch (e: any) { toast.error('Не удалось: ' + errorText(e)) }
+function add(id: string | null) {
+  pick.value = null
+  if (id && editing.value && !editing.value.ids.includes(id)) editing.value.ids = [...editing.value.ids, id]
 }
-async function remove(p: CampaignParticipant) {
-  if (!confirm(`Убрать «${p.displayName}» из кампейна? Доступ к миру это не отменяет — его настраивают в мире.`)) return
-  try { await removeParticipant(props.campaign.id, p.uid) } catch (e: any) { toast.error('Не удалось: ' + errorText(e)) }
-}
-
-// ---------- invites ----------
-const invites = ref<CampaignInvite[]>([])
-let stop: (() => void) | null = null
-watch(() => props.isGm, (gm) => {
-  stop?.(); stop = null
-  if (gm) stop = watchCampaignInvites(props.campaign.id, (r) => { invites.value = r.filter((i) => !i.expiresAt || i.expiresAt > Date.now()) })
-}, { immediate: true })
-onBeforeUnmount(() => stop?.())
-
-const canInviteToWorld = computed(() => props.worldReady && world.isMaster)
-const inv = ref({ role: 'player' as CampaignRole, days: 14 as number | null, withWorld: true })
 const busy = ref(false)
-async function createInvite() {
-  if (!session.user) return
+async function save() {
+  const f = editing.value
+  if (!f) return
   busy.value = true
   try {
-    const code = await createCampaignInvite(props.campaign, session.user.uid, inv.value.role, inv.value.days, inv.value.withWorld && canInviteToWorld.value)
-    await navigator.clipboard.writeText(inviteUrl(props.campaign.id, code)).catch(() => {})
-    toast.success('Ссылка создана и скопирована')
-  } catch (e: any) { toast.error('Не удалось создать приглашение: ' + errorText(e)) } finally { busy.value = false }
+    await setCampaignCharacters(props.campaign.id, f.p.uid, f.ids, f.p)
+    editing.value = null
+  } catch (e: any) { toast.error('Не удалось сохранить: ' + errorText(e)) } finally { busy.value = false }
 }
-function copy(i: CampaignInvite) {
-  void navigator.clipboard.writeText(inviteUrl(props.campaign.id, i.code)).then(() => toast.success('Ссылка скопирована'))
-}
-async function revoke(i: CampaignInvite) {
-  await deleteCampaignInvite(props.campaign, i).catch((e) => toast.error(errorText(e)))
-}
+const typeLabel = (e: Entity) => ({ pc: 'PC', npc: 'NPC' } as Record<string, string>)[charTypeOfKind(e.kind) ?? ''] ?? e.kind
 </script>
 
 <template>
-  <div class="people-grid">
-    <section class="card card-pad">
-      <h3 class="panel-title"><Icon name="users" /> Участники</h3>
-      <div v-for="p in participants" :key="p.uid" class="person">
-        <span class="avatar round" style="width: 38px; height: 38px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="18" /></span>
-        <div class="grow" style="min-width: 0">
-          <div class="row gap-sm wrap">
-            <b>{{ p.displayName }}</b>
-            <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
-            <span v-if="p.uid === campaign.ownerId" class="badge">создатель</span>
-            <span v-if="p.uid === uid" class="faint small">(вы)</span>
-          </div>
-          <div class="small muted char">
-            <Icon name="user" :size="13" />
-            <RouterLink v-if="characterEntity(p)" :to="{ name: 'entity', params: { wid: campaign.worldId!, eid: p.characterId! } }">{{ characterEntity(p)!.name }}</RouterLink>
-            <span v-else-if="p.characterName">{{ p.characterName }}</span>
-            <span v-else class="faint">{{ p.role === 'gm' ? 'ведёт игру' : 'персонаж не указан' }}</span>
-            <span class="faint"> · с {{ formatDate(p.joinedAt).split(',')[0] }}</span>
-          </div>
+  <section class="card card-pad">
+    <h3 class="panel-title"><Icon name="users" /> Игроки и их текущие персонажи</h3>
+    <p class="faint small" style="margin: -4px 0 10px">Текущие персонажи — те, которыми игрок играет в этом кампейне сейчас. Игрок выбирает их сам, мастер — за любого. Добавить или убрать игроков можно в настройках кампейна{{ isGm ? '' : ' (у мастера)' }}.</p>
+    <div v-if="!people.length" class="faint">Игроков пока нет.</div>
+    <div v-for="p in people" :key="p.uid" class="person">
+      <span class="avatar round" style="width: 40px; height: 40px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="18" /></span>
+      <div class="grow" style="min-width: 0">
+        <div class="row gap-sm wrap">
+          <RouterLink class="p-name" :to="{ name: 'user', params: { uid: p.uid } }">{{ p.displayName }}</RouterLink>
+          <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
+          <span v-if="p.uid === campaign.ownerId" class="badge">создатель</span>
+          <span v-if="p.uid === uid" class="faint small">(вы)</span>
+          <span class="faint small">с {{ formatDate(p.joinedAt).split(',')[0] }}</span>
         </div>
-        <button v-if="isGm || p.uid === uid" class="icon-btn" title="Персонаж" @click="editCharacter(p)"><Icon name="pencil" :size="15" /></button>
-        <template v-if="isGm && p.uid !== campaign.ownerId">
-          <button v-if="p.role === 'player'" class="icon-btn" title="Сделать мастером (со-ведущим)" @click="setRole(p, 'gm')"><Icon name="crown" :size="15" /></button>
-          <button v-else class="icon-btn" title="Сделать игроком" @click="setRole(p, 'player')"><Icon name="user" :size="15" /></button>
-          <button class="icon-btn" title="Убрать из кампейна" @click="remove(p)"><Icon name="user-x" :size="15" /></button>
-        </template>
-      </div>
-    </section>
-
-    <section v-if="isGm" class="card card-pad stack">
-      <h3 class="panel-title" style="margin: 0"><Icon name="user-plus" /> Пригласить</h3>
-      <p class="muted small" style="margin: 0">Человек открывает ссылку, входит через Google или почту и становится участником кампейна.</p>
-      <div class="row gap wrap">
-        <select v-model="inv.role" class="input" style="width: auto"><option value="player">Игроком</option><option value="gm">Мастером</option></select>
-        <select v-model="inv.days" class="input" style="width: auto">
-          <option :value="1">на сутки</option><option :value="7">на неделю</option><option :value="14">на 2 недели</option><option :value="30">на месяц</option><option :value="null">бессрочно</option>
-        </select>
-      </div>
-      <label v-if="canInviteToWorld" class="check small"><input v-model="inv.withWorld" type="checkbox" /> Заодно пустить в мир «{{ campaign.worldName }}» ({{ inv.role === 'gm' ? 'мастером' : 'игроком' }})</label>
-      <p v-else-if="campaign.worldId" class="faint small" style="margin: 0">Доступ к миру «{{ campaign.worldName }}» выдаёт его мастер в настройках мира.</p>
-      <div><button class="btn btn-primary" :disabled="busy" @click="createInvite"><Icon name="link" :size="15" /> Создать ссылку</button></div>
-
-      <div v-if="invites.length" class="stack-sm">
-        <div class="section-title" style="margin: 6px 0 0">Действующие ссылки</div>
-        <div v-for="i in invites" :key="i.code" class="inv-row">
-          <div class="grow" style="min-width: 0">
-            <div class="small"><b>{{ ROLE_LABELS[i.role] }}</b>{{ i.worldInviteCode ? ' + доступ к миру' : '' }}</div>
-            <div class="faint small">{{ i.expiresAt ? 'до ' + formatDate(i.expiresAt) : 'бессрочно' }} · создана {{ relativeTime(i.createdAt) }}</div>
-          </div>
-          <button class="icon-btn" title="Скопировать ссылку" @click="copy(i)"><Icon name="copy" :size="15" /></button>
-          <button class="icon-btn" title="Отозвать" @click="revoke(i)"><Icon name="trash2" :size="15" /></button>
+        <div class="p-chars">
+          <RouterLink v-for="e in chars(p)" :key="e.id" class="p-char" :to="{ name: 'entity', params: { wid: world.wid!, eid: e.id } }">
+            <span class="p-char-ava"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon name="user" :size="14" /></Thumb></span>
+            <span class="ellipsis">{{ e.name }}</span><span v-if="typeLabel(e)" class="faint small">{{ typeLabel(e) }}</span>
+          </RouterLink>
+          <span v-if="!chars(p).length" class="faint small">{{ p.characterName || (p.role === 'gm' ? 'ведёт игру' : 'персонаж не выбран') }}</span>
         </div>
       </div>
-    </section>
+      <button v-if="canEdit(p)" class="btn btn-sm" @click="edit(p)"><Icon name="pencil" :size="14" /> Персонажи</button>
+    </div>
+  </section>
 
-    <Modal v-if="editing" :title="'Персонаж: ' + editing.name" width="480px" @close="editing = null">
-      <div class="stack">
-        <div v-if="worldReady" class="field"><span>Статья персонажа в мире «{{ campaign.worldName }}»</span>
-          <EntityPicker v-model="editing.characterId" :types="['character']" :allow-create="false" placeholder="Выберите персонажа…" />
-        </div>
-        <label class="field"><span>Имя персонажа</span><input v-model="editing.characterName" class="input" maxlength="120" placeholder="Аэлин Тарн" /></label>
-        <p v-if="!worldReady && campaign.worldId" class="faint small" style="margin: 0">Чтобы связать со статьёй, нужен доступ к миру «{{ campaign.worldName }}».</p>
+  <Modal v-if="editing" :title="'Текущие персонажи: ' + editing.p.displayName" width="520px" @close="editing = null">
+    <div class="stack">
+      <div v-if="own.length" class="field"><span>Персонажи участника в мире</span>
+        <label v-for="e in own" :key="e.id" class="check own-char"><input type="checkbox" :checked="editing.ids.includes(e.id)" @change="toggle(e.id)" />
+          <span class="p-char-ava"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon name="user" :size="14" /></Thumb></span>{{ e.name }}<span v-if="typeLabel(e)" class="faint small">{{ typeLabel(e) }}</span>
+        </label>
       </div>
-      <template #footer>
-        <button v-if="editing.characterId" class="btn btn-ghost" style="margin-right: auto" @click="editing.characterId = null">Отвязать статью</button>
-        <button class="btn" @click="editing = null">Отмена</button>
-        <button class="btn btn-primary" @click="saveCharacter">Сохранить</button>
-      </template>
-    </Modal>
-  </div>
+      <p v-else class="faint small" style="margin: 0">За участником в мире пока не закреплены персонажи. Можно выбрать любого персонажа мира ниже.</p>
+      <div v-if="others.length" class="field"><span>Ещё</span>
+        <div v-for="e in others" :key="e.id" class="row gap-sm">
+          <span class="p-char-ava"><Thumb :id="e.imageId" :crop="cropOf(e)"><Icon name="user" :size="14" /></Thumb></span><span class="grow">{{ e.name }}</span>
+          <button class="icon-btn" title="Убрать" @click="toggle(e.id)"><Icon name="x" :size="14" /></button>
+        </div>
+      </div>
+      <div class="field"><span>Добавить персонажа мира</span><EntityPicker :model-value="pick" :types="['character']" :allow-create="false" :exclude="editing.ids" placeholder="Выберите персонажа…" @update:model-value="add" /></div>
+    </div>
+    <template #footer>
+      <button class="btn" @click="editing = null">Отмена</button>
+      <button class="btn btn-primary" :disabled="busy" @click="save">Сохранить</button>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
-.people-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
-.person { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.person { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .person:last-child { border-bottom: 0; }
-.char { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
-.inv-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
-@media (max-width: 960px) { .people-grid { grid-template-columns: minmax(0, 1fr); } }
+.p-name { font-weight: 700; color: var(--text); text-decoration: none; }
+.p-name:hover { color: var(--accent); }
+.p-chars { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; }
+.p-char { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border: 1px solid var(--border); border-radius: 99px; color: var(--text); text-decoration: none; background: var(--surface-2); max-width: 260px; }
+.p-char:hover { border-color: var(--accent); }
+.p-char-ava { width: 26px; height: 26px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex: none; }
+.p-char-ava :deep(img) { width: 100%; height: 100%; object-fit: cover; }
+.own-char { gap: 8px; padding: 3px 0; }
 </style>
