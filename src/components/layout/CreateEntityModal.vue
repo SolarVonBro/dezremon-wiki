@@ -4,6 +4,7 @@ import Modal from '@/components/common/Modal.vue'
 import Icon from '@/components/common/Icon.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import VisibilitySelect from '@/components/common/VisibilitySelect.vue'
+import MemberPicker from '@/components/common/MemberPicker.vue'
 import CharTypeSwitch from '@/components/entity/CharTypeSwitch.vue'
 import { useWorld } from '@/stores/world'
 import { allTypes, typeDef } from '@/model/entityTypes'
@@ -30,8 +31,8 @@ const def = computed(() => (type.value ? typeDef(type.value) : null))
 const isChar = computed(() => type.value === 'character')
 const charType = ref<CharType | null>(null)
 const own = ref(false)
-const owners = computed(() => [...world.members].sort((a, b) => Number(a.role !== 'player') - Number(b.role !== 'player') || a.displayName.localeCompare(b.displayName)))
-const ownerUid = ref<string | null>(world.isMaster ? (world.players[0]?.uid ?? world.uid) : world.uid)
+// whoever creates it by default; only masters may give it to somebody else (a service admin who is not a member: a player)
+const ownerUid = ref<string | null>(world.member || !world.isMaster ? world.uid : (world.players[0]?.uid ?? null))
 const ownerIsMe = computed(() => ownerUid.value === world.uid)
 const ownerName = computed(() => (ownerIsMe.value ? 'вы' : world.memberName(ownerUid.value ?? '')))
 watch(own, (v) => { if (v && !charType.value) charType.value = 'pc' })
@@ -75,9 +76,7 @@ async function create() {
       <div v-if="isChar" class="field"><span>Тип персонажа</span><CharTypeSwitch v-model="charType" /></div>
       <div v-if="isChar" class="own-box stack-sm">
         <label class="check"><input v-model="own" type="checkbox" /> {{ world.isMaster ? 'Персонаж игрока — закрепить за участником' : 'Мой персонаж — закрепить за мной' }}</label>
-        <select v-if="own && world.isMaster" v-model="ownerUid" class="input input-sm" aria-label="Чей персонаж">
-          <option v-for="m in owners" :key="m.uid" :value="m.uid">{{ m.displayName }}{{ m.uid === world.uid ? ' (вы)' : m.role !== 'player' ? ' (мастер)' : '' }}</option>
-        </select>
+        <MemberPicker v-if="own && world.isMaster" v-model="ownerUid" label="Чей персонаж" />
         <span v-if="own" class="faint small">Статью увидят только {{ ownerName }} и мастера, а в меню мира она появится в разделе «Мои персонажи»{{ ownerIsMe ? '' : ' у игрока' }}. Видимость можно поменять позже.</span>
       </div>
       <div v-if="!(isChar && own)" class="field"><span>Кто видит</span><VisibilitySelect v-model="vis" /></div>
