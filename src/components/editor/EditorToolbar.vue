@@ -42,7 +42,18 @@ const fontLabel = computed(() => {
   const ff = e.value.getAttributes('textStyle').fontFamily as string | undefined
   return FONTS.find((f) => f.value === ff)?.label ?? (ff ? ff.split(',')[0].replace(/"/g, '') : 'Шрифт')
 })
-const sizeLabel = computed(() => (e.value.getAttributes('textStyle').fontSize as string | undefined)?.replace('px', '') ?? '—')
+// the size set on the text, or else the size the text under the cursor actually has (paragraph, heading…)
+const sizeLabel = computed(() => {
+  const ed = e.value
+  const set = ed.getAttributes('textStyle').fontSize as string | undefined
+  if (set) return set.replace('px', '')
+  try {
+    const { node } = ed.view.domAtPos(ed.state.selection.from)
+    const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement
+    const px = el ? parseFloat(getComputedStyle(el).fontSize) : NaN
+    return Number.isFinite(px) ? String(Math.round(px)) : '—'
+  } catch { return '—' }
+})
 const textColor = computed(() => e.value.getAttributes('textStyle').color as string | undefined)
 const hlColor = computed(() => e.value.getAttributes('highlight').color as string | undefined)
 

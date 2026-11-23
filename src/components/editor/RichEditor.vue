@@ -38,7 +38,7 @@ import FindBar from './FindBar.vue'
 import HtmlSource from './HtmlSource.vue'
 import ImageDialog from './ImageDialog.vue'
 import LinkDialog from './LinkDialog.vue'
-import { WikiImage } from './extensions/image'
+import { WikiImage, rowWidth } from './extensions/image'
 import { EntityMention } from './extensions/mention'
 import { SlashCommands, slashItems, type EditorAction } from './extensions/slash'
 import { Callout, Secret, Columns, Column, GenericDiv, RawHtml } from './extensions/blocks'
@@ -194,14 +194,23 @@ async function startUpload(file: File, id: string) {
 async function insertFiles(files: File[], pos?: number) {
   const ed = editor.value
   if (!ed) return
-  for (const f of files) {
+  const items = files.map((f) => {
     const id = randomId()
     pendingImages.set(id, URL.createObjectURL(f))
-    const attrs = { imageId: id, alt: f.name.replace(/\.[^.]+$/, ''), align: 'center', width: null }
-    if (typeof pos === 'number') { ed.chain().focus().insertContentAt(pos, { type: 'image', attrs }).run(); pos += 1 }
-    else ed.chain().focus().insertWikiImage(attrs as any).run()
-    void startUpload(f, id)
+    return { f, attrs: { imageId: id, alt: f.name.replace(/\.[^.]+$/, ''), align: 'center' as const, width: null as string | null } }
+  })
+  if (items.length > 1) {
+    // several pictures at once go in one row
+    const row = items.map((i) => ({ ...i.attrs, align: 'row' as const, width: rowWidth(items.length) }))
+    if (typeof pos === 'number') ed.chain().focus().insertContentAt(pos, { type: 'paragraph', content: row.map((attrs) => ({ type: 'image', attrs })) }).run()
+    else ed.chain().focus().insertImageRow(row).run()
+  } else {
+    for (const i of items) {
+      if (typeof pos === 'number') { ed.chain().focus().insertContentAt(pos, { type: 'image', attrs: i.attrs }).run(); pos += 1 }
+      else ed.chain().focus().insertWikiImage(i.attrs).run()
+    }
   }
+  for (const i of items) void startUpload(i.f, i.attrs.imageId)
 }
 
 function onImageFiles(files: File[]) {

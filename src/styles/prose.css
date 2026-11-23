@@ -49,6 +49,9 @@
 .wiki-img[data-align='left'] { float: left; margin: .3em 1.2em .6em 0; max-width: 60%; }
 .wiki-img[data-align='right'] { float: right; margin: .3em 0 .6em 1.2em; max-width: 60%; }
 .wiki-img[data-align='inline'] { margin: 0 .2em; vertical-align: middle; }
+/* pictures in a row: side by side in their paragraph, centred, wrapping when there is no room */
+.wiki-img[data-align='row'] { margin: .5em .6%; vertical-align: top; }
+p:has(> .wiki-img[data-align='row']) { text-align: center; }
 .wiki-img:not([style*='width']) img { width: auto; max-width: 100%; margin: 0 auto; }
 .wiki-img-cap { display: block; font-size: .82em; color: var(--text-muted); font-style: italic; text-align: center; padding: .35em .3em 0; font-family: var(--font-ui); }
 .wiki-view .wiki-img img, .wiki-view > img, .wiki-view p > img { cursor: zoom-in; }

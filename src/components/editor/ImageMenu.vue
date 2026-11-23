@@ -35,6 +35,7 @@ const ALIGNS = [
   { v: 'inline', icon: 'type', t: 'В строке с текстом' },
   { v: 'left', icon: 'align-left', t: 'Слева, текст обтекает справа' },
   { v: 'center', icon: 'align-center', t: 'По центру отдельной строкой' },
+  { v: 'row', icon: 'columns2', t: 'В ряд: с картинками, стоящими отдельными строками рядом, — одним рядом' },
   { v: 'right', icon: 'align-right', t: 'Справа, текст обтекает слева' },
   { v: 'full', icon: 'maximize2', t: 'На всю ширину' },
 ]
@@ -44,7 +45,7 @@ const ALIGNS = [
   <BubbleMenu :editor="editor" plugin-key="imageMenu" :should-show="shouldShow" :options="{ placement: 'top', offset: 8, flip: true, shift: { padding: 8 } }">
     <div v-if="attrs" class="bubble bubble-col" @mousedown.self.prevent>
       <div class="bubble-row" @mousedown.prevent>
-        <button v-for="a in ALIGNS" :key="a.v" class="tb-btn" :class="{ on: attrs.align === a.v }" :title="a.t" @click="set({ align: a.v, width: a.v === 'full' ? null : attrs.width })"><Icon :name="a.icon" /></button>
+        <button v-for="a in ALIGNS" :key="a.v" class="tb-btn" :class="{ on: attrs.align === a.v }" :title="a.t" @click="a.v === 'row' ? editor.chain().focus().arrangeImagesInRow().run() : set({ align: a.v, width: a.v === 'full' ? null : attrs.width })"><Icon :name="a.icon" /></button>
         <span class="bubble-sep" />
         <button v-for="w in ['25%', '33%', '50%', '75%', '100%']" :key="w" class="chip" :class="{ on: attrs.width === w }" @click="set({ width: w })">{{ w }}</button>
         <button class="chip" :class="{ on: !attrs.width }" title="Исходный размер" @click="set({ width: null })">авто</button>
