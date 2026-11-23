@@ -12,6 +12,7 @@ import RichView from '@/components/viewer/RichView.vue'
 import type { Heading } from '@/components/viewer/types'
 import EntityHero from '@/components/entity/EntityHero.vue'
 import FactsPanel from '@/components/entity/FactsPanel.vue'
+import CharacterPlayerPanel from '@/components/entity/CharacterPlayerPanel.vue'
 import PostsList from '@/components/entity/PostsList.vue'
 import ChildrenPanel from '@/components/entity/ChildrenPanel.vue'
 import BacklinksPanel from '@/components/entity/BacklinksPanel.vue'
@@ -230,6 +231,7 @@ watch(() => entity.value?.name, (n) => { if (n) document.title = `${n} — ${wor
       </div>
       <aside class="entity-side">
         <FactsPanel :entity="entity" :editing="editing" />
+        <CharacterPlayerPanel v-if="entity.type === 'character'" :entity="entity" />
         <GmNotesPanel :entity="entity" :editing="editing" />
         <PinnedAttributes :entity="entity" />
         <div v-if="headings.length > 2 && !editing" class="card card-pad toc">

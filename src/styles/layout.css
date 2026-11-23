@@ -21,6 +21,9 @@
 .sb-link:hover { background: var(--surface-2); color: var(--text); }
 .sb-link.router-link-active, .sb-link.active { background: var(--accent-soft); color: var(--text); font-weight: 500; }
 .sb-link .count { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
+/* «Мои персонажи»: a small round portrait instead of an icon */
+.sb-char-ava { width: 20px; height: 20px; border-radius: 50%; overflow: hidden; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); }
+.sb-char-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sb-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: #fff; font-size: 11.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .sb-link .icon { color: var(--sb-color, var(--text-faint)); }
 .sb-foot { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }

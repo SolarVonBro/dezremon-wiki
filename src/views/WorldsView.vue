@@ -3,10 +3,10 @@
 // and join requests (incoming to the user's worlds and the user's own).
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getCountFromServer } from 'firebase/firestore'
+import { getCountFromServer, getDoc } from 'firebase/firestore'
 import { useSession } from '@/stores/session'
 import { createWorld, myWorlds, leaveWorldById, type MyWorld } from '@/stores/world'
-import { coll } from '@/data/access'
+import { characterIdsOf, coll, docRef } from '@/data/access'
 import { cancelJoinRequest, myJoinRequests, pendingRequests } from '@/data/joinRequests'
 import JoinRequestRow from '@/components/admin/JoinRequestRow.vue'
 import { formatDate, relativeTime, plural } from '@/data/util'
@@ -88,6 +88,19 @@ async function leave(w: MyWorld) {
   toast.success('Вы вышли из мира')
   await loadWorlds()
 }
+
+// «Мои персонажи» on a world card: the names load when the list is opened (the world itself is not loaded here)
+const charNames = ref<Record<string, string | null>>({})
+async function loadCharNames(wid: string, ids: string[]) {
+  for (const id of ids) {
+    const k = `${wid}/${id}`
+    if (k in charNames.value) continue
+    charNames.value = { ...charNames.value, [k]: '' }
+    const d = await getDoc(docRef(wid, 'entities', id)).catch(() => null)
+    const e = d?.exists() ? d.data() : null
+    charNames.value = { ...charNames.value, [k]: e && !e.deleted ? String(e.name ?? '') : null }
+  }
+}
 </script>
 
 <template>
@@ -154,7 +167,15 @@ async function leave(w: MyWorld) {
               </div>
               <div class="wcard-actions">
                 <RouterLink class="btn btn-sm" :to="{ name: 'dashboard', params: { wid: w.id } }">Открыть</RouterLink>
-                <RouterLink v-if="w.membership.characterId" class="btn btn-sm btn-ghost" :to="{ name: 'entity', params: { wid: w.id, eid: w.membership.characterId } }"><Icon name="user" :size="14" /> Мой персонаж</RouterLink>
+                <RouterLink v-if="characterIdsOf(w.membership).length === 1" class="btn btn-sm btn-ghost" :to="{ name: 'entity', params: { wid: w.id, eid: characterIdsOf(w.membership)[0] } }"><Icon name="user" :size="14" /> Мой персонаж</RouterLink>
+                <Dropdown v-else-if="characterIdsOf(w.membership).length > 1" placement="bottom-start">
+                  <template #trigger><button class="btn btn-sm btn-ghost" @click="loadCharNames(w.id, characterIdsOf(w.membership))"><Icon name="user" :size="14" /> Мои персонажи · {{ characterIdsOf(w.membership).length }}</button></template>
+                  <div class="menu">
+                    <template v-for="id in characterIdsOf(w.membership)" :key="id">
+                      <RouterLink v-if="charNames[`${w.id}/${id}`] !== null" class="menu-item" :to="{ name: 'entity', params: { wid: w.id, eid: id } }"><Icon name="user" :size="15" /> {{ charNames[`${w.id}/${id}`] || '…' }}</RouterLink>
+                    </template>
+                  </div>
+                </Dropdown>
                 <Dropdown placement="bottom-end">
                   <template #trigger><button class="icon-btn" title="Ещё"><Icon name="more-horizontal" /></button></template>
                   <div class="menu">

@@ -10,7 +10,8 @@ import EntityLink from '@/components/common/EntityLink.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import MultiSelect from '@/components/common/MultiSelect.vue'
 import { toast } from '@/components/common/toast'
-import type { Member, Role } from '@/model/types'
+import { characterIdsOf } from '@/data/access'
+import type { Entity, Member, Role } from '@/model/types'
 
 const props = defineProps<{ member: Member }>()
 const emit = defineEmits<{ close: [] }>()
@@ -35,8 +36,19 @@ function transfer() {
 }
 
 // ---------- character & extra rights ----------
-const character = computed(() => m.value.characterId ?? null)
-function setCharacter(id: string | null) { void act(() => world.updateMember(m.value.uid, { characterId: id }), id ? 'Персонаж назначен' : 'Персонаж снят') }
+// a member plays any number of characters, a character has one player (adding it here takes it from whoever had it)
+const characters = computed(() => characterIdsOf(m.value).map((id) => ({ id, e: world.getAny(id) })).map((c) => ({ ...c, e: c.e && !c.e.deleted ? c.e : null })))
+const addChar = ref<string | null>(null)
+function addCharacter(id: string | null) {
+  addChar.value = null
+  if (!id) return
+  const prev = world.playerOf(id)
+  if (prev?.uid === m.value.uid) return
+  const name = world.getAny(id)?.name ?? 'Персонаж'
+  void act(() => world.assignCharacter(id, m.value.uid), prev ? `«${name}» передан от ${prev.displayName}` : `«${name}» назначен`)
+}
+function removeCharacter(id: string) { void act(() => world.assignCharacter(id, null), 'Персонаж снят') }
+function openCharacter(e: Entity) { void act(() => world.openToMember(e, m.value), `${m.value.displayName} теперь видит «${e.name}»`) }
 const typeOptions = computed(() => allTypes().filter((t) => world.enabledTypes(t.key) && !world.settings.playerCreateTypes.includes(t.key)).map((t) => ({ value: t.key, label: t.plural, icon: t.icon, color: t.color })))
 const defaultTypes = computed(() => world.settings.playerCreateTypes.map((k) => typeDef(k).plural).join(', ') || 'ничего')
 function setCreateTypes(v: string[]) { void act(() => world.updateMember(m.value.uid, { createTypes: v }), 'Права обновлены') }
@@ -113,9 +125,14 @@ function viewAs() {
 
       <div class="mm-grid">
         <section class="card card-pad stack-sm">
-          <div class="section-title">Персонаж игрока</div>
-          <EntityPicker :model-value="character" :types="['character']" placeholder="Не назначен" @update:model-value="setCharacter" />
-          <span class="faint small">Ссылка «Мой персонаж» появится у участника в меню мира и в кабинете.</span>
+          <div class="section-title">Персонажи ({{ characters.length }})</div>
+          <div v-for="c in characters" :key="c.id" class="rel-row mm-char">
+            <span class="grow"><EntityLink v-if="c.e" :id="c.id" avatar /><span v-else class="faint">статья удалена</span></span>
+            <button v-if="c.e && !world.canMemberSee(m, c.e)" class="btn btn-sm" :disabled="busy" title="Участник не может открыть эту статью — открыть ему доступ" @click="openCharacter(c.e)"><Icon name="eye-off" :size="13" /> Открыть доступ</button>
+            <button class="icon-btn" title="Снять персонажа" :disabled="busy" @click="removeCharacter(c.id)"><Icon name="x" :size="15" /></button>
+          </div>
+          <EntityPicker :model-value="addChar" :types="['character']" :allow-create="false" placeholder="Добавить персонажа…" @update:model-value="addCharacter" />
+          <span class="faint small">Участник найдёт их в меню мира: «Мои персонажи». Закрепить персонажа можно и на его странице, в блоке «Игрок». У персонажа один игрок: если он был у другого участника, то перейдёт к этому.</span>
         </section>
         <section v-if="m.role === 'player'" class="card card-pad stack-sm">
           <div class="section-title">Может создавать</div>

@@ -75,3 +75,10 @@ export const VISIBILITY_LABELS: Record<Visibility, string> = {
 export const VISIBILITY_SHORT: Record<Visibility, string> = {
   public: 'Публично', members: 'Участники', custom: 'Выбранные', master: 'Мастер',
 }
+
+/** The characters a member plays (characterIds, plus the older single characterId). */
+export function characterIdsOf(m: { characterIds?: string[] | null; characterId?: string | null } | null | undefined): string[] {
+  if (!m) return []
+  const ids = [...(m.characterIds ?? []), ...(m.characterId ? [m.characterId] : [])]
+  return [...new Set(ids.filter(Boolean))]
+}

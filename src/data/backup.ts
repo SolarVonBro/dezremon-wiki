@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import { Bytes, GeoPoint, Timestamp, collection, doc, getDoc, getDocs, increment } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
 import { cache } from '@/data/cache'
-import { coll, docRef, isMasterRole, visibleQueries, type Access } from '@/data/access'
+import { characterIdsOf, coll, docRef, isMasterRole, visibleQueries, type Access } from '@/data/access'
 import { now, slugify } from '@/data/util'
 import type { Attribute, Entity, ImageMeta, Member, World } from '@/model/types'
 import {
@@ -424,7 +424,7 @@ export async function restoreWorld(
       const me: Member = {
         uid: user.uid, role: 'owner', displayName: user.displayName || user.email || 'Мастер', email: user.email ?? '',
         photoURL: user.photoURL ?? null, joinedAt: t, favorites: Array.isArray(prevMe?.favorites) ? prevMe.favorites : [],
-        characterId: prevMe?.characterId ?? null,
+        characterIds: characterIdsOf(prevMe),
       }
       const w = {
         description: '', isPublic: false, imageId: null, headerImageId: null, settings: {}, ...worldData,

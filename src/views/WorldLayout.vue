@@ -5,6 +5,7 @@ import { useWorld } from '@/stores/world'
 import { useSession } from '@/stores/session'
 import { allTypes } from '@/model/entityTypes'
 import { formatDate } from '@/data/util'
+import { cropOf } from '@/data/crop'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import QuickSearch from '@/components/layout/QuickSearch.vue'
@@ -137,11 +138,17 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         <button class="btn btn-primary" style="width: 100%" title="Создать статью (N)" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать</button>
       </div>
       <nav class="sb-section">
-        <RouterLink v-if="world.viewMember?.characterId && world.get(world.viewMember.characterId)" class="sb-link" :to="{ name: 'entity', params: { wid: world.wid ?? '', eid: world.viewMember.characterId } }"><Icon name="user" :size="17" style="color: var(--accent)" /> Мой персонаж</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }" active-class="" exact-active-class="active"><Icon name="layout-dashboard" :size="17" /> Обзор</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'search', params: { wid: world.wid ?? '' } }"><Icon name="text-search" :size="17" /> Поиск по текстам</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'graph', params: { wid: world.wid ?? '' } }"><Icon name="network" :size="17" /> Граф связей</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'gallery', params: { wid: world.wid ?? '' } }"><Icon name="images" :size="17" /> Галерея</RouterLink>
+      </nav>
+      <!-- the characters of this member (or of the player whose eyes the master looks through) -->
+      <nav v-if="world.viewCharacters.length" class="sb-section sb-chars">
+        <div class="sb-section-title">Мои персонажи</div>
+        <RouterLink v-for="c in world.viewCharacters" :key="c.id" class="sb-link" :to="{ name: 'entity', params: { wid: world.wid ?? '', eid: c.id } }">
+          <span class="sb-char-ava"><Thumb :id="c.imageId" :crop="cropOf(c)"><Icon name="user" :size="12" /></Thumb></span><span class="ellipsis">{{ c.name }}</span>
+        </RouterLink>
       </nav>
       <BookmarksNav />
       <WorldCampaignsNav />

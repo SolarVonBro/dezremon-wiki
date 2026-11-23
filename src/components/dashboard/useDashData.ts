@@ -32,7 +32,7 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
   const waiting = (b: DashBlock) => world.list
     .filter((e) => !world.backlinks.get(e.id)?.length && !SERVICE_TYPES.includes(e.type) && !e.excerpt)
     .slice(0, b.limit || 8)
-  const character = computed(() => world.get(world.viewMember?.characterId ?? null) ?? null)
+  const characters = computed(() => world.viewCharacters)
   const entity = (b: DashBlock) => world.get(b.entityId ?? null) ?? null
   const calendarExists = (b: DashBlock) => (b.calendarId ? !!world.get(b.calendarId) : (world.byType.get('calendar')?.length ?? 0) > 0)
   const links = (b: DashBlock) => (b.links ?? []).filter((l) => (l.entityId ? !!world.get(l.entityId) : !!safeUrl(l.url)))
@@ -82,7 +82,7 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
       case 'calendar': return calendarExists(b)
       case 'image': return !!b.imageId
       case 'links': return links(b).length > 0
-      case 'character': return !!character.value
+      case 'character': return characters.value.length > 0
       case 'campaigns': return campaigns.rows.length > 0 || (world.isMaster && !world.adminView)
       case 'random': return !!random(b)
       case 'waiting': return world.isMaster && waiting(b).length > 0
@@ -96,6 +96,6 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
     return true
   }
 
-  return { stats, pins, recent, list, waiting, character, entity, calendarExists, links, random, reroll, campaigns, hasContent, allowed }
+  return { stats, pins, recent, list, waiting, characters, entity, calendarExists, links, random, reroll, campaigns, hasContent, allowed }
 }
 export type DashData = ReturnType<typeof useDashData>

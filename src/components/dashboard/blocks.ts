@@ -27,7 +27,7 @@ export const BLOCK_KINDS: BlockKind[] = [
   { type: 'map', label: 'Карта', icon: 'map', description: 'Превью карты с метками, по клику — сама карта', defaults: { w: 6, entityId: null }, needsSetup: true },
   { type: 'image', label: 'Картинка', icon: 'image', description: 'Картинка из галереи мира с подписью', defaults: { w: 4, imageId: null, caption: '', fit: 'cover' }, needsSetup: true },
   { type: 'links', label: 'Быстрые ссылки', icon: 'link', description: 'Кнопки на статьи и внешние сайты: правила, Discord, виртуальный стол', defaults: { w: 4, links: [] }, needsSetup: true },
-  { type: 'character', label: 'Мой персонаж', icon: 'user', description: 'Персонаж игрока — каждый видит своего (у кого нет персонажа, блок не видит)', defaults: { w: 4 } },
+  { type: 'character', label: 'Мои персонажи', icon: 'user', description: 'Персонажи участника — каждый видит своих (у кого их нет, блок не видит)', defaults: { w: 4 } },
   { type: 'campaigns', label: 'Кампейны', icon: 'swords', description: 'Кампейны этого мира, в которых участвует зритель', defaults: { w: 4 } },
   { type: 'random', label: 'Случайная статья', icon: 'shuffle', description: 'Для вдохновения — новая при каждом открытии; только статьи с картинкой и текстом', defaults: { w: 4, types: [] } },
   { type: 'waiting', label: 'Ждут текста', icon: 'feather', description: 'Статьи без текста и без упоминаний', defaults: { w: 4, show: 'masters', limit: 8 } },

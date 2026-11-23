@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 import {
-  collection, collectionGroup, deleteDoc, disableNetwork, doc, enableNetwork, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc,
+  collection, collectionGroup, deleteDoc, deleteField, disableNetwork, doc, enableNetwork, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc,
   where, writeBatch, limit as qlimit, type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from '@/firebase'
@@ -9,7 +9,7 @@ import { useSession } from './session'
 import { isServiceAdmin } from '@/data/admin'
 import { cache } from '@/data/cache'
 import { syncCollection, type SyncHandle } from '@/data/sync'
-import { canSee, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
+import { canSee, characterIdsOf, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
 import { ensureImageAccess, imageIdsInHtml } from '@/data/images'
 import { watchWorldRequests } from '@/data/joinRequests'
 import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
@@ -74,6 +74,12 @@ export const useWorld = defineStore('world', () => {
   /** The member whose eyes we look through (self, or the previewed player). */
   const viewMember = computed<Member | null>(() => (preview.value?.uid ? members.value.find((m) => m.uid === preview.value!.uid) ?? null : preview.value ? null : member.value))
   const settings = computed<WorldSettings>(() => ({ ...DEFAULT_SETTINGS, ...(world.value?.settings ?? {}) }))
+  /** The characters of the member we look through (self, or the previewed player) that this view can open. */
+  const viewCharacters = computed(() => {
+    const arr = characterIdsOf(viewMember.value).map((id) => get(id)).filter((e): e is Entity => !!e)
+    sortByName(arr)
+    return arr
+  })
 
   // ---------- derived views ----------
   const list = computed(() => {
@@ -689,6 +695,34 @@ export const useWorld = defineStore('world', () => {
     await track(deleteDoc(docRef(wid.value!, 'members', memberUid)))
     await bumpAcl()
   }
+  /** The member who plays this character (null — nobody). */
+  function playerOf(characterId: string): Member | null {
+    return members.value.find((m) => characterIdsOf(m).includes(characterId)) ?? null
+  }
+  /**
+   * Masters: gives a character to a member, or to nobody (null). A character has one player, so it leaves whoever
+   * had it. Members that change also lose the older single characterId field (it is folded into characterIds).
+   */
+  async function assignCharacter(characterId: string, memberUid: string | null) {
+    const batch = writeBatch(db)
+    let n = 0
+    for (const m of members.value) {
+      const ids = characterIdsOf(m)
+      const want = m.uid === memberUid
+      if (ids.includes(characterId) === want) continue
+      batch.update(docRef(wid.value!, 'members', m.uid), { characterIds: want ? [...ids, characterId] : ids.filter((x) => x !== characterId), characterId: deleteField() })
+      n++
+    }
+    if (n) await track(batch.commit())
+  }
+  /** Whether this member may open the article (their own access, not the viewer's). */
+  function canMemberSee(m: Member, e: Entity): boolean {
+    return canSee({ wid: wid.value ?? '', uid: m.uid, role: m.role }, e, !!world.value?.isPublic)
+  }
+  /** Masters: lets one more member read a closed article (visibility «custom» with them in the list). */
+  async function openToMember(e: Entity, m: Member) {
+    await updateEntity(e.id, { visibility: 'custom', allowedUids: [...new Set([...(e.allowedUids ?? []), m.uid])] })
+  }
   /** Masters: non-role fields of a member (player character, extra create rights). */
   async function updateMember(memberUid: string, patch: Partial<Member>) {
     await track(updateDoc(docRef(wid.value!, 'members', memberUid), clean(patch)))
@@ -786,14 +820,14 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,
     watchRows, fetchRows, saveRow, deleteRow,
     saveRelation, deleteRelation, relationsOf, revisionsOf,
     updateWorld, updateSettings, bumpAcl, createInvite, watchInvites, deleteInvite, setMemberRole, removeMember, updateMyMember, memberName, toggleFavorite,
-    updateMember, banMember, unban, watchBans, transferOwnership, leaveWorld, deleteWorld, joinRequests, pendingRequestCount,
+    updateMember, playerOf, assignCharacter, canMemberSee, openToMember, banMember, unban, watchBans, transferOwnership, leaveWorld, deleteWorld, joinRequests, pendingRequestCount,
     typeDef,
   }
 })

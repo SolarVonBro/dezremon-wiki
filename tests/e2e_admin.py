@@ -100,7 +100,7 @@ with sync_playwright() as p:
         shot(own, 'a3-members-admin')
         own.locator('tr', has_text='Игрок Тест').get_by_role('button', name='Права').click()
         own.wait_for_selector('.mm', timeout=10000)
-        sec = own.locator('.mm .card', has_text='Персонаж игрока')
+        sec = own.locator('.mm .card', has_text='Персонажи (')
         sec.locator('.picker-btn').click(); own.locator('.picker-menu input').fill('Герой')
         own.locator('.picker-menu .menu-item', has_text='Герой игрока').click(); own.wait_for_timeout(1200)
         sec2 = own.locator('.mm .card', has_text='Может создавать')
@@ -114,8 +114,8 @@ with sync_playwright() as p:
 
     def player_sees():
         pl.goto(state['world']); pl.wait_for_selector('.dash-hero h1', timeout=20000); pl.wait_for_timeout(2500)
-        assert pl.locator('.my-char').count() == 1, 'no "my character" card'
-        assert pl.locator('.sidebar .sb-link', has_text='Мой персонаж').count() == 1
+        assert pl.locator('.dbv-chars', has_text='Герой игрока').count() == 1, 'no «Мои персонажи» block'
+        assert pl.locator('.sidebar .sb-chars .sb-link', has_text='Герой игрока').count() == 1
         pl.goto(state['world'] + '/t/note'); pl.wait_for_timeout(2500)
         assert pl.locator('.ecard', has_text='Тайна мастера').count() == 1, 'shared note not visible'
         pl.locator('.sidebar').get_by_role('button', name='Создать').click()

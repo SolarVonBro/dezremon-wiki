@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
 import { formatDate, relativeTime } from '@/data/util'
+import { characterIdsOf } from '@/data/access'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
@@ -89,7 +90,7 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
       </div>
       <div style="overflow-x: auto">
         <table class="table">
-          <thead><tr><th>Участник</th><th>Роль</th><th>Персонаж</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
+          <thead><tr><th>Участник</th><th>Роль</th><th>Персонажи</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
           <tbody>
             <tr v-for="m in members" :key="m.uid">
               <td>
@@ -105,7 +106,7 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
                 <span v-else class="badge" :class="{ 'badge-public': m.role === 'owner', 'badge-secret': m.role === 'master' }">{{ ROLE[m.role] }}</span>
                 <div v-if="m.createTypes?.length" class="faint small">+ права: {{ m.createTypes.length }}</div>
               </td>
-              <td><EntityLink v-if="m.characterId" :id="m.characterId" avatar /><span v-else class="faint">—</span></td>
+              <td><div v-if="characterIdsOf(m).length" class="stack-sm"><EntityLink v-for="id in characterIdsOf(m)" :key="id" :id="id" avatar /></div><span v-else class="faint">—</span></td>
               <td>{{ authoredBy.get(m.uid) ?? 0 }}</td>
               <td class="faint small nowrap">{{ m.lastSeenAt ? relativeTime(m.lastSeenAt) : '—' }}</td>
               <td class="faint small nowrap">{{ formatDate(m.joinedAt).split(',')[0] }}</td>

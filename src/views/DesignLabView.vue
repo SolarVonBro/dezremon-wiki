@@ -123,11 +123,15 @@ const PLAYLIST = [
             <div class="sb-search"><input class="input" placeholder="Найти статью… (Ctrl+K)" /></div>
             <div class="sb-section" style="padding-top: 0"><button class="btn btn-primary" style="width: 100%"><Icon name="plus" :size="16" /> Создать</button></div>
             <nav class="sb-section">
-              <a class="sb-link" href="#" @click.prevent><Icon name="user" :size="17" style="color: var(--accent)" /> Мой персонаж</a>
               <a class="sb-link" href="#" @click.prevent><Icon name="layout-dashboard" :size="17" /> Обзор</a>
               <a class="sb-link" href="#" @click.prevent><Icon name="text-search" :size="17" /> Поиск по текстам</a>
               <a class="sb-link" href="#" @click.prevent><Icon name="network" :size="17" /> Граф связей</a>
               <a class="sb-link" href="#" @click.prevent><Icon name="images" :size="17" /> Галерея</a>
+            </nav>
+            <nav class="sb-section">
+              <div class="sb-section-title">Мои персонажи</div>
+              <a class="sb-link" href="#" @click.prevent><span class="sb-char-ava"><img :src="P.arwen" alt="" /></span> Арвен Тихая</a>
+              <a class="sb-link" href="#" @click.prevent><span class="sb-char-ava"><img :src="P.kael" alt="" /></span> Кайл Ворон</a>
             </nav>
             <nav class="sb-section">
               <div class="sb-section-title">Закладки <Icon name="plus" :size="14" /></div>
@@ -144,7 +148,7 @@ const PLAYLIST = [
             </nav>
           </aside>
           <div class="dl-main">
-            <div class="preview-banner"><Icon name="eye" :size="16" /><span class="grow">Вы смотрите на мир глазами: <b>любой игрок</b>. Секреты мастера не показываются.</span><button class="btn btn-sm"><Icon name="x" :size="14" /> Выйти из просмотра</button></div>
+            <div class="preview-banner"><Icon name="eye" :size="16" /><span class="grow">Вы смотрите на мир глазами: <b>Анна</b>. Секреты мастера не показываются.</span><button class="btn btn-sm"><Icon name="x" :size="14" /> Выйти из просмотра</button></div>
             <div class="content">
               <section class="entity-hero has-header">
                 <div class="hero-img"><img :src="landscape" alt="" /></div>

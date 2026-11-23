@@ -132,6 +132,9 @@ export interface Member {
   photoURL: string | null
   joinedAt: number
   inviteCode?: string
+  /** Characters this member plays (articles of type character); a character belongs to at most one member. */
+  characterIds?: string[]
+  /** Before many characters per member: the one character. Read as part of characterIds; dropped on the next change. */
   characterId?: string | null
   favorites?: string[]
   /** Extra sections this member may create (on top of settings.playerCreateTypes). Set by masters. */

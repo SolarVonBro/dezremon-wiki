@@ -192,13 +192,15 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
       <p v-if="!linkRows.length" class="dbv-empty">Ссылок пока нет.</p>
     </template>
 
-    <!-- ============ my character ============ -->
+    <!-- ============ my characters ============ -->
     <template v-else-if="b.type === 'character'">
-      <RouterLink v-if="data.character.value" class="row gap" style="align-items: flex-start; color: var(--text)" :to="to(data.character.value)">
-        <span class="avatar avatar-lg"><Thumb :id="data.character.value.imageId" :crop="cropOf(data.character.value)"><Icon name="user" /></Thumb></span>
-        <span><b style="font-family: var(--font-head); font-size: 22px">{{ data.character.value.name }}</b><br /><span class="muted small">{{ data.character.value.fields?.title || data.character.value.kind }}</span><br /><span class="faint small">{{ text(data.character.value) }}</span></span>
-      </RouterLink>
-      <p v-else class="dbv-empty">Здесь игрок увидит своего персонажа (персонажа назначает мастер в «Участниках»). Кому не назначен — блок не показывается.</p>
+      <div v-if="data.characters.value.length" class="dbv-chars">
+        <RouterLink v-for="c in data.characters.value" :key="c.id" class="row gap" style="align-items: flex-start; color: var(--text)" :to="to(c)">
+          <span class="avatar avatar-lg"><Thumb :id="c.imageId" :crop="cropOf(c)"><Icon name="user" /></Thumb></span>
+          <span><b style="font-family: var(--font-head); font-size: 22px">{{ c.name }}</b><br /><span class="muted small">{{ c.fields?.title || c.kind }}</span><br /><span class="faint small">{{ text(c) }}</span></span>
+        </RouterLink>
+      </div>
+      <p v-else class="dbv-empty">Здесь участник увидит своих персонажей (их закрепляет мастер — на странице персонажа или в «Участниках»). У кого персонажей нет — блок не показывается.</p>
     </template>
 
     <!-- ============ campaigns ============ -->
@@ -276,6 +278,7 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 
 .dbv-random-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .dbv-links { display: flex; flex-direction: column; gap: 6px; }
+.dbv-chars { display: flex; flex-direction: column; gap: 14px; }
 .dbv-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none !important; background: var(--surface); transition: border-color .12s, background .12s; }
 .dbv-link:hover { border-color: var(--accent); background: var(--surface-2); }
 .dbv-link > .grow { display: flex; flex-direction: column; min-width: 0; }
