@@ -13,7 +13,8 @@ import { canSee, characterIdsOf, coll, docRef, isMasterRole, narrows, visibleQue
 import { ensureImageAccess, imageIdsInHtml } from '@/data/images'
 import { watchWorldRequests } from '@/data/joinRequests'
 import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
-import { clean, excerptOf, htmlToText, now, randomId, sortByName } from '@/data/util'
+import { clean, excerptOf, htmlToText, now, plural, randomId, sortByName } from '@/data/util'
+import { CHAR_TAG_COLOUR, CHAR_TYPE_KIND, CHAR_TYPES, charTypeFix, charTypeOfKind, type CharTagIds, type CharType } from '@/data/charType'
 import { setCustomTypes, typeDef } from '@/model/entityTypes'
 import type {
   Attribute, Ban, Entity, Invite, JoinRequest, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
@@ -108,6 +109,23 @@ export const useWorld = defineStore('world', () => {
     return m
   })
   const tags = computed(() => byType.value.get('tag') ?? [])
+  /** The PC / NPC tags of the world in any state (src/data/charType.ts); a live one wins over one in the trash. */
+  const charTagsAll = computed(() => {
+    const out: Partial<Record<CharType, Entity>> = {}
+    for (const e of entities.value.values()) {
+      const t: unknown = e.type === 'tag' && !e.isTemplate ? e.fields?.charType : null
+      if (!CHAR_TYPES.includes(t as CharType)) continue
+      const k = t as CharType
+      if (!out[k] || (out[k]!.deleted && !e.deleted)) out[k] = e
+    }
+    return out
+  })
+  /** Ids of the PC / NPC tags in use: a tag moved to the trash is no longer put on characters. */
+  const charTagIds = computed<CharTagIds>(() => {
+    const out: CharTagIds = {}
+    for (const t of CHAR_TYPES) if (charTagsAll.value[t] && !charTagsAll.value[t]!.deleted) out[t] = charTagsAll.value[t]!.id
+    return out
+  })
   const recent = computed(() => [...list.value].sort((a, b) => b.updatedAt - a.updatedAt))
   const visibleRelations = computed(() => {
     const a = viewAccess.value
@@ -364,11 +382,18 @@ export const useWorld = defineStore('world', () => {
     for (const t of byType.value.get('attribute_template') ?? []) {
       if (t.fields?.autoType === type) for (const at of t.attributes) tmplAttrs.push({ ...at, id: randomId(8) })
     }
-    return normalizeEntity({
+    const e = normalizeEntity({
       id: doc(coll(wid.value!, 'entities')).id, type, name: name.trim() || 'Без названия',
       tagIds: autoTags, attributes: tmplAttrs, visibility: defaultVisibility(), allowedUids: [],
       ...stamp(), ...extra,
     })
+    return { ...e, ...charTypeFix(null, e, charTagIds.value) }
+  }
+
+  /** A change of a character's type or tags: adds the matching change of the other (PC / NPC tags ↔ «Тип»). */
+  function withCharType(prev: Entity, patch: Partial<Entity>): Partial<Entity> {
+    if (prev.type !== 'character' || !('kind' in patch || 'tagIds' in patch)) return patch
+    return { ...patch, ...charTypeFix(prev, normalizeEntity({ ...prev, ...patch }), charTagIds.value) }
   }
 
   async function createEntity(type: string, name: string, extra: Partial<Entity> = {}, html = ''): Promise<string> {
@@ -394,9 +419,10 @@ export const useWorld = defineStore('world', () => {
     return { html, rev, visibility: e.visibility, allowedUids: e.allowedUids ?? [], createdBy: e.createdBy, updatedAt: now(), updatedBy: uid.value }
   }
 
-  async function updateEntity(id: string, patch: Partial<Entity>) {
+  async function updateEntity(id: string, change: Partial<Entity>) {
     const prev = entities.value.get(id)
     if (!prev) return
+    const patch = withCharType(prev, change)
     const next = normalizeEntity({ ...prev, ...patch, updatedAt: now(), updatedBy: uid.value })
     entities.value = new Map(entities.value).set(id, next)
     const batch = writeBatch(db)
@@ -434,8 +460,9 @@ export const useWorld = defineStore('world', () => {
       const m = new Map(entities.value)
       let n = 0
       for (const prev of todo.slice(i, i + 200)) {
-        const patch = patchFor(prev)
-        if (!patch) continue
+        const change = patchFor(prev)
+        if (!change) continue
+        const patch = withCharType(prev, change)
         const next = normalizeEntity({ ...prev, ...patch, updatedAt: now(), updatedBy: uid.value })
         m.set(prev.id, next)
         batch.update(docRef(w, 'entities', prev.id), clean({ ...patch, updatedAt: next.updatedAt, updatedBy: next.updatedBy }))
@@ -812,6 +839,68 @@ export const useWorld = defineStore('world', () => {
   })
   const pendingRequestCount = computed(() => joinRequests.value.filter((r) => r.status === 'pending').length)
 
+  // ---------- PC / NPC tags: every world has them; a master's visit creates missing ones ----------
+  const charTagsChecked = new Set<string>()
+  watch(() => [wid.value, status.value, member.value?.role] as const, ([w, st, r]) => {
+    if (!w || st !== 'ready' || !isMasterRole(r) || charTagsChecked.has(w)) return
+    charTagsChecked.add(w)
+    void ensureCharTags().catch((e) => console.warn('PC/NPC tags', e))
+  })
+
+  /**
+   * Creates the PC and NPC tags if the world has none (a tag already named «PC» / «NPC» becomes that tag; one the
+   * masters moved to the trash stays there), then puts them on characters whose type says so and gives a type to
+   * untyped characters that carry exactly one of them (articles made before the tags existed, imports).
+   */
+  async function ensureCharTags() {
+    const w = wid.value
+    if (!w) return
+    const token = openToken
+    const batch = writeBatch(db)
+    const local = new Map(entities.value)
+    let created = 0
+    for (const t of CHAR_TYPES) {
+      if (charTagsAll.value[t]) continue
+      const name = CHAR_TYPE_KIND[t]
+      const same = [...local.values()].find((e) => e.type === 'tag' && !e.isTemplate && !e.deleted && !e.fields?.charType && e.name.trim().toLowerCase() === name.toLowerCase())
+      if (same) {
+        const fields = { ...same.fields, charType: t }
+        batch.update(docRef(w, 'entities', same.id), { fields, updatedAt: now(), updatedBy: uid.value })
+        local.set(same.id, { ...same, fields, updatedAt: now() })
+      } else {
+        const html = `<p>${t === 'pc' ? 'Персонажи игроков' : 'Неигровые персонажи'}. Тег ставится и снимается сам: по типу «${name}» в карточке персонажа.</p>`
+        const e = normalizeEntity({
+          id: `tag-${t}`, type: 'tag', name, fields: { colour: CHAR_TAG_COLOUR[t], charType: t },
+          visibility: world.value?.isPublic ? 'public' : 'members', allowedUids: [], excerpt: excerptOf(html), bodyRev: 1, ...stamp(),
+        })
+        batch.set(docRef(w, 'entities', e.id), clean(e))
+        batch.set(docRef(w, 'bodies', e.id), bodyDoc(e, html, 1))
+        local.set(e.id, e)
+      }
+      created++
+    }
+    if (created) {
+      entities.value = local
+      await track(batch.commit(), 'Теги PC и NPC')
+    }
+    if (token !== openToken) return
+    const ids = charTagIds.value
+    const fix = (e: Entity): Partial<Entity> | null => {
+      if (e.type !== 'character' || e.deleted) return null
+      if (charTypeOfKind(e.kind)) {
+        const p = charTypeFix({ kind: '', tagIds: e.tagIds }, e, ids)
+        return Object.keys(p).length ? p : null
+      }
+      if (e.kind.trim()) return null
+      const has = CHAR_TYPES.filter((t) => ids[t] && e.tagIds.includes(ids[t]!))
+      return has.length === 1 ? { kind: CHAR_TYPE_KIND[has[0]] } : null
+    }
+    const todo = [...entities.value.values()].filter((e) => fix(e))
+    if (!todo.length) return
+    await bulkUpdateEntities(todo.map((e) => e.id), fix)
+    toast.success(`Теги PC и NPC расставлены по типам: ${todo.length} ${plural(todo.length, 'персонаж', 'персонажа', 'персонажей')}`)
+  }
+
   function toggleFavorite(id: string) {
     const fav = new Set(member.value?.favorites ?? [])
     if (fav.has(id)) fav.delete(id); else fav.add(id)
@@ -820,7 +909,7 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, charTagIds, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '@/components/common/Modal.vue'
 import Icon from '@/components/common/Icon.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import VisibilitySelect from '@/components/common/VisibilitySelect.vue'
+import CharTypeSwitch from '@/components/entity/CharTypeSwitch.vue'
 import { useWorld } from '@/stores/world'
 import { allTypes, typeDef } from '@/model/entityTypes'
 import { randomId } from '@/data/util'
+import { CHAR_TYPE_KIND, charTypeOfKind, type CharType } from '@/data/charType'
 import type { Visibility } from '@/model/types'
 
 const props = defineProps<{ initialType?: string | null; parentId?: string | null }>()
@@ -23,18 +25,34 @@ const busy = ref(false)
 const templates = computed(() => (type.value ? (world.byType.get(type.value) ?? []).filter((e) => e.isTemplate) : []))
 const def = computed(() => (type.value ? typeDef(type.value) : null))
 
+// characters: PC / NPC / no type (the «Тип» field; the PC / NPC tags follow) and «a player's character»: the new
+// character goes to a member (a player creating it — to themselves) and only that member and the masters see it
+const isChar = computed(() => type.value === 'character')
+const charType = ref<CharType | null>(null)
+const own = ref(false)
+const owners = computed(() => [...world.members].sort((a, b) => Number(a.role !== 'player') - Number(b.role !== 'player') || a.displayName.localeCompare(b.displayName)))
+const ownerUid = ref<string | null>(world.isMaster ? (world.players[0]?.uid ?? world.uid) : world.uid)
+const ownerIsMe = computed(() => ownerUid.value === world.uid)
+const ownerName = computed(() => (ownerIsMe.value ? 'вы' : world.memberName(ownerUid.value ?? '')))
+watch(own, (v) => { if (v && !charType.value) charType.value = 'pc' })
+watch(templateId, (id) => { const t = charTypeOfKind(id ? world.get(id)?.kind : null); if (t) charType.value = t })
+
 async function create() {
   if (!type.value || !name.value.trim() || busy.value) return
   busy.value = true
   try {
-    let extra: Record<string, any> = { parentId: parent.value, ...vis.value }
+    const owner = isChar.value && own.value ? ownerUid.value : null
+    let extra: Record<string, any> = { parentId: parent.value, ...(owner ? { visibility: 'custom', allowedUids: [owner] } : vis.value) }
     let html = ''
     const tpl = templateId.value ? world.get(templateId.value) : null
     if (tpl) {
       extra = { ...extra, kind: tpl.kind, fields: JSON.parse(JSON.stringify(tpl.fields ?? {})), attributes: tpl.attributes.map((a) => ({ ...a, id: randomId(8) })), tagIds: [...tpl.tagIds] }
       html = await world.loadText(tpl.id)
     }
+    // the chosen type wins over the template's; «no type» keeps a free-form type of the template («бог»)
+    if (isChar.value) extra.kind = charType.value ? CHAR_TYPE_KIND[charType.value] : (tpl && !charTypeOfKind(tpl.kind) ? tpl.kind : '')
     const id = await world.createEntity(type.value, name.value, extra, html)
+    if (owner) void world.assignCharacter(id, owner)
     emit('created', id)
   } finally { busy.value = false }
 }
@@ -54,7 +72,15 @@ async function create() {
       <label v-if="templates.length" class="field"><span>Шаблон</span>
         <select v-model="templateId" class="input"><option :value="null">Без шаблона</option><option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option></select>
       </label>
-      <div class="field"><span>Кто видит</span><VisibilitySelect v-model="vis" /></div>
+      <div v-if="isChar" class="field"><span>Тип персонажа</span><CharTypeSwitch v-model="charType" /></div>
+      <div v-if="isChar" class="own-box stack-sm">
+        <label class="check"><input v-model="own" type="checkbox" /> {{ world.isMaster ? 'Персонаж игрока — закрепить за участником' : 'Мой персонаж — закрепить за мной' }}</label>
+        <select v-if="own && world.isMaster" v-model="ownerUid" class="input input-sm" aria-label="Чей персонаж">
+          <option v-for="m in owners" :key="m.uid" :value="m.uid">{{ m.displayName }}{{ m.uid === world.uid ? ' (вы)' : m.role !== 'player' ? ' (мастер)' : '' }}</option>
+        </select>
+        <span v-if="own" class="faint small">Статью увидят только {{ ownerName }} и мастера, а в меню мира она появится в разделе «Мои персонажи»{{ ownerIsMe ? '' : ' у игрока' }}. Видимость можно поменять позже.</span>
+      </div>
+      <div v-if="!(isChar && own)" class="field"><span>Кто видит</span><VisibilitySelect v-model="vis" /></div>
       <div class="row gap wrap">
         <button class="btn btn-primary" :disabled="!name.trim() || busy"><Icon name="plus" :size="16" /> Создать и редактировать</button>
         <button v-if="!initialType" type="button" class="btn btn-ghost" @click="type = null">Другой тип</button>
@@ -68,4 +94,5 @@ async function create() {
 .type-tile { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; font-weight: 500; text-align: left; }
 .type-tile .icon { color: var(--c); }
 .type-tile:hover { border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, var(--surface)); }
+.own-box { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
 </style>

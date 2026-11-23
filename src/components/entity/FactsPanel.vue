@@ -5,6 +5,8 @@ import { typeDef, allTypes, type FieldDef } from '@/model/entityTypes'
 import Icon from '@/components/common/Icon.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
+import CharTypeSwitch from './CharTypeSwitch.vue'
+import { CHAR_TYPE_KIND, charTypeOfKind, type CharType } from '@/data/charType'
 import type { Entity } from '@/model/types'
 
 const props = defineProps<{ entity: Entity; editing: boolean }>()
@@ -15,9 +17,11 @@ const def = computed(() => typeDef(props.entity.type))
 const kind = ref(props.entity.kind)
 const aliases = ref(props.entity.aliases.join(', '))
 const local = ref<Record<string, any>>({ ...props.entity.fields })
+const kindInput = ref<HTMLInputElement | null>(null)
 watch(() => props.entity, (e) => {
+  // the type also changes from the PC / NPC switch and the tags: keep it fresh unless it is being typed
+  if (document.activeElement !== kindInput.value) kind.value = e.kind
   if (document.activeElement?.closest('.facts-edit')) return
-  kind.value = e.kind
   aliases.value = e.aliases.join(', ')
   local.value = { ...e.fields }
 })
@@ -27,6 +31,11 @@ function setField(key: string, value: any) {
   void world.updateEntity(props.entity.id, { fields: { ...props.entity.fields, [key]: value } })
 }
 function saveKind() { if (kind.value !== props.entity.kind) void world.updateEntity(props.entity.id, { kind: kind.value.trim() }) }
+// characters: PC / NPC / no type is the same «Тип» field (the PC / NPC tags follow it in the store)
+function setCharType(t: CharType | null) {
+  kind.value = t ? CHAR_TYPE_KIND[t] : ''
+  saveKind()
+}
 function saveAliases() {
   const list = aliases.value.split(',').map((s) => s.trim()).filter(Boolean)
   if (list.join(',') !== props.entity.aliases.join(',')) void world.updateEntity(props.entity.id, { aliases: list })
@@ -83,7 +92,8 @@ const PAIR_PRIVATE_HINT = 'Для скрытых от игроков детал�
       </template>
     </dl>
     <div v-else class="stack-sm">
-      <label class="field"><span>Тип (подтип)</span><input v-model="kind" class="input input-sm" :placeholder="def.kindPlaceholder" @blur="saveKind" /></label>
+      <div v-if="entity.type === 'character'" class="field"><span>Тип персонажа</span><CharTypeSwitch compact :model-value="charTypeOfKind(entity.kind)" @update:model-value="setCharType" /></div>
+      <label class="field"><span>Тип (подтип)</span><input ref="kindInput" v-model="kind" class="input input-sm" :placeholder="def.kindPlaceholder" @blur="saveKind" /></label>
       <label v-if="def.parentLabel" class="field"><span>{{ def.parentLabel }}</span><EntityPicker :model-value="entity.parentId" :types="[entity.type]" :exclude="[entity.id]" @update:model-value="setParent" /></label>
       <template v-for="f in def.fields" :key="f.key">
         <label v-if="f.kind === 'text' || f.kind === 'number'" class="field"><span>{{ f.label }}</span>
