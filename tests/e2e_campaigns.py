@@ -256,6 +256,21 @@ with sync_playwright() as p:
     check(gm.locator('th', has_text='Цвет').count() == 1 and gm.locator('tr', has_text='Вторая Лавина').locator('.badge', has_text='кампейн').count() == 1, 'table: colour column and the campaign mark')
     gm.locator('button[title="Карточки"]').click()
 
+    print('== the sidebar shows running and preparing campaigns only')
+    for cc, st in [('old1', 'finished'), (cid, 'planning')]:
+        rest('PATCH', f'{FS}/campaigns/{cc}?updateMask.fieldPaths=status&updateMask.fieldPaths=updatedAt', {'fields': {'status': enc(st), 'updatedAt': enc(int(time.time() * 1000))}})
+    sb = gm.locator('.sidebar')
+    check(wait_for(lambda: sb.locator('.sb-link', has_text='Старая игра').count() == 0), 'a finished campaign is not in the sidebar')
+    check(sb.locator('.sb-link', has_text='Вторая Лавина').count() == 1 and 'готовится' in sb.locator('.sb-link', has_text='Третья кампания 2').inner_text(), 'running and preparing ones are, the latter marked')
+    names = [x.strip().splitlines()[0] for x in sb.locator('.sb-link[href*="/campaigns/"]').all_inner_texts()]
+    check(names[:2] == ['Вторая Лавина', 'Третья кампания 2'], f'running first ({names})')
+    more = sb.locator('.sb-more')
+    check(more.count() == 1 and 'Остальные: 1' in more.inner_text(), 'a link to the others')
+    gm.screenshot(path=os.path.join(OUT, 'k-8-sidebar.png'), clip={'x': 0, 'y': 300, 'width': 280, 'height': 420})
+    more.click(); gm.wait_for_url(f'**/w/{W}/campaigns', timeout=10000)
+    check(gm.locator('.camp-card', has_text='Старая игра').count() == 1, 'the page of the world still lists all of them')
+    rest('PATCH', f'{FS}/campaigns/old1?updateMask.fieldPaths=status', {'fields': {'status': enc('active')}})
+
     print('== a player')
     an = page()
     login(an, AN)
