@@ -16,6 +16,7 @@ import type { CustomType, Invite, Role, Visibility } from '@/model/types'
 
 const BackupPanel = defineAsyncComponent(() => import('@/components/modules/BackupPanel.vue'))
 const MembersAdmin = defineAsyncComponent(() => import('@/components/admin/MembersAdmin.vue'))
+const WorldThemePicker = defineAsyncComponent(() => import('@/components/admin/WorldThemePicker.vue'))
 const route = useRoute()
 const router = useRouter()
 const world = useWorld()
@@ -164,6 +165,7 @@ async function publishAll(to: 'public' | 'members') {
           </div>
         </div>
       </section>
+      <WorldThemePicker />
       <section class="card card-pad stack">
         <h3 class="panel-title"><Icon name="globe" /> Доступ</h3>
         <label class="check"><input type="checkbox" :checked="world.world?.isPublic" @change="togglePublic" /> Открытый мир: статьи с видимостью «всем» читаются без входа</label>

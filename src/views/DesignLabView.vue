@@ -1,16 +1,13 @@
 <script setup lang="ts">
 // Design lab (#/design, not linked anywhere): every kind of UI the site has, drawn statically with the site's own
-// classes, under the candidate designs (variants.css). No real logic — a place to compare looks.
+// classes, under each world theme (src/themes). No real logic — a place to compare looks.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '@/components/common/Icon.vue'
 import AppBar from '@/components/layout/AppBar.vue'
-import { DESIGNS, LAB_FONTS } from './design-lab/designs'
+import { ALL_FONTS, DESIGNS } from '@/themes/designs'
 import { castle, forest, landscape, mapArt, portrait } from './design-lab/art'
 import './design-lab/lab.css'
-import './design-lab/variants.css'
-import './design-lab/variants2.css'
-import './design-lab/variants3.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,7 +35,7 @@ function go(id: string) { document.getElementById('dl-' + id)?.scrollIntoView({ 
 let fontLinks: HTMLLinkElement[] = []
 onMounted(() => {
   document.addEventListener('keydown', onKey)
-  fontLinks = LAB_FONTS.map((href) => {
+  fontLinks = ALL_FONTS.map((href) => {
     const l = document.createElement('link')
     l.rel = 'stylesheet'
     l.href = href
@@ -83,14 +80,14 @@ const PLAYLIST = [
 </script>
 
 <template>
-  <div class="dlab" :data-design="cur.id">
+  <div class="dlab wtheme" :data-wtheme="cur.id">
     <!-- ======================= switcher ======================= -->
     <header class="dl-switch">
       <div class="dl-switch-row">
         <span class="dl-title"><Icon name="palette" :size="18" /> Лаборатория дизайна</span>
         <div class="dl-designs" role="tablist">
           <template v-for="(d, i) in DESIGNS" :key="d.id">
-            <span v-if="d.startsSet" class="dl-sep" :title="d.startsSet" aria-hidden="true" />
+            <span v-if="d.startsSet && i > 0" class="dl-sep" :title="d.startsSet" aria-hidden="true" />
             <button class="dl-design" :class="{ on: d.id === cur.id }" role="tab" :aria-selected="d.id === cur.id" :title="d.mood + (i < 10 ? ' (клавиша ' + ((i + 1) % 10) + ')' : '')" @click="pick(d.id)">
               <span class="dl-sw"><i v-for="c in d.swatch" :key="c" :style="{ background: c }" /></span>
               <span><b>{{ i + 1 }}</b> {{ d.name }}</span>

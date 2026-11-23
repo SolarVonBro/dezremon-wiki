@@ -8,11 +8,16 @@ import {
 } from 'firebase/auth'
 import { collectionGroup, deleteDoc, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
+import { setUserTheme, type UserTheme } from '@/themes/apply'
 
-export type ThemeMode = 'auto' | 'dark' | 'light' | 'parchment'
+export type ThemeMode = UserTheme
 
 function readTheme(): ThemeMode {
-  try { return (localStorage.getItem('dw.theme') as ThemeMode) || 'auto' } catch { return 'auto' }
+  let t: string | null = null
+  try { t = localStorage.getItem('dw.theme') } catch { /* private mode */ }
+  // the old «Пергамент» theme is gone; it was a light one
+  if (t === 'parchment') return 'light'
+  return t === 'dark' || t === 'light' ? t : 'auto'
 }
 
 export type TextSize = 's' | 'm' | 'l' | 'xl'
@@ -50,7 +55,7 @@ export const useSession = defineStore('session', () => {
 
   watch(theme, (t) => {
     try { localStorage.setItem('dw.theme', t) } catch { /* private mode */ }
-    applyTheme(t)
+    setUserTheme(t)
   }, { immediate: true })
 
   async function signInGoogle() {
@@ -148,12 +153,6 @@ export const useSession = defineStore('session', () => {
     rev, providers, updateDisplayName, changePassword, addPassword, linkGoogle, unlinkProvider, sendVerification, deleteAccount,
   }
 })
-
-export function applyTheme(t: ThemeMode) {
-  const root = document.documentElement
-  if (t === 'auto') root.removeAttribute('data-theme')
-  else root.setAttribute('data-theme', t)
-}
 
 export function authErrorText(e: any): string {
   const code = String(e?.code ?? '')

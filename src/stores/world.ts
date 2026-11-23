@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   dashboardPins: [],
   mainCalendarId: null,
   accent: null,
+  theme: null,
 }
 
 type Status = 'idle' | 'loading' | 'ready' | 'denied' | 'error'

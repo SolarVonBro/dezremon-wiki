@@ -2,6 +2,8 @@
 import { useRouter } from 'vue-router'
 import { useSession, type ThemeMode } from '@/stores/session'
 import { useWorld } from '@/stores/world'
+import { activeWorldTheme } from '@/themes/apply'
+import { designById } from '@/themes/designs'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
 
@@ -16,7 +18,6 @@ const THEMES: Array<{ v: ThemeMode; label: string; icon: string }> = [
   { v: 'auto', label: 'Как в системе', icon: 'sliders-horizontal' },
   { v: 'dark', label: 'Тёмная', icon: 'moon' },
   { v: 'light', label: 'Светлая', icon: 'sun' },
-  { v: 'parchment', label: 'Пергамент', icon: 'scroll' },
 ]
 async function logout() { await session.signOut(); world.close(); void router.push('/') }
 </script>
@@ -40,6 +41,7 @@ async function logout() { await session.signOut(); world.close(); void router.pu
         <div class="menu-sep" />
       </template>
       <div class="menu-label">Тема оформления</div>
+      <div v-if="activeWorldTheme" class="menu-note">В этом мире действует тема мира «{{ designById(activeWorldTheme)?.name }}» — ваша тема вернётся за его пределами.</div>
       <button v-for="t in THEMES" :key="t.v" class="menu-item" :class="{ on: session.theme === t.v }" @click="session.theme = t.v"><Icon :name="t.icon" :size="15" /> {{ t.label }}</button>
       <div class="menu-sep" />
       <button v-if="session.user" class="menu-item" @click="logout"><Icon name="log-out" :size="15" /> Выйти</button>
@@ -51,4 +53,5 @@ async function logout() { await session.signOut(); world.close(); void router.pu
 <style scoped>
 .user-btn { padding: 3px 5px; gap: 8px; max-width: 220px; border-radius: 999px; }
 .user-ava { width: 30px; height: 30px; }
+.menu-note { max-width: 240px; padding: 2px 10px 6px; font-size: 12.5px; line-height: 1.35; color: var(--text-muted); }
 </style>

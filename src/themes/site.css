@@ -1,0 +1,3 @@
+/* World themes on the site: <html data-wtheme> paints the theme's background itself (themes*.css: gradients, fixed),
+   so the body lets it show through. */
+:root[data-wtheme] body { background: transparent; }

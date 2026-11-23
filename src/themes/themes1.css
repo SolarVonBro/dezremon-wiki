@@ -1,0 +1,380 @@
+/* World themes, set 1 (dark). A world may pick one in its settings (world.settings.theme): on that world's pages
+   <html data-wtheme="<id>"> carries it, over the reader's own light/dark choice (src/themes/apply.ts). The design lab
+   (#/design) shows every theme on a `.wtheme[data-wtheme]` element. Each block sets the design tokens (base.css names)
+   and restyles components where tokens are not enough. --ui-size is the interface text size; article text follows the
+   reader's text size setting (--prose-size) with the theme's offset. */
+
+/* =====================================================================================================
+   1. ОБСИДИАН — dark magic: glass panels, violet/cyan glow, wide geometric headings
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='obsidian'] {
+  --font-ui: 'Manrope', system-ui, sans-serif;
+  --font-text: 'Manrope', system-ui, sans-serif;
+  --font-head: 'Unbounded', 'Manrope', sans-serif;
+  --radius: 14px; --radius-sm: 9px;
+  --bg: #09080f; --surface: #12101c; --surface-2: #1a1727; --surface-3: #252036;
+  --border: #262137; --border-strong: #3a3352;
+  --text: #ece9f7; --text-muted: #a39dbd; --text-faint: #6f6a88;
+  --accent: #9d7bff; --accent-2: #b69bff; --accent-fg: #0d0a18;
+  --accent-soft: rgb(157 123 255 / 16%);
+  --glow: #5ee7ff;
+  --danger: #ff6b8b; --success: #5be3a6; --warning: #ffc266; --info: #5ec8ff;
+  --link: #bba6ff; --code-bg: #0f0d18; --secret: #ff7ad9;
+  --shadow: inset 0 1px 0 rgb(255 255 255 / 4%), 0 14px 34px -14px rgb(0 0 0 / 80%);
+  --shadow-lg: 0 24px 60px -12px rgb(0 0 0 / 85%), 0 0 0 1px rgb(157 123 255 / 16%);
+  background:
+    radial-gradient(900px 600px at 10% -10%, rgb(124 77 255 / 22%), transparent 60%),
+    radial-gradient(700px 500px at 100% 25%, rgb(94 231 255 / 9%), transparent 60%),
+    radial-gradient(800px 600px at 40% 110%, rgb(255 92 200 / 8%), transparent 60%), var(--bg);
+  background-attachment: fixed;
+}
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(h1, h2, h3, h4, .panel-title, .hero-name, .modal-head h3) { font-weight: 600; letter-spacing: -.01em; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .hero-name { font-size: 34px; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.panel-title, .dl-rand-name, .dbv-entity-name, .dl-now-title) { font-size: 15px; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.ecard-name, .dl-wcard-name) { font-size: 16px; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .dl-cal-date { font-size: 24px; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .dash-hero h1 { font-size: 40px; background: linear-gradient(90deg, #fff, #cbbaff 45%, #7ee9ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.card, .ecard, .menu, .modal, .dl-wcard, .preview-card) {
+  background: linear-gradient(180deg, rgb(255 255 255 / 4.5%), rgb(255 255 255 / 1.2%)), rgb(18 16 28 / 82%);
+  border-color: rgb(157 123 255 / 15%); backdrop-filter: blur(10px);
+}
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.ecard, .dl-wcard):hover { border-color: rgb(157 123 255 / 55%); box-shadow: 0 0 0 1px rgb(157 123 255 / 25%), 0 18px 40px -16px rgb(124 92 255 / 55%); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .btn { background: rgb(255 255 255 / 3%); border-color: var(--border-strong); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .btn:hover:not(:disabled) { border-color: rgb(157 123 255 / 65%); background: rgb(157 123 255 / 8%); box-shadow: 0 0 0 3px rgb(157 123 255 / 12%); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.btn-primary, .dl-play) {
+  background: linear-gradient(135deg, #a78bfa, #6d5dfc 55%, #4f7cff); border-color: transparent; color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%), 0 10px 26px -10px rgb(124 92 255 / 90%);
+}
+:is(:root, .wtheme)[data-wtheme='obsidian'] .btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, #b9a1ff, #7c6dff 55%, #5d8bff); color: #fff; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .btn-ghost { background: transparent; border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .input { background: rgb(255 255 255 / 3%); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] :is(.input:focus, .input.dl-focus) { border-color: var(--glow); box-shadow: 0 0 0 3px rgb(94 231 255 / 14%), 0 0 18px -4px rgb(94 231 255 / 45%); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .chip.on { background: linear-gradient(135deg, #a78bfa, #5ec8ff); border-color: transparent; color: #0b0816; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .tab.on { color: #fff; border-bottom-color: var(--accent); box-shadow: 0 10px 14px -12px var(--accent); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .sidebar { background: rgb(14 12 22 / 72%); backdrop-filter: blur(12px); border-right-color: var(--border); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .sb-link.active { background: linear-gradient(90deg, rgb(157 123 255 / 24%), transparent); box-shadow: inset 2px 0 0 var(--accent); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .app-nav a.on { background: linear-gradient(135deg, rgb(157 123 255 / 26%), rgb(94 231 255 / 10%)); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .topbar { background: rgb(9 8 15 / 72%); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .prose h2 { border-bottom: 1px solid; border-image: linear-gradient(90deg, var(--accent), transparent 70%) 1; }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .prose blockquote { background: linear-gradient(90deg, rgb(157 123 255 / 10%), transparent); border-left-color: var(--glow); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .prose a.mention { text-shadow: 0 0 12px color-mix(in srgb, var(--mention-color) 60%, transparent); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .prose hr::after { content: '◆'; color: var(--glow); }
+:is(:root, .wtheme)[data-wtheme='obsidian'] .stat:hover { box-shadow: 0 0 0 3px rgb(157 123 255 / 14%); }
+
+/* =====================================================================================================
+   2. КОДЕКС — illuminated manuscript: ink navy, gold leaf, double frames, drop caps
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='codex'] {
+  --font-ui: 'Alegreya Sans', system-ui, sans-serif;
+  --font-text: 'Alegreya', Georgia, serif;
+  --font-head: 'Forum', 'Alegreya', serif;
+  --radius: 6px; --radius-sm: 4px;
+  --bg: #0b101c; --surface: #111a2c; --surface-2: #172238; --surface-3: #202d49;
+  --border: #283553; --border-strong: #3a4a70;
+  --text: #ede3c8; --text-muted: #b5ab8e; --text-faint: #7f7964;
+  --accent: #d9b45a; --accent-2: #ecc970; --accent-fg: #1a1408;
+  --accent-soft: rgb(217 180 90 / 14%);
+  --gold-line: rgb(217 180 90 / 32%);
+  --danger: #e2735f; --success: #93c48a; --warning: #e8b45c; --info: #86abd8;
+  --link: #e6c472; --code-bg: #0d1424; --secret: #c49bff;
+  --shadow: 0 2px 0 rgb(0 0 0 / 35%), 0 12px 30px -12px rgb(0 0 0 / 70%);
+  --shadow-lg: 0 20px 50px rgb(0 0 0 / 70%);
+  --ui-size: 16px;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(217 180 90 / 10%), transparent 70%),
+    radial-gradient(ellipse 100% 60% at 50% 110%, rgb(0 0 0 / 55%), transparent 70%), var(--bg);
+  background-attachment: fixed;
+}
+:is(:root, .wtheme)[data-wtheme='codex'] :is(h1, h2, h3, h4, .hero-name, .modal-head h3, .dl-h) { font-weight: 400; letter-spacing: .03em; }
+:is(:root, .wtheme)[data-wtheme='codex'] .hero-name { font-size: 46px; }
+:is(:root, .wtheme)[data-wtheme='codex'] .dash-hero h1 { font-size: 54px; color: #f3e2b0; text-shadow: 0 2px 18px rgb(0 0 0 / 70%); letter-spacing: .06em; }
+:is(:root, .wtheme)[data-wtheme='codex'] .panel-title { font-weight: 400; font-size: 15px; text-transform: uppercase; letter-spacing: .14em; color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='codex'] .panel-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--gold-line), transparent); }
+:is(:root, .wtheme)[data-wtheme='codex'] .section-title { font-family: var(--font-head); font-weight: 400; letter-spacing: .18em; color: color-mix(in srgb, var(--accent) 75%, var(--text-faint)); }
+:is(:root, .wtheme)[data-wtheme='codex'] .section-title::before { content: '✦ '; }
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.ecard-name, .dl-wcard-name, .dl-rand-name, .dbv-entity-name, .dl-now-title) { font-weight: 400; letter-spacing: .02em; }
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.card, .ecard, .menu, .modal, .dl-wcard, .preview-card) {
+  border-color: var(--gold-line);
+  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 4px rgb(217 180 90 / 12%), var(--shadow);
+}
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.ecard, .dl-wcard):hover { transform: none; border-color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='codex'] .ecard-img, :is(:root, .wtheme)[data-wtheme='codex'] .dl-wcard-img { border-bottom: 1px solid var(--gold-line); }
+:is(:root, .wtheme)[data-wtheme='codex'] .btn { background: transparent; border-color: var(--gold-line); font-weight: 500; letter-spacing: .02em; }
+:is(:root, .wtheme)[data-wtheme='codex'] .btn:hover:not(:disabled) { background: rgb(217 180 90 / 8%); border-color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.btn-primary, .dl-play) {
+  background: linear-gradient(180deg, #efce7a, #c99a3c); border-color: #9c7629; color: #1a1408; font-weight: 700;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 40%), 0 2px 0 #5e4519;
+}
+:is(:root, .wtheme)[data-wtheme='codex'] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #f6da8e, #d6a748); border-color: #9c7629; color: #1a1408; }
+:is(:root, .wtheme)[data-wtheme='codex'] .btn-ghost { border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='codex'] .input { background: #0e1626; border-color: var(--border-strong); }
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.input:focus, .input.dl-focus) { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(217 180 90 / 14%); }
+:is(:root, .wtheme)[data-wtheme='codex'] :is(.chip, .badge) { border-radius: 3px; }
+:is(:root, .wtheme)[data-wtheme='codex'] .badge { text-transform: uppercase; letter-spacing: .07em; font-size: 10.5px; }
+:is(:root, .wtheme)[data-wtheme='codex'] .chip.on { background: var(--accent); color: #1a1408; }
+:is(:root, .wtheme)[data-wtheme='codex'] .tab { font-family: var(--font-head); font-size: 16px; letter-spacing: .05em; }
+:is(:root, .wtheme)[data-wtheme='codex'] .sidebar { background: #0e1525; border-right-color: var(--gold-line); }
+:is(:root, .wtheme)[data-wtheme='codex'] .sb-world-name { font-weight: 400; letter-spacing: .05em; color: #f3e2b0; }
+:is(:root, .wtheme)[data-wtheme='codex'] .sb-section-title { font-family: var(--font-head); font-weight: 400; letter-spacing: .18em; color: color-mix(in srgb, var(--accent) 65%, var(--text-faint)); }
+:is(:root, .wtheme)[data-wtheme='codex'] .sb-link.active { background: linear-gradient(90deg, rgb(217 180 90 / 14%), transparent); color: #f3e2b0; box-shadow: inset 2px 0 0 var(--accent); border-radius: 0 6px 6px 0; }
+:is(:root, .wtheme)[data-wtheme='codex'] .topbar { border-bottom-color: var(--gold-line); }
+:is(:root, .wtheme)[data-wtheme='codex'] .app-nav a.on { background: transparent; color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
+:is(:root, .wtheme)[data-wtheme='codex'] .entity-hero, :is(:root, .wtheme)[data-wtheme='codex'] .dash-hero { border-color: var(--gold-line); }
+:is(:root, .wtheme)[data-wtheme='codex'] .prose { font-size: calc(var(--prose-size, 17px) + 1px); line-height: 1.65; }
+:is(:root, .wtheme)[data-wtheme='codex'] .prose > p:first-of-type::first-letter { float: left; font-family: var(--font-head); font-size: 3.6em; line-height: .82; padding: .08em .1em 0 0; color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='codex'] .prose :is(h1, h2) { border-bottom: 1px solid; border-image: linear-gradient(90deg, var(--accent), transparent 75%) 1; color: #f3e2b0; }
+:is(:root, .wtheme)[data-wtheme='codex'] .prose blockquote { background: transparent; border-left: 2px solid var(--accent); font-size: 1.05em; }
+:is(:root, .wtheme)[data-wtheme='codex'] .prose hr::after { content: '❦'; font-size: 18px; }
+:is(:root, .wtheme)[data-wtheme='codex'] .table th { font-family: var(--font-head); font-weight: 400; letter-spacing: .12em; color: var(--accent); }
+
+/* =====================================================================================================
+   3. СТАЛЬ — grimdark: iron, blood red, sharp corners, condensed capitals, no soft shadows
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='steel'] {
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-text: 'IBM Plex Serif', Georgia, serif;
+  --font-head: 'Oswald', 'IBM Plex Sans', sans-serif;
+  --radius: 3px; --radius-sm: 2px;
+  --bg: #0c0d0f; --surface: #141619; --surface-2: #1b1e22; --surface-3: #262a30;
+  --border: #2a2e34; --border-strong: #3c4148;
+  --text: #e4e6ea; --text-muted: #9aa0a9; --text-faint: #6a707a;
+  --accent: #d7263d; --accent-2: #ee3a51; --accent-fg: #fff;
+  --accent-soft: rgb(215 38 61 / 16%);
+  --danger: #ff4d5e; --success: #5fbf7f; --warning: #e0a33a; --info: #7aa7d9;
+  --link: #ff6e80; --code-bg: #101215; --secret: #b18cff;
+  --shadow: none;
+  --shadow-lg: 0 18px 44px rgb(0 0 0 / 70%);
+  background:
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 1.3%) 0 1px, transparent 1px 8px),
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgb(215 38 61 / 8%), transparent 70%), var(--bg);
+  background-attachment: fixed;
+}
+:is(:root, .wtheme)[data-wtheme='steel'] :is(h1, h2, h3, h4, .hero-name, .panel-title, .modal-head h3, .sb-world-name, .ecard-name, .dl-wcard-name, .dl-h, .dl-rand-name, .dbv-entity-name, .dl-now-title, .dl-cal-date) { text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='steel'] .hero-name { font-size: 42px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .dash-hero h1 { font-size: 52px; letter-spacing: .08em; }
+:is(:root, .wtheme)[data-wtheme='steel'] .panel-title { font-size: 17px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .panel-title .icon { color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.card, .ecard, .menu, .modal, .dl-wcard, .preview-card) { border-color: var(--border); }
+:is(:root, .wtheme)[data-wtheme='steel'] .card { border-top: 2px solid #3a3f47; }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.ecard, .dl-wcard):hover { transform: none; box-shadow: none; border-color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] .ecard { border-bottom: 2px solid #3a3f47; }
+:is(:root, .wtheme)[data-wtheme='steel'] .btn { text-transform: uppercase; letter-spacing: .08em; font-size: 12.5px; font-weight: 600; background: var(--surface-2); }
+:is(:root, .wtheme)[data-wtheme='steel'] .btn:hover:not(:disabled) { border-color: #6b717b; background: var(--surface-3); }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.btn-primary, .dl-play) { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: inset 0 -2px 0 rgb(0 0 0 / 35%); }
+:is(:root, .wtheme)[data-wtheme='steel'] .btn-primary:hover:not(:disabled) { background: var(--accent-2); border-color: var(--accent-2); }
+:is(:root, .wtheme)[data-wtheme='steel'] .btn-ghost { background: transparent; border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='steel'] .btn-sm { font-size: 11.5px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .input { background: #0f1114; }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.input:focus, .input.dl-focus) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.chip, .tag-chip, .badge, .dl-season) { border-radius: 2px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .chip { text-transform: uppercase; letter-spacing: .06em; font-size: 11.5px; font-weight: 600; }
+:is(:root, .wtheme)[data-wtheme='steel'] .badge { text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .tab { text-transform: uppercase; letter-spacing: .07em; font-size: 13px; font-weight: 600; }
+:is(:root, .wtheme)[data-wtheme='steel'] .tab.on { color: var(--text); border-bottom-color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] .sidebar { background: #101215; }
+:is(:root, .wtheme)[data-wtheme='steel'] .sb-link { border-radius: 0; }
+:is(:root, .wtheme)[data-wtheme='steel'] .sb-link.active { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] .sb-section-title { letter-spacing: .14em; }
+:is(:root, .wtheme)[data-wtheme='steel'] .app-nav a { text-transform: uppercase; letter-spacing: .07em; font-size: 13px; border-radius: 0; }
+:is(:root, .wtheme)[data-wtheme='steel'] .app-nav a.on { background: transparent; box-shadow: inset 0 -2px 0 var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] .topbar { background: #0f1114; }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.entity-hero, .dash-hero) { border-radius: 2px; }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.entity-hero.has-header, .dash-hero)::after { background: linear-gradient(to top, rgb(12 13 15 / 96%) 12%, rgb(12 13 15 / 30%) 60%, transparent); }
+:is(:root, .wtheme)[data-wtheme='steel'] .hero-avatar { border-radius: 2px; border-color: #2a2e34; }
+:is(:root, .wtheme)[data-wtheme='steel'] .avatar { border-radius: 2px; }
+:is(:root, .wtheme)[data-wtheme='steel'] .avatar.round { border-radius: 50%; }
+:is(:root, .wtheme)[data-wtheme='steel'] .prose :is(h1, h2) { border-bottom: 2px solid var(--border-strong); font-family: var(--font-head); text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='steel'] .prose h3 { text-transform: uppercase; letter-spacing: .05em; font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='steel'] .prose blockquote { border-left: 4px solid var(--accent); border-radius: 0; font-style: normal; background: var(--surface-2); }
+:is(:root, .wtheme)[data-wtheme='steel'] .prose hr::after { content: '✕'; color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='steel'] :is(.callout, .secret-block, .prose table, .stat, .dl-qlink, .dbv-link, .toast, .dl-join, .dl-msg) { border-radius: 2px; }
+
+/* =====================================================================================================
+   4. РОЩА — druid forest: dark pine, jade and amber, soft round shapes, warm book type
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='grove'] {
+  --font-ui: 'Nunito', system-ui, sans-serif;
+  --font-text: 'Vollkorn', Georgia, serif;
+  --font-head: 'Kurale', 'Vollkorn', serif;
+  --radius: 18px; --radius-sm: 12px;
+  --bg: #0b130f; --surface: #111c16; --surface-2: #17261e; --surface-3: #203327;
+  --border: #213428; --border-strong: #31503d;
+  --text: #e4efe6; --text-muted: #a3bba9; --text-faint: #6f8a76;
+  --accent: #4fd1a1; --accent-2: #74e3b9; --accent-fg: #06150f;
+  --accent-soft: rgb(79 209 161 / 14%);
+  --amber: #f2c14e;
+  --danger: #f2836b; --success: #8bd17c; --warning: #f2c14e; --info: #74c7d9;
+  --link: #82e2be; --code-bg: #0e1913; --secret: #c8a6ff;
+  --shadow: 0 12px 30px -16px rgb(0 0 0 / 80%);
+  --shadow-lg: 0 22px 50px -10px rgb(0 0 0 / 75%);
+  background:
+    radial-gradient(1000px 520px at 88% -12%, rgb(242 193 78 / 9%), transparent 60%),
+    radial-gradient(900px 700px at -10% 30%, rgb(79 209 161 / 8%), transparent 60%),
+    radial-gradient(700px 500px at 50% 120%, rgb(20 60 40 / 50%), transparent 70%), var(--bg);
+  background-attachment: fixed;
+}
+:is(:root, .wtheme)[data-wtheme='grove'] :is(h1, h2, h3, h4, .hero-name, .modal-head h3) { font-weight: 400; }
+:is(:root, .wtheme)[data-wtheme='grove'] .hero-name { font-size: 42px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .dash-hero h1 { font-size: 50px; color: #f1f7ec; }
+:is(:root, .wtheme)[data-wtheme='grove'] .panel-title { font-weight: 400; font-size: 21px; color: #d9ecde; }
+:is(:root, .wtheme)[data-wtheme='grove'] .panel-title .icon { color: var(--amber); }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.ecard-name, .dl-wcard-name, .dl-rand-name, .dbv-entity-name, .dl-now-title) { font-weight: 400; }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.card, .ecard, .dl-wcard) { border-color: rgb(79 209 161 / 11%); }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.ecard, .dl-wcard):hover { border-color: rgb(79 209 161 / 45%); box-shadow: 0 16px 36px -18px rgb(79 209 161 / 45%); }
+:is(:root, .wtheme)[data-wtheme='grove'] .ecard-img { margin: 6px 6px 0; border-radius: 13px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn { border-radius: 999px; padding: 7px 16px; font-weight: 700; background: var(--surface-2); border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn:hover:not(:disabled) { background: var(--surface-3); border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn-sm { padding: 4px 12px; }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.btn-primary, .dl-play) { background: linear-gradient(180deg, #62dcae, #34b386); color: #04130d; border-color: transparent; box-shadow: 0 8px 20px -10px rgb(79 209 161 / 80%); }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #7be6be, #3fc192); color: #04130d; }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn-ghost { background: transparent; }
+:is(:root, .wtheme)[data-wtheme='grove'] .btn-danger { background: rgb(242 131 107 / 10%); }
+:is(:root, .wtheme)[data-wtheme='grove'] .icon-btn { border-radius: 999px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .input { background: var(--surface-2); border-color: transparent; border-radius: 12px; }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.input:focus, .input.dl-focus) { border-color: var(--accent); box-shadow: 0 0 0 4px rgb(79 209 161 / 14%); }
+:is(:root, .wtheme)[data-wtheme='grove'] .badge { border-radius: 999px; padding: 1px 9px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .chip { background: var(--surface-2); border-color: transparent; padding: 4px 11px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .chip.on { background: var(--accent); color: #04130d; }
+:is(:root, .wtheme)[data-wtheme='grove'] .tabs { border-bottom: 0; gap: 6px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .tab { border-radius: 999px; border-bottom: 0; margin-bottom: 0; padding: 7px 14px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .tab.on { background: var(--accent-soft); color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='grove'] .sidebar { background: #0e1813; border-right-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='grove'] .sb-link { border-radius: 999px; padding: 7px 12px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .sb-link.active { background: var(--accent-soft); }
+:is(:root, .wtheme)[data-wtheme='grove'] .sb-link.active .icon { color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='grove'] .sb-world-img { border-radius: 50%; }
+:is(:root, .wtheme)[data-wtheme='grove'] .app-nav a { border-radius: 999px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .topbar { border-bottom-color: transparent; background: rgb(11 19 15 / 82%); }
+:is(:root, .wtheme)[data-wtheme='grove'] .hero-avatar { border-radius: 50%; }
+:is(:root, .wtheme)[data-wtheme='grove'] .avatar { border-radius: 50%; }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.menu, .modal) { border-radius: 20px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .menu-item { border-radius: 12px; }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.entity-hero, .dash-hero) { border-radius: 24px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .prose { font-size: calc(var(--prose-size, 17px) + 0.5px); }
+:is(:root, .wtheme)[data-wtheme='grove'] .prose :is(h1, h2) { border-bottom: 0; color: #d9ecde; font-weight: 400; }
+/* a small leaf before section headings (drawn, so no font can turn it into an odd glyph) */
+:is(:root, .wtheme)[data-wtheme='grove'] .prose h2::before { content: ''; display: inline-block; width: .42em; height: .42em; margin: 0 .4em .12em 0; border-radius: 0 70% 0 70%; background: var(--amber); transform: rotate(-12deg); }
+:is(:root, .wtheme)[data-wtheme='grove'] .prose a.mention { text-decoration: underline dotted color-mix(in srgb, var(--mention-color) 60%, transparent); text-underline-offset: 3px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .prose blockquote { border-left: 0; border-radius: 16px; background: rgb(242 193 78 / 7%); color: #e6dcc0; }
+:is(:root, .wtheme)[data-wtheme='grove'] .prose hr::after { content: '✿'; color: var(--amber); }
+:is(:root, .wtheme)[data-wtheme='grove'] :is(.callout, .secret-block, .stat, .dl-qlink, .dbv-link, .toast, .dl-join, .wiki-img-inner) { border-radius: 14px; }
+:is(:root, .wtheme)[data-wtheme='grove'] .stat { border-radius: 999px; padding: 7px 14px; }
+
+/* =====================================================================================================
+   5. ЛУННЫЙ КАМЕНЬ — moonlit frost: starry night, frosted glass, hairlines, ice blue and silver
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='moonstone'] {
+  --font-ui: 'Ysabeau Office', system-ui, sans-serif;
+  --font-text: 'Spectral', Georgia, serif;
+  --font-head: 'Tenor Sans', 'Ysabeau Office', sans-serif;
+  --radius: 12px; --radius-sm: 8px;
+  --bg: #070b11; --surface: #0f1622; --surface-2: #142030; --surface-3: #1c2b3e;
+  --border: rgb(142 203 255 / 12%); --border-strong: rgb(142 203 255 / 22%);
+  --text: #e6eef7; --text-muted: #96a8bd; --text-faint: #63758b;
+  --accent: #8ecbff; --accent-2: #b8deff; --accent-fg: #06111e;
+  --accent-soft: rgb(142 203 255 / 12%);
+  --danger: #ff8a9a; --success: #8fe3c4; --warning: #ffd28a; --info: #8ecbff;
+  --link: #a9d6ff; --code-bg: #0b121c; --secret: #d0b3ff;
+  --shadow: inset 0 1px 0 rgb(255 255 255 / 5%), 0 20px 40px -24px rgb(0 0 0 / 90%);
+  --shadow-lg: 0 24px 60px -16px rgb(0 0 0 / 85%), 0 0 0 1px rgb(142 203 255 / 14%);
+  --ui-size: 15.5px;
+  background:
+    radial-gradient(1.3px 1.3px at 12% 18%, rgb(255 255 255 / 75%), transparent),
+    radial-gradient(1px 1px at 64% 32%, rgb(255 255 255 / 55%), transparent),
+    radial-gradient(1px 1px at 82% 72%, rgb(220 235 255 / 50%), transparent),
+    radial-gradient(1.5px 1.5px at 34% 84%, rgb(200 230 255 / 60%), transparent),
+    radial-gradient(1px 1px at 48% 52%, rgb(255 255 255 / 40%), transparent),
+    radial-gradient(650px 420px at 90% -8%, rgb(142 203 255 / 15%), transparent 70%),
+    linear-gradient(180deg, #0a1120, #06090e) #070b11;
+  background-size: 420px 420px, 380px 380px, 460px 460px, 520px 520px, 300px 300px, auto, auto;
+  background-attachment: fixed;
+}
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(h1, h2, h3, h4, .hero-name, .modal-head h3, .dl-h) { font-weight: 400; letter-spacing: .04em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .hero-name { font-size: 38px; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .dash-hero h1 { font-size: 46px; letter-spacing: .12em; text-transform: uppercase; color: #eef6ff; text-shadow: 0 0 30px rgb(142 203 255 / 45%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .panel-title { font-weight: 400; font-size: 13px; text-transform: uppercase; letter-spacing: .2em; color: #c9d6e3; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .panel-title .icon { color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.ecard-name, .dl-wcard-name, .dl-rand-name, .dbv-entity-name, .dl-now-title) { font-weight: 400; letter-spacing: .03em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .sb-world-name { font-weight: 400; letter-spacing: .06em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.card, .ecard, .menu, .modal, .dl-wcard, .preview-card) {
+  background: linear-gradient(180deg, rgb(142 203 255 / 6%), rgb(142 203 255 / 1.5%)), rgb(13 20 31 / 70%);
+  backdrop-filter: blur(14px) saturate(130%); border-color: var(--border);
+}
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.ecard, .dl-wcard):hover { border-color: rgb(142 203 255 / 45%); box-shadow: 0 0 30px -10px rgb(142 203 255 / 45%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .btn { background: transparent; border-color: var(--border-strong); font-weight: 600; letter-spacing: .02em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .btn:hover:not(:disabled) { border-color: var(--accent); background: rgb(142 203 255 / 6%); box-shadow: 0 0 20px -8px rgb(142 203 255 / 70%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.btn-primary, .dl-play) { background: linear-gradient(180deg, #e2f2ff, #9fd2ff); border-color: transparent; color: #06111e; box-shadow: 0 0 24px -8px rgb(142 203 255 / 80%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #f3f9ff, #b8deff); color: #06111e; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .btn-ghost { border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .input { background: rgb(142 203 255 / 4%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.input:focus, .input.dl-focus) { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(142 203 255 / 12%), 0 0 16px -4px rgb(142 203 255 / 50%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .chip { background: transparent; border-color: var(--border-strong); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .chip.on { background: rgb(142 203 255 / 16%); border-color: var(--accent); color: #eaf5ff; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .badge { background: rgb(142 203 255 / 8%); letter-spacing: .04em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .tab { letter-spacing: .04em; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .tab.on { color: #eaf5ff; border-bottom: 1px solid var(--accent); box-shadow: 0 8px 12px -12px var(--accent); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .sidebar { background: rgb(10 16 25 / 75%); backdrop-filter: blur(14px); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .sb-link.active { background: rgb(142 203 255 / 8%); box-shadow: inset 0 0 0 1px rgb(142 203 255 / 18%); color: #eaf5ff; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .sb-link.active .icon { color: var(--accent); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .app-nav a.on { background: rgb(142 203 255 / 9%); box-shadow: inset 0 0 0 1px rgb(142 203 255 / 20%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .topbar { background: rgb(7 11 17 / 70%); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] :is(.entity-hero, .dash-hero) { border-color: var(--border-strong); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .prose { font-weight: 300; font-size: calc(var(--prose-size, 17px) + 0.5px); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .prose :is(strong, b, a.mention) { font-weight: 600; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .prose :is(h1, h2) { border-bottom: 1px solid var(--border-strong); letter-spacing: .05em; font-weight: 400; }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .prose blockquote { background: transparent; border-left: 1px solid var(--accent); }
+:is(:root, .wtheme)[data-wtheme='moonstone'] .prose hr::after { content: '☾'; color: var(--accent); background: transparent; }
+
+/* =====================================================================================================
+   6. ГРАФИТ — a modern tool: neutral graphite, hairlines, dense, one electric blue accent
+   ===================================================================================================== */
+:is(:root, .wtheme)[data-wtheme='graphite'] {
+  --font-ui: 'Onest', system-ui, sans-serif;
+  --font-text: 'Literata', Georgia, serif;
+  --font-head: 'Onest', system-ui, sans-serif;
+  --radius: 10px; --radius-sm: 7px;
+  --bg: #0a0a0b; --surface: #111113; --surface-2: #19191c; --surface-3: #232327;
+  --border: #222226; --border-strong: #303036;
+  --text: #ededef; --text-muted: #9b9ba4; --text-faint: #686871;
+  --accent: #4c8dff; --accent-2: #6ea3ff; --accent-fg: #fff;
+  --accent-soft: rgb(76 141 255 / 14%);
+  --danger: #ff5c5c; --success: #3ecf8e; --warning: #f5a524; --info: #4c8dff;
+  --link: #7aa9ff; --code-bg: #0e0e10; --secret: #a78bfa;
+  --shadow: none;
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 65%), 0 0 0 1px #2a2a2f;
+  --ui-size: 14.5px;
+  background: var(--bg);
+}
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(h1, h2, h3, h4, .hero-name, .modal-head h3, .dl-h) { font-weight: 650; letter-spacing: -.02em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .hero-name { font-size: 34px; font-weight: 700; letter-spacing: -.03em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .dash-hero h1 { font-size: 40px; font-weight: 700; letter-spacing: -.035em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .panel-title { font-size: 14px; font-weight: 600; letter-spacing: 0; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .panel-title .icon { color: var(--text-faint); }
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(.ecard-name, .dl-wcard-name, .dl-rand-name, .dbv-entity-name, .dl-now-title) { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .dl-cal-date { font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .sb-world-name { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(.ecard, .dl-wcard):hover { transform: none; box-shadow: none; border-color: #3a3a42; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .btn { background: var(--surface-2); border-color: var(--border-strong); font-weight: 500; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .btn:hover:not(:disabled) { background: var(--surface-3); border-color: #3a3a42; }
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(.btn-primary, .dl-play) { background: var(--accent); border-color: var(--accent); color: #fff; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .btn-primary:hover:not(:disabled) { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .btn-ghost { background: transparent; border-color: transparent; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .input { background: var(--surface); }
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(.input:focus, .input.dl-focus) { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(76 141 255 / 22%); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .chip { border-radius: 7px; background: var(--surface-2); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .chip.on { background: var(--text); color: #0a0a0b; border-color: var(--text); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .badge { border-radius: 5px; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .tab.on { color: var(--text); border-bottom-color: var(--text); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .sidebar { background: #0d0d0f; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .sb-link.active { background: var(--surface-3); color: var(--text); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .sb-link.active .icon { color: var(--text); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .app-nav a.on { background: var(--surface-3); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .app-nav a.on .icon { color: var(--text); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .topbar { background: rgb(10 10 11 / 85%); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose { font-size: calc(var(--prose-size, 17px) - 0.5px); }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose :is(h1, h2, h3, h4) { font-family: var(--font-head); font-weight: 650; letter-spacing: -.02em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose h2 { font-size: 1.5em; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose blockquote { border-left-color: var(--text-faint); background: transparent; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose hr::after { content: none; }
+:is(:root, .wtheme)[data-wtheme='graphite'] .prose hr { background: var(--border); width: 100%; }
+:is(:root, .wtheme)[data-wtheme='graphite'] :is(.entity-hero.has-header, .dash-hero)::after { background: linear-gradient(to top, rgb(10 10 11 / 95%) 8%, transparent 70%); }

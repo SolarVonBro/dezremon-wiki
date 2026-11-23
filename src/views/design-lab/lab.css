@@ -1,7 +1,7 @@
 /* Design lab (#/design): the page frame and static stand-ins for parts of the site whose real styles are scoped to
-   their components. Everything is drawn with the design tokens, so the variants in variants.css restyle it all. */
+   their components. Everything is drawn with the design tokens, so the world themes (src/themes) restyle it all. */
 .dlab {
-  min-height: 100vh; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; line-height: 1.5;
+  min-height: 100vh; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: var(--ui-size, 15px); line-height: 1.5;
   color-scheme: dark;
 }
 

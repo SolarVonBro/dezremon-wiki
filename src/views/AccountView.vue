@@ -76,7 +76,6 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
   { v: 'auto', label: 'Как в системе', bg: 'linear-gradient(135deg,#f4f1ea 50%,#14120f 50%)', fg: '#2a241c', accent: '#c9a227' },
   { v: 'dark', label: 'Тёмная', bg: '#14120f', fg: '#ebe3d3', accent: '#d4ad4a' },
   { v: 'light', label: 'Светлая', bg: '#f4f1ea', fg: '#2a241c', accent: '#9c7a1c' },
-  { v: 'parchment', label: 'Пергамент', bg: '#e9dcc0', fg: '#33240f', accent: '#8b3a1c' },
 ]
 </script>
 
@@ -173,7 +172,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; bg: string; fg: string; accen
             <button v-for="(s, k) in TEXT_SIZES" :key="k" class="chip" :class="{ on: session.textSize === k }" @click="session.textSize = k as TextSize">{{ s.label }}</button>
           </div>
           <p class="prose" style="margin: 0">Летопись хранит то, что забыли люди: имена королей, клятвы и тайные тропы через перевал.</p>
-          <p class="faint small" style="margin: 0">Настройки оформления сохраняются в этом браузере.</p>
+          <p class="faint small" style="margin: 0">Настройки оформления сохраняются в этом браузере. Если мастер выбрал для мира свою тему, на страницах этого мира будет она, а размер текста останется вашим.</p>
         </section>
       </div>
     </div>

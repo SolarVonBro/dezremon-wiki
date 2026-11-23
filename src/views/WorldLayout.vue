@@ -17,6 +17,7 @@ import Dropdown from '@/components/common/Dropdown.vue'
 import JoinBanner from '@/components/layout/JoinBanner.vue'
 import { createRequest } from '@/components/layout/createRequest'
 import { unsavedEditors } from '@/composables/useAutosave'
+import { cacheWorldTheme, cachedWorldTheme, setWorldTheme } from '@/themes/apply'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +27,16 @@ const sidebarOpen = ref(false)
 const online = ref(navigator.onLine)
 
 watch(() => route.params.wid as string, (wid) => { if (wid) void world.open(wid) }, { immediate: true })
+// the world's own theme replaces the reader's on its pages only; until the world document arrives, the theme it had
+// last time (so a themed world does not flash in the reader's theme on every visit)
+watch([() => route.params.wid as string, () => world.status, () => world.world?.settings?.theme], ([wid, status]) => {
+  if (!wid || status === 'denied' || status === 'error') return setWorldTheme(null)
+  if (world.wid === wid && world.world) {
+    const t = world.settings.theme ?? null
+    cacheWorldTheme(wid, t)
+    setWorldTheme(t)
+  } else setWorldTheme(cachedWorldTheme(wid))
+}, { immediate: true })
 watch(() => route.fullPath, () => { sidebarOpen.value = false })
 
 const types = computed(() => allTypes().filter((t) => world.enabledTypes(t.key)))
@@ -62,6 +73,7 @@ onMounted(() => {
   window.addEventListener('offline', setOnline)
 })
 onBeforeUnmount(() => {
+  setWorldTheme(null)
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('online', setOnline)
   window.removeEventListener('offline', setOnline)

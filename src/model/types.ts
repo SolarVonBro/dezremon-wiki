@@ -57,6 +57,8 @@ export interface WorldSettings {
   accent: string | null
   /** The world overview page built from blocks (null → the standard layout, see src/components/dashboard/blocks.ts). */
   dashboard?: DashboardLayout | null
+  /** World theme (src/themes/designs.ts id): on this world's pages it replaces each reader's own light/dark theme. */
+  theme?: string | null
 }
 
 export type DashBlockType =
