@@ -11,6 +11,7 @@ import { addParticipants, createCampaign, deleteCampaign, newCampaignId, normali
 import { campaignTagColour, campaignTagName, isCampaignTag, isQuotedName, plainCampaignName } from './campaignTags'
 import { plural } from './util'
 import { createRoom, updateRoom } from './rooms'
+import { ensureImageAccess, uploadImage } from './images'
 import type { Campaign, CampaignFormat, CampaignStatus, Entity } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
@@ -82,6 +83,34 @@ export async function syncCampaignTag(c: Campaign, change: { name?: string; stat
     const r = await getDoc(doc(db, 'rooms', c.roomId)).catch(() => null)
     if (r?.exists()) await updateRoom(c.roomId, r.data().name === c.name ? { name, campaignName: name } : { campaignName: name }).catch(() => {})
   }
+}
+
+/**
+ * A game's cover or page background: a new file goes to the world's gallery (folder «Игры»), a picture of the gallery
+ * is used as it is; either becomes visible to all members (the game's players are members of the world). The cover
+ * also keeps a small copy for lists that do not read the world. null removes it. Returns the image id.
+ */
+export async function setCampaignImage(cid: string, which: 'cover' | 'background', pick: { file?: File; imageId?: string } | null): Promise<string | null> {
+  const world = useWorld()
+  if (!pick) {
+    await updateCampaign(cid, which === 'cover' ? { coverImageId: null, coverCrop: null, cover: null } : { backgroundImageId: null, backgroundCrop: null })
+    return null
+  }
+  const vis = { visibility: 'members' as const, allowedUids: [] }
+  let id = pick.imageId ?? null
+  let thumb: string | null = null
+  if (pick.file) {
+    const meta = await uploadImage(world.access, pick.file, { folder: 'Игры', ...vis })
+    id = meta.id
+    thumb = meta.thumb
+  } else if (id) {
+    await ensureImageAccess(world.access, [id], vis)
+    const s = await getDoc(doc(db, 'worlds', world.wid!, 'images', id)).catch(() => null)
+    thumb = (s?.data()?.thumb as string | undefined) ?? null
+  }
+  if (!id) return null
+  await updateCampaign(cid, which === 'cover' ? { coverImageId: id, cover: thumb, coverCrop: null } : { backgroundImageId: id, backgroundCrop: null })
+  return id
 }
 
 /** Deletes a campaign; its tag stays in the world as an ordinary tag (articles keep it). */

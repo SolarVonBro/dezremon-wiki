@@ -6,13 +6,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { useWorld } from '@/stores/world'
 import { FORMAT_HINTS, FORMAT_LABELS, STATUS_LABELS, cleanIntro } from '@/data/campaigns'
-import { createWorldCampaign, worldCampaigns } from '@/data/worldCampaigns'
-import { processImage } from '@/data/images'
+import { createWorldCampaign, setCampaignImage, worldCampaigns } from '@/data/worldCampaigns'
 import { formatDate, plural, errorText } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
 import CampaignCover from '@/components/campaign/CampaignCover.vue'
 import CampaignIntroEditor from '@/components/campaign/CampaignIntroEditor.vue'
+import ImageDialog from '@/components/editor/ImageDialog.vue'
+import Thumb from '@/components/common/Thumb.vue'
 import { toast } from '@/components/common/toast'
 import type { CampaignFormat, CampaignStatus } from '@/model/types'
 
@@ -25,10 +26,14 @@ const uid = computed(() => world.uid ?? '')
 
 const creating = ref(false)
 const blankIntro = () => ['Жанр', 'Настроение', 'Система', 'Уровень персонажей'].map((name) => ({ name, value: '' }))
-const form = ref({ name: '', description: '', status: 'active' as CampaignStatus, schedule: '', cover: null as string | null, format: null as CampaignFormat | null, intro: blankIntro() })
+const form = ref({ name: '', description: '', status: 'active' as CampaignStatus, schedule: '', format: null as CampaignFormat | null, intro: blankIntro() })
+// the cover: a file to upload into the world's gallery on creation, or a picture of the gallery
+const coverPick = ref<{ file?: File; imageId?: string; preview?: string } | null>(null)
+const choosingCover = ref(false)
 const busy = ref(false)
 function openCreate() {
-  form.value = { name: '', description: '', status: 'active', schedule: '', cover: null, format: null, intro: blankIntro() }
+  form.value = { name: '', description: '', status: 'active', schedule: '', format: null, intro: blankIntro() }
+  setCoverPick(null)
   creating.value = true
 }
 watch(() => route.query.new, (n) => {
@@ -36,19 +41,19 @@ watch(() => route.query.new, (n) => {
   if (n) void router.replace({ query: {} })
 }, { immediate: true })
 
-async function pickCover(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (!f) return
-  try { form.value.cover = (await processImage(f)).thumb } catch { toast.error('Не удалось прочитать картинку') }
+function setCoverPick(p: { file?: File; imageId?: string } | null) {
+  if (coverPick.value?.preview) URL.revokeObjectURL(coverPick.value.preview)
+  coverPick.value = p ? { ...p, preview: p.file ? URL.createObjectURL(p.file) : undefined } : null
 }
 async function create() {
   if (!session.user || !form.value.name.trim() || busy.value) return
   busy.value = true
   try {
     const cid = await createWorldCampaign(session.user, {
-      name: form.value.name.trim(), description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(), cover: form.value.cover,
+      name: form.value.name.trim(), description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(), cover: null,
       format: form.value.format, intro: cleanIntro(form.value.intro),
     })
+    if (coverPick.value) await setCampaignImage(cid, 'cover', coverPick.value).catch((e) => toast.error('Обложку сохранить не удалось: ' + errorText(e)))
     creating.value = false
     void router.push({ name: 'wcampaign', params: { wid: world.wid!, cid } })
   } catch (e: any) { toast.error('Не удалось создать игру: ' + errorText(e)) } finally { busy.value = false }
@@ -117,14 +122,16 @@ async function create() {
         </div>
         <div class="field"><span>Обложка (необязательно)</span>
           <div class="row gap">
-            <img v-if="form.cover" :src="form.cover" alt="" style="width: 96px; height: 54px; object-fit: cover; border-radius: 8px" />
-            <label class="btn btn-sm"><Icon name="image" :size="14" /> {{ form.cover ? 'Заменить' : 'Выбрать картинку' }}<input type="file" accept="image/*" hidden @change="pickCover" /></label>
-            <button v-if="form.cover" type="button" class="btn btn-sm btn-ghost" @click="form.cover = null">Убрать</button>
+            <span v-if="coverPick" class="new-cover"><img v-if="coverPick.preview" :src="coverPick.preview" alt="" /><Thumb v-else-if="coverPick.imageId" :id="coverPick.imageId" /></span>
+            <button type="button" class="btn btn-sm" @click="choosingCover = true"><Icon name="image" :size="14" /> {{ coverPick ? 'Заменить' : 'Выбрать картинку' }}</button>
+            <button v-if="coverPick" type="button" class="btn btn-sm btn-ghost" @click="setCoverPick(null)">Убрать</button>
           </div>
         </div>
         <div><button class="btn btn-primary" :disabled="busy || !form.name.trim()"><Icon name="plus" :size="15" /> Создать игру</button></div>
       </form>
     </Modal>
+    <ImageDialog v-if="choosingCover" title="Обложка игры" :multiple="false" @close="choosingCover = false"
+      @files="(f) => setCoverPick({ file: f[0] })" @pick="(id) => setCoverPick({ imageId: id })" @url="() => toast.info('Загрузите файл или выберите картинку из галереи')" />
   </div>
 </template>
 
@@ -133,6 +140,8 @@ async function create() {
 .camp-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; color: var(--text); text-decoration: none !important; transition: border-color .12s, transform .12s; }
 .camp-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .camp-cover { height: 120px; }
+.new-cover { width: 96px; height: 54px; border-radius: 8px; overflow: hidden; display: inline-flex; background: var(--surface-3); }
+.new-cover img, .new-cover :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .camp-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 2px; }
 .camp-name { font: 700 22px var(--font-head); line-height: 1.15; }
 .camp-intro { margin-top: 6px; color: var(--text-muted); }

@@ -7,21 +7,31 @@ import { imageUrl } from '@/data/images'
 import { DEFAULT_CROP, cropOf, cropStyle, type CropField, type ImageCrop } from '@/data/crop'
 import type { Entity } from '@/model/types'
 
-const props = defineProps<{ entity: Entity; field: CropField }>()
-const emit = defineEmits<{ close: [] }>()
+// Framing of a picture. With `entity` + `field` it frames an article's image and saves it there; otherwise it frames
+// `imageId` (an image of the world) or `src` starting from `initial`, and hands the result back through `save`.
+const props = defineProps<{
+  entity?: Entity; field?: CropField
+  imageId?: string | null; src?: string | null; initial?: ImageCrop | null; title?: string; kind?: 'cover' | 'background'
+}>()
+const emit = defineEmits<{ close: []; save: [crop: ImageCrop | null] }>()
 const world = useWorld()
-const imageId = computed(() => (props.field === 'headerCrop' ? props.entity.headerImageId : props.entity.imageId))
+const imageId = computed(() => (props.entity ? (props.field === 'headerCrop' ? props.entity.headerImageId : props.entity.imageId) : props.imageId ?? null))
 const url = ref<string | null>(null)
-const crop = ref<ImageCrop>({ ...(cropOf(props.entity, props.field) ?? DEFAULT_CROP) })
+const crop = ref<ImageCrop>({ ...((props.entity ? cropOf(props.entity, props.field ?? 'imageCrop') : props.initial) ?? DEFAULT_CROP) })
 const imgEl = ref<HTMLImageElement | null>(null)
 const busy = ref(false)
 
 onMounted(async () => {
   if (imageId.value) url.value = await imageUrl(world.access, imageId.value, 'full').catch(() => null)
+  else if (props.src) url.value = props.src
 })
 
 const style = computed(() => cropStyle(crop.value))
-const PREVIEWS = computed(() => props.field === 'headerCrop'
+const PREVIEWS = computed(() => props.kind === 'cover'
+  ? [{ label: 'Обложка на странице игры', w: 260, h: 146, round: false }, { label: 'Карточка в списке игр', w: 280, h: 120, round: false }, { label: 'Строка в «Играх»', w: 72, h: 44, round: false }]
+  : props.kind === 'background'
+    ? [{ label: 'Фон на широком экране', w: 320, h: 180, round: false }, { label: 'Фон на телефоне', w: 104, h: 190, round: false }]
+    : props.field === 'headerCrop'
   ? [{ label: 'Обложка статьи', w: 340, h: 104, round: false }, { label: 'Высокая обложка', w: 340, h: 170, round: false }]
   : [{ label: 'Аватар', w: 132, h: 132, round: false }, { label: 'Карточка в списке', w: 176, h: 132, round: false }, { label: 'Значок', w: 56, h: 56, round: true }, { label: 'Портрет', w: 100, h: 132, round: false }])
 
@@ -52,14 +62,15 @@ async function save(reset = false) {
   busy.value = true
   try {
     const value = reset || (crop.value.x === 50 && crop.value.y === 50 && crop.value.zoom === 1) ? null : { ...crop.value }
-    await world.updateEntity(props.entity.id, { fields: { ...props.entity.fields, [props.field]: value } })
+    if (props.entity && props.field) await world.updateEntity(props.entity.id, { fields: { ...props.entity.fields, [props.field]: value } })
+    else emit('save', value)
     emit('close')
   } finally { busy.value = false }
 }
 </script>
 
 <template>
-  <Modal :title="field === 'headerCrop' ? 'Кадр обложки' : 'Кадр изображения'" width="980px" @close="emit('close')">
+  <Modal :title="title ?? (field === 'headerCrop' ? 'Кадр обложки' : 'Кадр изображения')" width="980px" @close="emit('close')">
     <div class="crop-wrap">
       <div class="crop-stage" tabindex="0" @keydown="key">
         <span v-if="url" class="crop-img" @pointerdown.prevent="down" @pointermove="move" @wheel="wheel">

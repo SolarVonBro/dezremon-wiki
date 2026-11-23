@@ -69,6 +69,19 @@ def account(email, name):
 
 
 GM_UID, AN_UID, BO_UID = account(GM, 'Мастер Игры'), account(AN, 'Анна'), account(BO, 'Борис')
+
+
+def png(path, w, h, rgb):
+    # a small real picture for uploads (a two-tone gradient)
+    import zlib, struct
+    rows = b''.join(b'\x00' + b''.join(bytes((min(255, rgb[0] + x), rgb[1], min(255, rgb[2] + y))) for x in range(w)) for y in range(h))
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+    return path
+
+
+COVER = png(os.path.join(OUT, 'cover.png'), 160, 90, (120, 60, 40))
+BACK = png(os.path.join(OUT, 'back.png'), 200, 120, (30, 70, 120))
 FAILS = []
 
 
@@ -172,6 +185,8 @@ with sync_playwright() as p:
     check(True, 'the row opens the campaign inside its world')
     ov = gm.locator('.ov-person', has_text='Анна')
     check(wait_for(lambda: 'Сир Анвар' in ov.inner_text()) and 'Лира' in gm.locator('.ov-person', has_text='Борис').inner_text(), 'overview: players with their characters')
+    check(wait_for(lambda: ov.locator('.ov-portrait img').count() == 1), 'the character\'s portrait is shown (it has a picture)')
+    check(gm.locator('.ov-person', has_text='Борис').locator('.ov-portrait img').count() == 0 and gm.locator('.ov-person', has_text='Борис').locator('.ov-portrait').count() == 1, 'a character without a picture gets a placeholder')
     gm.screenshot(path=os.path.join(OUT, 'k-2-campaign.png'))
 
     print('== a master creates a campaign from the world; its tag appears')
@@ -212,6 +227,45 @@ with sync_playwright() as p:
     check(wait_for(lambda: get(f'rooms/{get(f"campaigns/{cid}")["roomId"]}')['name'] == 'Третья кампания 2'), 'and its room')
     check(wait_for(lambda: get(f'worlds/{W}/entities/{get(f"campaigns/{cid}")["tagId"]}')['fields'].get('campaignStatus') == 'planning'),
           'the tag keeps a copy of the status (for members who cannot read the game)')
+
+    print('== pictures: a framed cover that opens full screen, a page background')
+    gm.goto(BASE + f'#/w/{W}/campaigns/{cid}/settings'); gm.wait_for_selector('.pictures', timeout=15000)
+    pics = gm.locator('.pictures .pic-row')
+    pics.nth(0).get_by_role('button', name='Выбрать картинку').click()
+    gm.locator('.modal input[type=file]').set_input_files(COVER)
+    gm.wait_for_selector('.modal-head:has-text("Кадр обложки игры")', timeout=20000)
+    gm.wait_for_selector('.crop-img img', timeout=10000)
+    box = gm.locator('.crop-img img').bounding_box()
+    gm.mouse.click(box['x'] + box['width'] * 0.25, box['y'] + box['height'] * 0.3)
+    gm.screenshot(path=os.path.join(OUT, 'k-9-cover-frame.png'))
+    gm.get_by_role('button', name='Сохранить кадр').click()
+    check(wait_for(lambda: get(f'campaigns/{cid}').get('coverImageId') and (get(f'campaigns/{cid}').get('cover') or '').startswith('data:image')), 'the cover is a picture of the world (+ a small copy for lists)')
+    cc = get(f'campaigns/{cid}').get('coverCrop') or {}
+    check(abs(cc.get('x', 0) - 25) < 3 and abs(cc.get('y', 0) - 30) < 3, f'framed where clicked ({cc})')
+    img = get(f'worlds/{W}/images/{get(f"campaigns/{cid}")["coverImageId"]}')
+    check(img and img['visibility'] == 'members' and img['folder'] == 'Игры', 'stored in the gallery, folder «Игры», visible to members')
+    pics.nth(1).get_by_role('button', name='Выбрать картинку').click()
+    gm.locator('.modal input[type=file]').set_input_files(BACK)
+    gm.wait_for_selector('.modal-head:has-text("Кадр фона страницы")', timeout=20000)
+    gm.get_by_role('button', name='Сохранить кадр').click()
+    check(wait_for(lambda: get(f'campaigns/{cid}').get('backgroundImageId')), 'the page background is set')
+    gm.locator('.tabs .tab', has_text='Обзор').click(); gm.wait_for_selector('.c-hero', timeout=10000)
+    check(wait_for(lambda: gm.locator('.c-bg img').count() == 1), 'the background is behind the page')
+    bg = gm.locator('.c-bg').bounding_box()
+    check(abs(bg['x'] - 268) < 2 and abs(bg['y'] - 56) < 2, f'only under the page: not under the sidebar and the top bar ({bg["x"]:.0f}, {bg["y"]:.0f})')
+    flt = gm.locator('.c-bg img').evaluate('e => getComputedStyle(e).filter')
+    check('blur' in flt and 'brightness' in flt, f'blurred and dimmed ({flt})')
+    check(gm.locator('.c-cover img').count() >= 1, 'the cover on the page')
+    gm.screenshot(path=os.path.join(OUT, 'k-10-background.png'))
+    gm.locator('.c-cover').click()
+    check(wait_for(lambda: gm.locator('.lightbox img').count() == 1), 'a click opens the cover full screen')
+    gm.keyboard.press('Escape')
+    check(wait_for(lambda: gm.locator('.lightbox').count() == 0), 'Escape closes it')
+    gm.locator('.c-crop-btn').click(); gm.wait_for_selector('.modal-head:has-text("Кадр обложки игры")', timeout=10000)
+    check(True, 'masters frame the cover right on the page')
+    gm.get_by_role('button', name='Отмена').click()
+    gm.goto(BASE + '#/campaigns'); gm.wait_for_selector('.camp-row', timeout=15000)
+    check((gm.locator('.camp-row', has_text='Третья кампания 2').locator('img').get_attribute('src') or '').startswith('data:image'), 'the global list shows the small copy')
 
     print('== the member card: campaigns of the world')
     gm.goto(BASE + f'#/w/{W}/settings/members'); gm.wait_for_selector('tr', timeout=15000)

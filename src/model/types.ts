@@ -542,8 +542,14 @@ export interface Campaign {
   id: string
   name: string
   description: string
-  /** Small cover image as a data URL (kept inside the campaign: no dependency on a world gallery). */
+  /** Small cover image as a data URL: lists show it without reading the world (a copy of coverImageId's thumbnail). */
   cover: string | null
+  /** The cover in full size: an image of the world's gallery (opens full screen), framed by coverCrop. */
+  coverImageId?: string | null
+  coverCrop?: { x: number; y: number; zoom: number } | null
+  /** A picture behind the whole game page (blurred and dimmed), an image of the world's gallery. */
+  backgroundImageId?: string | null
+  backgroundCrop?: { x: number; y: number; zoom: number } | null
   worldId: string | null
   /** Denormalized for display; players may have no access to the world itself. */
   worldName: string

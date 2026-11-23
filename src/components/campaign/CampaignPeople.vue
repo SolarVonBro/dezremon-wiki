@@ -111,9 +111,9 @@ const typeLabel = (e: Entity) => ({ pc: 'PC', npc: 'NPC' } as Record<string, str
 .p-name { font-weight: 700; color: var(--text); text-decoration: none; }
 .p-name:hover { color: var(--accent); }
 .p-chars { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; }
-.p-char { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border: 1px solid var(--border); border-radius: 99px; color: var(--text); text-decoration: none; background: var(--surface-2); max-width: 260px; }
+.p-char { display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); text-decoration: none; background: var(--surface-2); max-width: 260px; }
 .p-char:hover { border-color: var(--accent); }
-.p-char-ava { width: 26px; height: 26px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex: none; }
+.p-char-ava { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex: none; }
 .p-char-ava :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .own-char { gap: 8px; padding: 3px 0; }
 </style>
