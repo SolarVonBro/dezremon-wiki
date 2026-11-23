@@ -15,15 +15,15 @@ onBeforeUnmount(stop)
 <template>
   <div class="stack" style="max-width: 900px">
     <div class="row gap wrap">
-      <p class="muted grow" style="margin: 0">Комнаты для совместного прослушивания музыки на играх этого кампейна.</p>
+      <p class="muted grow" style="margin: 0">Комнаты для совместного прослушивания музыки на встречах этой игры.</p>
       <RouterLink class="btn btn-primary" :to="{ name: 'rooms', query: { new: '1', campaign: campaign.id } }"><Icon name="plus" :size="15" /> Новая комната</RouterLink>
     </div>
-    <div v-if="!rows.length" class="card empty"><Icon name="headphones" :size="30" /><p>К кампейну пока не привязано ни одной комнаты.</p></div>
+    <div v-if="!rows.length" class="card empty"><Icon name="headphones" :size="30" /><p>К игре пока не привязано ни одной комнаты.</p></div>
     <RouterLink v-for="r in rows" :key="r.id" class="card card-pad room-row" :to="{ name: 'room', params: { rid: r.id } }">
       <Icon name="disc-3" :size="26" />
       <div class="grow" style="min-width: 0">
         <b>{{ r.name }}</b>
-        <div class="faint small">{{ r.ownerName }} · {{ r.access === 'campaign' ? 'только участники кампейна' : 'вход по ссылке' }} · {{ relativeTime(r.lastActiveAt) }}</div>
+        <div class="faint small">{{ r.ownerName }} · {{ r.access === 'campaign' ? 'только участники игры' : 'вход по ссылке' }} · {{ relativeTime(r.lastActiveAt) }}</div>
       </div>
       <Icon name="arrow-right" :size="16" />
     </RouterLink>

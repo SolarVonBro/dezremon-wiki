@@ -110,7 +110,7 @@ async function loadCharNames(wid: string, ids: string[]) {
         <h1 class="grow" style="margin: 0">Миры</h1>
         <button class="btn btn-primary" @click="creating = true"><Icon name="plus" :size="16" /> Новый мир</button>
       </div>
-      <p class="muted" style="margin: 0 0 18px; max-width: 760px">Мир — это сеттинг: статьи о персонажах, местах и событиях, карты, календари и хронологии. Игры в мире ведутся в разделе «Кампейны».</p>
+      <p class="muted" style="margin: 0 0 18px; max-width: 760px">Мир — это сеттинг: статьи о персонажах, местах и событиях, карты, календари и хронологии. Игры мира ведутся в его разделе «Игры».</p>
 
       <div class="tabs">
         <button class="tab" :class="{ on: tab === 'worlds' }" @click="setTab('worlds')"><Icon name="globe" :size="16" /> Миры <span class="count">{{ worlds.length }}</span></button>

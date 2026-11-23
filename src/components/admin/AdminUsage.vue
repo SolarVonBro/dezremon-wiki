@@ -93,7 +93,7 @@ const consoleProject = `https://console.firebase.google.com/project/${firebaseCo
               <td style="width: 1%"><button class="btn btn-sm btn-ghost" :disabled="!!busy" @click="run(() => measureOne(w))"><Icon name="refresh-cw" :size="13" :class="{ spin: busy === w.id }" /><span class="hide-sm"> Пересчитать</span></button></td>
             </tr>
             <tr>
-              <td><Icon name="server-cog" :size="14" /> Служебные данные <span class="faint small">(кампейны, комнаты, профили)</span></td>
+              <td><Icon name="server-cog" :size="14" /> Служебные данные <span class="faint small">(игры, комнаты, профили)</span></td>
               <td class="muted small">—</td>
               <td class="nowrap" style="text-align: right"><b v-if="svc?.at">{{ formatBytes(svc.bytes) }}</b><span v-else class="faint">не посчитаны</span></td>
               <td class="faint small nowrap">{{ svc?.at ? relativeTime(svc.at) : '—' }}</td>

@@ -208,8 +208,8 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
       <RouterLink v-for="c in data.campaigns.rows" :key="c.id" class="dbv-link" :to="{ name: 'wcampaign', params: { wid, cid: c.id } }">
         <Icon name="swords" :size="17" /><span class="grow"><b>{{ c.name }}</b><span class="faint small">{{ STATUS_LABELS[c.status] }} · {{ c.memberUids.length }} {{ plural(c.memberUids.length, 'участник', 'участника', 'участников') }}</span></span><Icon name="chevron-right" :size="15" class="faint" />
       </RouterLink>
-      <p v-if="!data.campaigns.rows.length" class="dbv-empty">Кампейнов в этом мире пока нет<template v-if="!world.isMaster"> (или вы в них не участвуете)</template>.</p>
-      <RouterLink v-if="world.isMaster && !world.adminView && !editing" class="btn btn-sm btn-ghost" style="margin-top: 6px" :to="{ name: 'wcampaigns', params: { wid }, query: { new: '1' } }"><Icon name="plus" :size="14" /> Новый кампейн</RouterLink>
+      <p v-if="!data.campaigns.rows.length" class="dbv-empty">Игр в этом мире пока нет<template v-if="!world.isMaster"> (или вы в них не участвуете)</template>.</p>
+      <RouterLink v-if="world.isMaster && !world.adminView && !editing" class="btn btn-sm btn-ghost" style="margin-top: 6px" :to="{ name: 'wcampaigns', params: { wid }, query: { new: '1' } }"><Icon name="plus" :size="14" /> Новая игра</RouterLink>
     </template>
 
     <!-- ============ random ============ -->

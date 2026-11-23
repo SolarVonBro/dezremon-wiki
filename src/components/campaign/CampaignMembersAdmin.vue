@@ -35,12 +35,12 @@ function add(u: string) {
   if (!m || inCampaign.value.includes(u)) return
   // the characters the member plays in the world become his current ones in the campaign when they carry its tag
   const tagged = characterIdsOf(m).filter((id) => props.campaign.tagId && world.getAny(id)?.tagIds?.includes(props.campaign.tagId))
-  void run(() => addParticipants(props.campaign.id, [{ uid: m.uid, displayName: m.displayName, photoURL: m.photoURL, characters: tagged }]), `${m.displayName} в кампейне`)
+  void run(() => addParticipants(props.campaign.id, [{ uid: m.uid, displayName: m.displayName, photoURL: m.photoURL, characters: tagged }]), `${m.displayName} в игре`)
 }
 function setRole(p: CampaignParticipant, role: CampaignRole) { void run(() => setParticipantRole(props.campaign.id, p.uid, role)) }
 function remove(p: CampaignParticipant) {
-  if (!confirm(`Убрать «${p.displayName}» из кампейна? Участником мира он останется.`)) return
-  void run(() => removeParticipant(props.campaign.id, p.uid), `${p.displayName} больше не в кампейне`)
+  if (!confirm(`Убрать «${p.displayName}» из игры? Участником мира он останется.`)) return
+  void run(() => removeParticipant(props.campaign.id, p.uid), `${p.displayName} больше не в игре`)
 }
 
 // ---------- invites (people who are not in the world yet) ----------
@@ -68,7 +68,7 @@ function revoke(i: CampaignInvite) { void run(() => deleteCampaignInvite(props.c
 <template>
   <div class="cma-grid">
     <section class="card card-pad stack-sm">
-      <h3 class="panel-title" style="margin: 0"><Icon name="users" /> Игроки кампейна</h3>
+      <h3 class="panel-title" style="margin: 0"><Icon name="users" /> Участники игры</h3>
       <div v-for="p in people" :key="p.uid" class="rel-row cma-row">
         <span class="avatar round" style="width: 28px; height: 28px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
         <span class="grow" style="min-width: 0"><b>{{ p.displayName }}</b> <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
@@ -76,18 +76,18 @@ function revoke(i: CampaignInvite) { void run(() => deleteCampaignInvite(props.c
         <template v-if="p.uid !== campaign.ownerId">
           <button v-if="p.role === 'player'" class="icon-btn" title="Сделать мастером (со-ведущим)" :disabled="busy" @click="setRole(p, 'gm')"><Icon name="crown" :size="15" /></button>
           <button v-else class="icon-btn" title="Сделать игроком" :disabled="busy" @click="setRole(p, 'player')"><Icon name="user" :size="15" /></button>
-          <button class="icon-btn" title="Убрать из кампейна" :disabled="busy" @click="remove(p)"><Icon name="user-x" :size="15" /></button>
+          <button class="icon-btn" title="Убрать из игры" :disabled="busy" @click="remove(p)"><Icon name="user-x" :size="15" /></button>
         </template>
       </div>
       <div class="field" style="margin-top: 6px"><span>Добавить участника мира</span>
-        <MemberPicker :model-value="adding" :exclude="inCampaign" label="Добавить в кампейн" placeholder="Выберите участника мира…" @update:model-value="add" />
+        <MemberPicker :model-value="adding" :exclude="inCampaign" label="Добавить в игру" placeholder="Выберите участника мира…" @update:model-value="add" />
       </div>
-      <span class="faint small">Добавлять игроков можно и в мире: «Участники и права» → карточка участника → «Кампейны». Персонажи участника с тегом кампейна сразу станут его текущими.</span>
+      <span class="faint small">Добавлять игроков можно и в мире: «Участники и права» → карточка участника → «Игры». Персонажи участника с тегом игры сразу станут его текущими.</span>
     </section>
 
     <section class="card card-pad stack-sm">
       <h3 class="panel-title" style="margin: 0"><Icon name="user-plus" /> Пригласить по ссылке</h3>
-      <p class="muted small" style="margin: 0">Для тех, кого ещё нет в мире: по ссылке человек войдёт в кампейн{{ world.isMaster ? ` и в мир «${campaign.worldName}»` : '' }}.</p>
+      <p class="muted small" style="margin: 0">Для тех, кого ещё нет в мире: по ссылке человек войдёт в игру{{ world.isMaster ? ` и в мир «${campaign.worldName}»` : '' }}.</p>
       <div class="row gap wrap">
         <select v-model="inv.role" class="input" style="width: auto"><option value="player">Игроком</option><option value="gm">Мастером</option></select>
         <select v-model="inv.days" class="input" style="width: auto">

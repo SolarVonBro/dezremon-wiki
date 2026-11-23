@@ -1,7 +1,7 @@
 // Service administration (the whole project, above every world/campaign/room).
 // Administrators are fixed by uid. KEEP IN SYNC with isAdmin() in firestore.rules — the rules are what actually
 // grants the rights (admins act as owner of every world); this list only decides what the client shows.
-import { collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc, writeBatch, type DocumentReference } from 'firebase/firestore'
+import { collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch, type DocumentReference } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { WORLD_COLLECTIONS } from './backup/format'
 import { now } from './util'
@@ -72,6 +72,9 @@ export async function deleteWorldById(wid: string, onProgress: (done: number, wh
     await deleteRefs(snap.docs.map((d) => d.ref), (n) => onProgress(done + n, name))
     done += snap.size
   }
+  // games are played in the world and live on its pages: they go with it
+  const games = await getDocs(query(collection(db, 'campaigns'), where('worldId', '==', wid))).catch(() => null)
+  for (const g of games?.docs ?? []) await deleteCampaignTree(g.id).catch(() => {})
   await deleteDoc(doc(db, 'usage', wid)).catch(() => {})
   await deleteDoc(doc(db, 'worlds', wid))
 }

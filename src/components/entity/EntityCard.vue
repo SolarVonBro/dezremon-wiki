@@ -27,7 +27,7 @@ const campaign = computed(() => isTag.value && isCampaignTag(props.entity))
     <div class="ecard-body">
       <div v-if="isTag" class="row gap-sm wrap">
         <span class="tag-chip ecard-plaque" :title="'Цвет тега: ' + (entity.fields?.colour || 'по умолчанию')">{{ entity.name }}</span>
-        <span v-if="campaign" class="badge badge-campaign" title="Тег кампейна: им отмечают статьи кампейна"><Icon name="swords" :size="11" /> кампейн</span>
+        <span v-if="campaign" class="badge badge-campaign" title="Тег игры: им отмечают статьи этой игры"><Icon name="swords" :size="11" /> игра</span>
       </div>
       <div v-else class="ecard-name">{{ entity.name }}</div>
       <div class="ecard-sub">

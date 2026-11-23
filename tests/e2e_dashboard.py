@@ -122,7 +122,7 @@ with sync_playwright() as p:
     pg.get_by_role('button', name='Войти', exact=True).click()
     pg.wait_for_url('**/#/worlds**', timeout=20000)
     check(pg.locator('.app-bar .app-nav a.on', has_text='Миры').count() == 1, 'after sign-in: «Миры» page, the section is lit in the bar')
-    check(pg.locator('.app-bar .app-nav a', has_text='Кампейны').count() == 1 and pg.locator('.app-bar .app-nav a', has_text='Комнаты').count() == 1, 'bar: Кампейны and Комнаты')
+    check(pg.locator('.app-bar .app-nav a', has_text='Игры').count() == 1 and pg.locator('.app-bar .app-nav a', has_text='Комнаты').count() == 1, 'bar: Кампейны and Комнаты')
     check(pg.locator('.app-bar .user-btn').count() == 1, 'portrait at the right of the bar')
     pg.get_by_role('button', name='Новый мир').first.click()
     pg.locator('input[placeholder="Дезремон"]').fill('Обзорный мир ' + RUN)
@@ -131,13 +131,13 @@ with sync_playwright() as p:
     wid = pg.url.split('/w/')[1].split('/')[0].split('?')[0]
 
     print('== the same bar inside a world')
-    check(pg.locator('.app-bar .app-nav a', has_text='Кампейны').count() == 1, 'inside a world the bar still has Кампейны')
+    check(pg.locator('.app-bar .app-nav a', has_text='Игры').count() == 1, 'inside a world the bar still has Кампейны')
     check(pg.locator('.app-bar .app-nav a.on', has_text='Миры').count() == 1, 'inside a world «Миры» is the lit section')
     check(pg.locator('.app-bar #crumbs').count() == 1 and 'Обзор' in pg.locator('#crumbs').inner_text(), 'breadcrumbs live in the bar')
     check(pg.locator('.topbar').count() == 1, 'one top bar, not two')
     pg.screenshot(path=os.path.join(OUT, 'd-1-world.png'))
-    pg.locator('.app-bar .app-nav a', has_text='Кампейны').click(); pg.wait_for_url('**/#/campaigns**', timeout=10000)
-    check(pg.locator('.app-bar .app-nav a.on', has_text='Кампейны').count() == 1, 'Кампейны opens from inside a world in one click')
+    pg.locator('.app-bar .app-nav a', has_text='Игры').click(); pg.wait_for_url('**/#/campaigns**', timeout=10000)
+    check(pg.locator('.app-bar .app-nav a.on', has_text='Игры').count() == 1, 'Кампейны opens from inside a world in one click')
     pg.go_back(); pg.wait_for_selector('.db-grid', timeout=20000)
     pg.goto(BASE + f'#/w/{wid}/gallery'); pg.wait_for_timeout(1500)   # the gallery store comes to life there
     eids = pg.evaluate(SEED)

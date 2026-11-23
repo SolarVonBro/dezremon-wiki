@@ -11,7 +11,7 @@ import { addParticipants, createCampaign, deleteCampaign, newCampaignId, normali
 import { campaignTagColour, campaignTagName, isCampaignTag, isQuotedName, plainCampaignName } from './campaignTags'
 import { plural } from './util'
 import { createRoom, updateRoom } from './rooms'
-import type { Campaign, CampaignStatus, Entity } from '@/model/types'
+import type { Campaign, CampaignFormat, CampaignStatus, Entity } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
 
@@ -52,7 +52,7 @@ async function createCampaignRoom(user: UserLike, cid: string, name: string): Pr
 }
 
 /** A master creates a campaign in the open world; its tag «⚔ name» appears in the world and its music room opens. */
-export async function createWorldCampaign(user: UserLike, data: { name: string; description: string; status: CampaignStatus; schedule: string; cover: string | null }): Promise<string> {
+export async function createWorldCampaign(user: UserLike, data: { name: string; description: string; status: CampaignStatus; schedule: string; cover: string | null; format: CampaignFormat | null; intro: Array<{ name: string; value: string }> }): Promise<string> {
   const world = useWorld()
   if (!world.wid || !world.world) throw new Error('Мир не открыт')
   const cid = newCampaignId()
@@ -150,7 +150,7 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
     newTags++
   }
   const parts = []
-  if (newCampaigns) parts.push(`${newCampaigns} ${plural(newCampaigns, 'кампейн', 'кампейна', 'кампейнов')} из тегов в кавычках`)
-  if (newTags) parts.push(`${newTags} ${plural(newTags, 'тег', 'тега', 'тегов')} для кампейнов`)
+  if (newCampaigns) parts.push(`${newCampaigns} ${plural(newCampaigns, 'игра', 'игры', 'игр')} из тегов в кавычках`)
+  if (newTags) parts.push(`${newTags} ${plural(newTags, 'тег', 'тега', 'тегов')} для игр`)
   return parts.length ? 'Создано: ' + parts.join(', ') : ''
 }

@@ -27,7 +27,7 @@ const section = computed<Section | null>(() => {
 })
 const sections = computed(() => [
   { key: 'worlds', label: 'Миры', icon: 'globe', to: { name: 'worlds' } },
-  { key: 'campaigns', label: 'Кампейны', icon: 'swords', to: { name: 'campaigns' } },
+  { key: 'campaigns', label: 'Игры', icon: 'swords', to: { name: 'campaigns' } },
   ...(router.hasRoute('rooms') ? [{ key: 'rooms', label: 'Комнаты', icon: 'headphones', to: { name: 'rooms' } }] : []),
   ...(isServiceAdmin(session.user?.uid) ? [{ key: 'admin', label: 'Админка', icon: 'shield-check', to: { name: 'admin' } }] : []),
 ])

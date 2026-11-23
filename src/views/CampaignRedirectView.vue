@@ -27,9 +27,9 @@ onMounted(async () => {
     <div v-if="state === 'loading'" class="empty"><Icon name="refresh-cw" class="spin" :size="26" /></div>
     <div v-else class="card empty">
       <Icon name="lock" :size="34" />
-      <h2>Кампейн недоступен</h2>
-      <p class="muted">Его удалили, или вы в нём не участвуете. Попросите мастера добавить вас в кампейн.</p>
-      <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои кампейны</RouterLink>
+      <h2>Игра недоступна</h2>
+      <p class="muted">Её удалили, или вы в ней не участвуете. Попросите мастера добавить вас в игру.</p>
+      <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои игры</RouterLink>
     </div>
   </div>
 </template>

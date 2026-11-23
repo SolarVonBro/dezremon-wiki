@@ -48,7 +48,7 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); fontLink
 
 const SECTIONS = [
   ['app', 'Экран приложения'], ['controls', 'Кнопки и поля'], ['article', 'Статья'], ['lists', 'Списки'],
-  ['dash', 'Обзор мира'], ['worlds', 'Миры и кампейны'], ['room', 'Музыкальная комната'], ['overlays', 'Окна и меню'], ['type', 'Типографика'],
+  ['dash', 'Обзор мира'], ['worlds', 'Миры и игры'], ['room', 'Музыкальная комната'], ['overlays', 'Окна и меню'], ['type', 'Типографика'],
 ] as const
 const P = { arwen: portrait(28, true), boris: portrait(8), mira: portrait(280, true), kael: portrait(200), elder: portrait(45), ash: portrait(350, true) }
 const CARDS = [
@@ -190,7 +190,7 @@ const PLAYLIST = [
                       <div class="secret-block"><p>На самом деле Арвен — дочь главы Ордена Пепла. Она пока не знает об этом.</p></div>
                       <table><thead><tr><th>Год</th><th>Событие</th><th>Где</th></tr></thead><tbody><tr><td>412</td><td>Рождение</td><td>Ольховка</td></tr><tr><td>418</td><td>Начало Пепельной войны</td><td>Север</td></tr><tr><td>428</td><td>Побег из обители</td><td>Вельмор</td></tr></tbody></table>
                       <hr />
-                      <p>Подробнее — в статье о <a href="#" @click.prevent>магии жизни</a> и в журнале кампейна.</p>
+                      <p>Подробнее — в статье о <a href="#" @click.prevent>магии жизни</a> и в журнале игры.</p>
                     </div>
                   </div>
                   <div class="card post-card">
@@ -385,7 +385,7 @@ const PLAYLIST = [
             <h3 class="panel-title"><Icon name="link" /> Быстрые ссылки</h3>
             <div class="stack-sm">
               <a class="dl-qlink" href="#" @click.prevent><Icon name="scroll" :size="17" style="color: #c9a24a" /><span class="grow"><b>Правила стола</b><span class="faint small">Заметка</span></span><Icon name="chevron-right" :size="15" class="faint" /></a>
-              <a class="dl-qlink" href="#" @click.prevent><Icon name="external-link" :size="17" /><span class="grow"><b>Discord кампейна</b><span class="faint small">discord.gg</span></span></a>
+              <a class="dl-qlink" href="#" @click.prevent><Icon name="external-link" :size="17" /><span class="grow"><b>Discord игры</b><span class="faint small">discord.gg</span></span></a>
             </div>
           </div>
         </div>
@@ -415,7 +415,7 @@ const PLAYLIST = [
 
     <!-- ======================= worlds & campaigns ======================= -->
     <section id="dl-worlds" class="dl-section">
-      <h2 class="dl-h">Миры и кампейны</h2>
+      <h2 class="dl-h">Миры и игры</h2>
       <div class="dl-grid3">
         <article class="dl-wcard">
           <a class="dl-wcard-img" href="#" @click.prevent><img :src="castle" alt="" /></a>
@@ -425,7 +425,7 @@ const PLAYLIST = [
         </article>
         <article class="dl-wcard">
           <a class="dl-wcard-img" href="#" @click.prevent><img :src="forest" alt="" /></a>
-          <div class="dl-wcard-body"><a class="dl-wcard-name" href="#" @click.prevent>Тени Вельмора</a><p class="dl-wcard-desc">Кампейн в Дезремоне · по пятницам, 19:00</p>
+          <div class="dl-wcard-body"><a class="dl-wcard-name" href="#" @click.prevent>Тени Вельмора</a><p class="dl-wcard-desc">Игра в Дезремоне · по пятницам, 19:00</p>
             <div class="row gap-sm wrap"><span class="badge badge-public">идёт</span><span class="faint small"><Icon name="users" :size="12" /> 5 участников</span><span class="faint small"><Icon name="calendar-clock" :size="12" /> пт, 19:00</span></div></div>
           <div class="dl-wcard-actions"><button class="btn btn-sm btn-primary"><Icon name="headphones" :size="14" /> Комната</button><button class="btn btn-sm btn-ghost">Журнал</button></div>
         </article>
@@ -500,12 +500,12 @@ const PLAYLIST = [
         </div>
         <div class="dl-backdrop">
           <div class="modal" style="max-width: 460px">
-            <div class="modal-head"><h3>Новый кампейн</h3><button class="icon-btn"><Icon name="x" /></button></div>
+            <div class="modal-head"><h3>Новая игра</h3><button class="icon-btn"><Icon name="x" /></button></div>
             <div class="modal-body stack">
               <label class="field"><span>Название</span><input class="input" value="Тени Вельмора" /></label>
               <label class="field"><span>Мир, в котором идёт игра</span><select class="input"><option>Дезремон</option></select></label>
             </div>
-            <div class="modal-foot"><button class="btn">Отмена</button><button class="btn btn-primary"><Icon name="plus" :size="15" /> Создать кампейн</button></div>
+            <div class="modal-foot"><button class="btn">Отмена</button><button class="btn btn-primary"><Icon name="plus" :size="15" /> Создать игру</button></div>
           </div>
         </div>
         <div class="stack">

@@ -53,9 +53,9 @@ const found = computed(() => !!page.value && (!!page.value.profile || page.value
       </div>
 
       <p v-if="!session.user" class="card card-pad muted">
-        <RouterLink :to="{ name: 'login', query: { next: route.fullPath } }">Войдите</RouterLink>, чтобы увидеть общие миры, персонажей и кампейны.
+        <RouterLink :to="{ name: 'login', query: { next: route.fullPath } }">Войдите</RouterLink>, чтобы увидеть общие миры, персонажей и игры.
       </p>
-      <p v-else-if="!own" class="faint small" style="margin: 0 2px 14px">Здесь видно только то, что у вас общее: миры и кампейны, где вы оба участники, и персонажи, которых вы можете открыть.</p>
+      <p v-else-if="!own" class="faint small" style="margin: 0 2px 14px">Здесь видно только то, что у вас общее: миры и игры, где вы оба участники, и персонажи, которых вы можете открыть.</p>
 
       <template v-if="session.user">
         <h2 class="u-h">Персонажи</h2>
@@ -86,7 +86,7 @@ const found = computed(() => !!page.value && (!!page.value.profile || page.value
         </div>
 
         <template v-if="page.campaigns.length">
-          <h2 class="u-h">{{ own ? 'Кампейны' : 'Общие кампейны' }}</h2>
+          <h2 class="u-h">{{ own ? 'Игры' : 'Общие игры' }}</h2>
           <div class="stack-sm">
             <RouterLink v-for="c in page.campaigns" :key="c.id" class="card u-world" :to="c.worldId ? { name: 'wcampaign', params: { wid: c.worldId, cid: c.id } } : { name: 'campaign', params: { cid: c.id } }">
               <span class="u-world-img"><Icon name="swords" :size="20" /></span>

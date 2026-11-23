@@ -134,7 +134,7 @@ const campaignGroups = computed(() => {
     return { ...g, count: list.length, runs: runs(list) }
   }).filter((g) => g.count)
   const rest = items.value.filter((e) => !placed.has(e.id))
-  if (rest.length) out.push({ key: '_none', title: 'Вне кампейнов', colour: null, tagId: null, cid: null, ids: new Set(), count: rest.length, runs: runs(rest) })
+  if (rest.length) out.push({ key: '_none', title: 'Вне игр', colour: null, tagId: null, cid: null, ids: new Set(), count: rest.length, runs: runs(rest) })
   return out
 })
 
@@ -222,12 +222,12 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
 
     <div v-if="showCampaignBar" class="camp-bar" :class="{ on: !!world.autoCampaignTagId }">
       <Icon name="swords" :size="16" />
-      <span class="small">Кампейн для новых статей</span>
-      <select v-model="world.campaignTagPref.tagId" class="input input-sm camp-bar-select" aria-label="Кампейн для новых статей">
+      <span class="small">Игра для новых статей</span>
+      <select v-model="world.campaignTagPref.tagId" class="input input-sm camp-bar-select" aria-label="Игра для новых статей">
         <option :value="null">— не выбран —</option>
         <option v-for="t in world.campaignTags" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
-      <label class="check small" :title="world.campaignTagPref.tagId ? '' : 'Сначала выберите кампейн'">
+      <label class="check small" :title="world.campaignTagPref.tagId ? '' : 'Сначала выберите игру'">
         <input v-model="world.campaignTagPref.auto" type="checkbox" :disabled="!world.campaignTagPref.tagId" /> Добавлять его тег ко всем новым статьям (кроме тегов)
       </label>
     </div>
@@ -267,7 +267,7 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
         <button class="icon-btn" :class="{ on: shownView === 'cards' }" title="Карточки" @click="view = 'cards'"><Icon name="layout-grid" /></button>
         <button class="icon-btn" :class="{ on: shownView === 'table' }" title="Таблица" @click="view = 'table'"><Icon name="layout-list" /></button>
         <button v-if="def.parentLabel" class="icon-btn" :class="{ on: view === 'tree' }" title="Дерево" @click="view = 'tree'"><Icon name="git-branch" /></button>
-        <button v-if="type === 'character'" class="icon-btn" :class="{ on: shownView === 'campaigns' }" title="По кампейнам: внутри PC, затем NPC" @click="view = 'campaigns'"><Icon name="swords" /></button>
+        <button v-if="type === 'character'" class="icon-btn" :class="{ on: shownView === 'campaigns' }" title="По играм: внутри PC, затем NPC" @click="view = 'campaigns'"><Icon name="swords" /></button>
       </div>
     </div>
 
@@ -360,7 +360,7 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
         </thead>
         <tbody>
           <tr v-for="e in items" :key="e.id" style="cursor: pointer" @click="open(e)">
-            <td><EntityLink :id="e.id" avatar /><span v-if="isCampaignTag(e)" class="badge" style="margin-left: 6px" title="Тег кампейна"><Icon name="swords" :size="11" /> кампейн</span></td>
+            <td><EntityLink :id="e.id" avatar /><span v-if="isCampaignTag(e)" class="badge" style="margin-left: 6px" title="Тег игры"><Icon name="swords" :size="11" /> игра</span></td>
             <template v-if="type === 'tag'">
               <td><span class="tag-chip" :style="{ '--tag-color': e.fields?.colour }" :title="e.fields?.colour || 'цвет по умолчанию'">{{ e.fields?.colour || 'по умолчанию' }}</span></td>
               <td class="muted">{{ tagUse.get(e.id) ?? 0 }}</td>

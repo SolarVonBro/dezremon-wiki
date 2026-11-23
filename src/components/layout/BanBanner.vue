@@ -20,7 +20,7 @@ onBeforeUnmount(() => stop?.())
 <template>
   <div v-if="ban" class="ban-banner">
     <Icon name="ban" :size="16" />
-    <span>Аккаунт заблокирован администратором сервиса{{ ban.reason ? ': ' + ban.reason : '' }}. Создавать миры, кампейны и комнаты и вступать в новые нельзя.</span>
+    <span>Аккаунт заблокирован администратором сервиса{{ ban.reason ? ': ' + ban.reason : '' }}. Создавать миры, игры и комнаты и вступать в новые нельзя.</span>
   </div>
 </template>
 

@@ -91,7 +91,7 @@ function viewAs(m: Member) { world.startPreview({ uid: m.uid, name: m.displayNam
       </div>
       <div style="overflow-x: auto">
         <table class="table">
-          <thead><tr><th>Участник</th><th>Роль</th><th>Персонажи</th><th>Кампейны</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
+          <thead><tr><th>Участник</th><th>Роль</th><th>Персонажи</th><th>Игры</th><th>Статей</th><th>Был(а)</th><th>В мире с</th><th /></tr></thead>
           <tbody>
             <tr v-for="m in members" :key="m.uid">
               <td>

@@ -529,6 +529,8 @@ export interface ServiceConfig {
 
 export type CampaignRole = 'gm' | 'player'
 export type CampaignStatus = 'planning' | 'active' | 'paused' | 'finished'
+/** How long the game is meant to run (shown as «Ваншот», «Короткий кампейн»…; see FORMAT_LABELS). */
+export type CampaignFormat = 'oneshot' | 'short' | 'long' | 'open'
 
 /**
  * campaigns/{cid}. A campaign is played in a world and lives on that world's pages (#/w/{wid}/campaigns/{cid});
@@ -558,6 +560,10 @@ export interface Campaign {
   characters?: Record<string, string[]>
   /** The music room created with the campaign (same name, owned by the campaign's creator, open to its members). */
   roomId?: string | null
+  /** Ваншот, короткий или длительный кампейн, открытый стол (null — not said). */
+  format?: CampaignFormat | null
+  /** «Вводная»: what to know before the game — genre, mood, system, level… as name/value lines. */
+  intro?: Array<{ name: string; value: string }>
   createdAt: number
   updatedAt: number
 }

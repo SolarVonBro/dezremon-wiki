@@ -73,7 +73,7 @@ const shownUsers = computed(() => {
 })
 const openUser = ref<string | null>(null)
 async function ban(u: UserProfile) {
-  const reason = prompt(`Заблокировать «${u.displayName || u.email}»? Он не сможет создавать миры, кампейны и комнаты и вступать в новые. Причина (видна пользователю):`, '')
+  const reason = prompt(`Заблокировать «${u.displayName || u.email}»? Он не сможет создавать миры, игры и комнаты и вступать в новые. Причина (видна пользователю):`, '')
   if (reason === null) return
   await banUser(u.uid, reason.trim(), session.user!.uid)
   bans.value = await listServiceBans()
@@ -85,7 +85,7 @@ async function unban(u: UserProfile) {
   toast.success('Блокировка снята')
 }
 async function removeProfile(u: UserProfile) {
-  if (!confirm(`Удалить профиль «${u.displayName || u.email}» из базы? Сам аккаунт входа удаляется в консоли Firebase (Authentication). Миры и кампейны пользователя останутся.`)) return
+  if (!confirm(`Удалить профиль «${u.displayName || u.email}» из базы? Сам аккаунт входа удаляется в консоли Firebase (Authentication). Миры и игры пользователя останутся.`)) return
   await deleteUserProfile(u.uid)
   users.value = users.value.filter((x) => x.uid !== u.uid)
 }
@@ -144,7 +144,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
       <div class="stat-row" style="margin-bottom: 14px">
         <span class="stat"><Icon name="users" :size="16" /> <b>{{ users.length }}</b> пользователей</span>
         <span class="stat"><Icon name="globe" :size="16" /> <b>{{ worlds.length }}</b> миров</span>
-        <span class="stat"><Icon name="swords" :size="16" /> <b>{{ campaigns.length }}</b> кампейнов</span>
+        <span class="stat"><Icon name="swords" :size="16" /> <b>{{ campaigns.length }}</b> игр</span>
         <span class="stat"><Icon name="headphones" :size="16" /> <b>{{ rooms.length }}</b> комнат</span>
         <span v-if="bans.length" class="stat"><Icon name="ban" :size="16" /> <b>{{ bans.length }}</b> заблокировано</span>
       </div>
@@ -152,7 +152,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
       <div class="tabs">
         <button class="tab" :class="{ on: tab === 'users' }" @click="setTab('users')"><Icon name="users" :size="16" /> Пользователи</button>
         <button class="tab" :class="{ on: tab === 'worlds' }" @click="setTab('worlds')"><Icon name="globe" :size="16" /> Миры</button>
-        <button class="tab" :class="{ on: tab === 'campaigns' }" @click="setTab('campaigns')"><Icon name="swords" :size="16" /> Кампейны</button>
+        <button class="tab" :class="{ on: tab === 'campaigns' }" @click="setTab('campaigns')"><Icon name="swords" :size="16" /> Игры</button>
         <button class="tab" :class="{ on: tab === 'rooms' }" @click="setTab('rooms')"><Icon name="headphones" :size="16" /> Комнаты</button>
         <button class="tab" :class="{ on: tab === 'usage' }" @click="setTab('usage')"><Icon name="database" :size="16" /> Ресурсы</button>
         <button class="tab" :class="{ on: tab === 'service' }" @click="setTab('service')"><Icon name="server-cog" :size="16" /> Сервис</button>
@@ -185,7 +185,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
               <div class="menu">
                 <button v-if="!banMap.has(u.uid)" class="menu-item" :disabled="isServiceAdmin(u.uid)" @click="ban(u)"><Icon name="ban" :size="15" /> Заблокировать</button>
                 <button v-else class="menu-item" @click="unban(u)"><Icon name="user-check" :size="15" /> Снять блокировку</button>
-                <button class="menu-item" @click="openUser = u.uid"><Icon name="globe" :size="15" /> Миры и кампейны</button>
+                <button class="menu-item" @click="openUser = u.uid"><Icon name="globe" :size="15" /> Миры и игры</button>
                 <div class="menu-sep" />
                 <button class="menu-item danger" :disabled="isServiceAdmin(u.uid)" @click="removeProfile(u)"><Icon name="trash2" :size="15" /> Удалить профиль</button>
               </div>
@@ -197,7 +197,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
               <template v-if="worldsOf(u.uid).length"><span v-for="x in worldsOf(u.uid)" :key="x.world!.id" class="chip-link"><RouterLink :to="{ name: 'dashboard', params: { wid: x.world!.id } }">{{ x.world!.name }}</RouterLink> <span class="faint">({{ ROLE[x.role] }})</span></span></template>
               <span v-else class="faint"> нет</span>
             </div>
-            <div><b>Кампейны:</b>
+            <div><b>Игры:</b>
               <template v-if="campaignsOf(u.uid).length"><span v-for="c in campaignsOf(u.uid)" :key="c.id" class="chip-link"><RouterLink :to="{ name: 'campaign', params: { cid: c.id } }">{{ c.name }}</RouterLink> <span class="faint">({{ c.gmUids.includes(u.uid) ? 'мастер' : 'игрок' }})</span></span></template>
               <span v-else class="faint"> нет</span>
             </div>
@@ -234,7 +234,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
       <section v-else-if="tab === 'campaigns'" class="card card-pad">
         <div class="table-scroll">
           <table class="table">
-            <thead><tr><th>Кампейн</th><th>Создатель</th><th>Мир</th><th>Участники</th><th>Статус</th><th>Изменён</th><th /></tr></thead>
+            <thead><tr><th>Игра</th><th>Создатель</th><th>Мир</th><th>Участники</th><th>Статус</th><th>Изменён</th><th /></tr></thead>
             <tbody>
               <tr v-for="c in campaigns" :key="c.id">
                 <td><RouterLink :to="{ name: 'campaign', params: { cid: c.id } }"><b>{{ c.name }}</b></RouterLink></td>
@@ -243,19 +243,19 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
                 <td class="small">{{ c.memberUids.length }}</td>
                 <td><span class="badge">{{ STATUS_LABELS[c.status] }}</span></td>
                 <td class="faint small nowrap">{{ relativeTime(c.updatedAt) }}</td>
-                <td><button class="icon-btn" title="Удалить кампейн" @click="deleting = { kind: 'campaign', id: c.id, name: c.name }; confirmText = ''"><Icon name="trash2" :size="15" /></button></td>
+                <td><button class="icon-btn" title="Удалить игру" @click="deleting = { kind: 'campaign', id: c.id, name: c.name }; confirmText = ''"><Icon name="trash2" :size="15" /></button></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-if="!campaigns.length" class="empty">Кампейнов нет.</div>
+        <div v-if="!campaigns.length" class="empty">Игр нет.</div>
       </section>
 
       <!-- ============ rooms ============ -->
       <section v-else-if="tab === 'rooms'" class="card card-pad">
         <div class="table-scroll">
           <table class="table">
-            <thead><tr><th>Комната</th><th>Владелец</th><th>Кампейн</th><th>Заходили</th><th>Активность</th><th /></tr></thead>
+            <thead><tr><th>Комната</th><th>Владелец</th><th>Игра</th><th>Заходили</th><th>Активность</th><th /></tr></thead>
             <tbody>
               <tr v-for="r in rooms" :key="r.id">
                 <td><RouterLink v-if="hasRooms" :to="{ name: 'room', params: { rid: r.id } }"><b>{{ r.name }}</b></RouterLink><b v-else>{{ r.name }}</b></td>
@@ -291,8 +291,8 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
 
     <Modal v-if="deleting" :title="'Удалить: ' + deleting.name" width="480px" @close="deleting = null">
       <div class="stack">
-        <p v-if="deleting.kind === 'world'">Мир удалится со всеми статьями, картинками, участниками и приглашениями. Кампейны в этом мире останутся без мира. Это нельзя отменить.</p>
-        <p v-else-if="deleting.kind === 'campaign'">Кампейн удалится с журналом, участниками и приглашениями. Мир не затрагивается.</p>
+        <p v-if="deleting.kind === 'world'">Мир удалится со всеми статьями, картинками, участниками и приглашениями, а вместе с ним — его игры. Это нельзя отменить.</p>
+        <p v-else-if="deleting.kind === 'campaign'">Игра удалится с журналом, участниками и приглашениями. Мир не затрагивается.</p>
         <p v-else>Комната удалится с дорожками, очередью и чатом.</p>
         <label class="field"><span>Введите название, чтобы подтвердить</span><input v-model="confirmText" class="input" :placeholder="deleting.name" /></label>
         <div v-if="delBusy" class="small muted"><Icon name="refresh-cw" class="spin" :size="13" /> {{ delBusy }}</div>

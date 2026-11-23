@@ -163,8 +163,8 @@ with sync_playwright() as p:
     check(wait_for(lambda: gm.locator('.sidebar .sb-link', has_text='Вторая Лавина').count() == 1 and gm.locator('.sidebar .sb-link', has_text='Старая игра').count() == 1), 'both in the sidebar')
 
     print('== the global page lists campaigns and leads into the world')
-    gm.locator('.app-bar .app-nav a', has_text='Кампейны').click(); gm.wait_for_selector('.camp-row', timeout=15000)
-    check(gm.locator('.camp-row').count() == 2 and gm.get_by_role('button', name='Новый кампейн').count() == 0, 'two rows, no creating there')
+    gm.locator('.app-bar .app-nav a', has_text='Игры').click(); gm.wait_for_selector('.camp-row', timeout=15000)
+    check(gm.locator('h1', has_text='Игры').count() == 1 and gm.locator('.camp-row').count() == 2 and gm.get_by_role('button', name='Новая игра').count() == 0, '«Игры»: two rows, no creating there')
     check(WORLD in gm.locator('.camp-row', has_text='Вторая Лавина').inner_text(), 'a row names the world')
     gm.screenshot(path=os.path.join(OUT, 'k-1-global.png'))
     gm.locator('.camp-row', has_text='Вторая Лавина').click()
@@ -176,13 +176,22 @@ with sync_playwright() as p:
 
     print('== a master creates a campaign from the world; its tag appears')
     gm.goto(BASE + f'#/w/{W}/campaigns'); gm.wait_for_selector('.page-head', timeout=15000)
-    gm.get_by_role('button', name='Новый кампейн').click()
+    gm.get_by_role('button', name='Новая игра').click()
     gm.locator('.modal input[placeholder="Тени над Вельмором"]').fill('Третья кампания')
-    gm.locator('.modal').get_by_role('button', name='Создать кампейн').click()
+    gm.locator('.modal select[aria-label="Формат игры"]').select_option('short')
+    gm.locator('.modal input[aria-label="Жанр"]').fill('тёмное фэнтези')
+    gm.locator('.modal input[aria-label="Система"]').fill('D&D 5e')
+    gm.screenshot(path=os.path.join(OUT, 'k-0-new-game.png'))
+    gm.locator('.modal').get_by_role('button', name='Создать игру').click()
     gm.wait_for_selector('.c-hero h1', timeout=20000)
     cid = gm.url.split('/campaigns/')[1].split('/')[0]
     check(wait_for(lambda: any(e['name'] == '⚔ Третья кампания' and e.get('fields', {}).get('campaignId') == cid for e in query('entities', 'type', 'tag', f'/worlds/{W}'))), 'tag «⚔ Третья кампания» in the world')
     check(get(f'campaigns/{cid}')['tagId'], 'the campaign knows its tag')
+    g = get(f'campaigns/{cid}')
+    check(g.get('format') == 'short' and g.get('intro') == [{'name': 'Жанр', 'value': 'тёмное фэнтези'}, {'name': 'Система', 'value': 'D&D 5e'}],
+          f'format and intro saved, empty lines dropped ({g.get("format")}, {g.get("intro")})')
+    check(wait_for(lambda: 'Короткий кампейн' in gm.locator('.c-hero').inner_text()), 'the format is shown on the page')
+    check(wait_for(lambda: 'тёмное фэнтези' in gm.locator('.intro-card').inner_text() and 'D&D 5e' in gm.locator('.intro-card').inner_text()), 'the intro is shown on the page')
     check(wait_for(lambda: get(f'campaigns/{cid}').get('roomId')), 'and its music room')
     room = get(f'rooms/{get(f"campaigns/{cid}")["roomId"]}')
     check(room['name'] == 'Третья кампания' and room['ownerId'] == GM_UID and room['campaignId'] == cid and room['access'] == 'campaign', f'the room: same name, the creator owns it ({room["name"]})')
@@ -193,7 +202,11 @@ with sync_playwright() as p:
     gm.locator('.member-picker').click(); gm.locator('.member-picker-menu input').fill('Анн'); gm.locator('.member-picker-menu input').press('Enter')
     check(wait_for(lambda: AN_UID in get(f'campaigns/{cid}')['memberUids']), 'Анна added')
     name = gm.locator('label.field', has_text='Название').locator('input')
-    name.fill('Третья кампания 2'); gm.get_by_role('button', name='Сохранить').click()
+    name.fill('Третья кампания 2')
+    gm.locator('select[aria-label="Формат игры"]').select_option('oneshot')
+    gm.locator('.intro-add', has_text='Игроков').click(); gm.locator('input[aria-label="Игроков"]').fill('4')
+    gm.get_by_role('button', name='Сохранить').click()
+    check(wait_for(lambda: get(f'campaigns/{cid}').get('format') == 'oneshot' and {'name': 'Игроков', 'value': '4'} in get(f'campaigns/{cid}').get('intro', [])), 'settings change the format and the intro')
     check(wait_for(lambda: get(f'worlds/{W}/entities/{get(f"campaigns/{cid}")["tagId"]}')['name'] == '⚔ Третья кампания 2'), 'renaming the campaign renames its tag')
     check(wait_for(lambda: get(f'rooms/{get(f"campaigns/{cid}")["roomId"]}')['name'] == 'Третья кампания 2'), 'and its room')
 
@@ -211,9 +224,9 @@ with sync_playwright() as p:
 
     print('== characters by campaign')
     gm.goto(BASE + f'#/w/{W}/t/character'); gm.wait_for_selector('.page-head', timeout=15000)
-    gm.locator('button[title^="По кампейнам"]').click(); gm.wait_for_selector('.camp-group', timeout=10000)
+    gm.locator('button[title^="По играм"]').click(); gm.wait_for_selector('.camp-group', timeout=10000)
     heads = [x.strip() for x in gm.locator('.camp-group-head .camp-group-title').all_inner_texts()]
-    check(heads == ['⚔ Вторая Лавина', 'Вне кампейнов'], f'groups: the campaign, then the rest ({heads})')
+    check(heads == ['⚔ Вторая Лавина', 'Вне игр'], f'groups: the game, then the rest ({heads})')
     g = gm.locator('.camp-group').first
     runs = [x.strip().lower() for x in g.locator('.camp-run').all_inner_texts()]
     check(runs == ['игровые персонажи · 2', 'npc · 2'], f'PCs first, then NPCs ({runs})')
@@ -229,7 +242,7 @@ with sync_playwright() as p:
     check(wait_for(lambda: gm.locator('.sidebar .sb-autotag', has_text='Вторая Лавина').count() == 1), 'the sidebar shows the tag goes on new articles')
     gm.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
     gm.locator('.modal .type-tile', has_text='Заметка').click()
-    sel = gm.locator('.modal label.field', has_text='Кампейн').locator('select')
+    sel = gm.locator('.modal label.field', has_text='Игра').locator('select')
     check(sel.locator('option:checked').inner_text() == '⚔ Вторая Лавина', 'the creation window preselects it')
     gm.locator('.modal input[maxlength="200"]').fill('Слухи о лавине')
     gm.screenshot(path=os.path.join(OUT, 'k-5-create.png'))
@@ -242,7 +255,7 @@ with sync_playwright() as p:
     check(wait_for(lambda: get(f'worlds/{W}/entities/{tid}') is not None and 'qtag' not in get(f'worlds/{W}/entities/{tid}')['tagIds']), 'but not a new tag')
     gm.goto(BASE + f'#/w/{W}/t/note'); gm.wait_for_selector('.page-head', timeout=15000)
     gm.get_by_role('button', name='Создать заметку').click()
-    gm.locator('.modal label.field', has_text='Кампейн').locator('select').select_option(label='— без кампейна —')
+    gm.locator('.modal label.field', has_text='Игра').locator('select').select_option(label='— без игры —')
     gm.locator('.modal input[maxlength="200"]').fill('Без кампейна')
     gm.get_by_role('button', name='Создать и редактировать').click(); gm.wait_for_url('**/e/**', timeout=15000)
     n2 = gm.url.split('/e/')[1].split('?')[0]
@@ -263,28 +276,32 @@ with sync_playwright() as p:
     check('статей' in camp_card.inner_text() or 'статьи' in camp_card.inner_text(), 'how many articles carry it')
     gm.screenshot(path=os.path.join(OUT, 'k-6-tags.png'))
     gm.locator('button[title="Таблица"]').click(); gm.wait_for_selector('table', timeout=5000)
-    check(gm.locator('th', has_text='Цвет').count() == 1 and gm.locator('tr', has_text='Вторая Лавина').locator('.badge', has_text='кампейн').count() == 1, 'table: colour column and the campaign mark')
+    check(gm.locator('th', has_text='Цвет').count() == 1 and gm.locator('tr', has_text='Вторая Лавина').locator('.badge', has_text='игра').count() == 1, 'table: colour column and the game mark')
     gm.locator('button[title="Карточки"]').click()
 
-    print('== the sidebar shows running and preparing campaigns only')
-    for cc, st in [('old1', 'finished'), (cid, 'planning')]:
-        rest('PATCH', f'{FS}/campaigns/{cc}?updateMask.fieldPaths=status&updateMask.fieldPaths=updatedAt', {'fields': {'status': enc(st), 'updatedAt': enc(int(time.time() * 1000))}})
+    print('== «Мои игры»: games I run or play in, running or being prepared')
+    T1 = int(time.time() * 1000)
+    put('campaigns/fin1', {'name': 'Законченная', 'description': '', 'cover': None, 'worldId': W, 'worldName': WORLD, 'ownerId': GM_UID, 'gmUids': [GM_UID],
+                           'memberUids': [GM_UID], 'status': 'finished', 'schedule': '', 'nextSessionAt': None, 'createdAt': T1, 'updatedAt': T1})
+    rest('PATCH', f'{FS}/campaigns/old1?updateMask.fieldPaths=memberUids&updateMask.fieldPaths=gmUids&updateMask.fieldPaths=updatedAt',
+         {'fields': {'memberUids': enc([AN_UID]), 'gmUids': enc([]), 'updatedAt': enc(T1)}})
+    rest('PATCH', f'{FS}/campaigns/{cid}?updateMask.fieldPaths=status&updateMask.fieldPaths=updatedAt', {'fields': {'status': enc('planning'), 'updatedAt': enc(T1)}})
     sb = gm.locator('.sidebar')
-    check(wait_for(lambda: sb.locator('.sb-link', has_text='Старая игра').count() == 0), 'a finished campaign is not in the sidebar')
+    check(wait_for(lambda: sb.locator('.sb-section-title', has_text='Мои игры').count() == 1 and sb.locator('.sb-link', has_text='Законченная').count() == 0), 'a finished game is not in «Мои игры»')
+    check(wait_for(lambda: sb.locator('.sb-link', has_text='Старая игра').count() == 0), 'nor a game the master is not in')
     check(sb.locator('.sb-link', has_text='Вторая Лавина').count() == 1 and 'готовится' in sb.locator('.sb-link', has_text='Третья кампания 2').inner_text(), 'running and preparing ones are, the latter marked')
     names = [x.strip().splitlines()[0] for x in sb.locator('.sb-link[href*="/campaigns/"]').all_inner_texts()]
     check(names[:2] == ['Вторая Лавина', 'Третья кампания 2'], f'running first ({names})')
     more = sb.locator('.sb-more')
-    check(more.count() == 1 and 'Остальные: 1' in more.inner_text(), 'a link to the others')
+    check(more.count() == 1 and 'Все игры мира: 4' in more.inner_text(), f'a link to all games of the world ({more.inner_text() if more.count() else ""})')
     gm.screenshot(path=os.path.join(OUT, 'k-8-sidebar.png'), clip={'x': 0, 'y': 300, 'width': 280, 'height': 420})
     more.click(); gm.wait_for_url(f'**/w/{W}/campaigns', timeout=10000)
-    check(gm.locator('.camp-card', has_text='Старая игра').count() == 1, 'the page of the world still lists all of them')
-    rest('PATCH', f'{FS}/campaigns/old1?updateMask.fieldPaths=status', {'fields': {'status': enc('active')}})
+    check(gm.locator('.camp-card', has_text='Старая игра').count() == 1 and gm.locator('.camp-card', has_text='Законченная').count() == 1, 'the world\'s «Игры» page lists all of them')
 
     print('== a player')
     an = page()
     login(an, AN)
-    an.locator('.app-bar .app-nav a', has_text='Кампейны').click(); an.wait_for_selector('.camp-row', timeout=15000)
+    an.locator('.app-bar .app-nav a', has_text='Игры').click(); an.wait_for_selector('.camp-row', timeout=15000)
     rows = [x for x in an.locator('.camp-row .camp-name').all_inner_texts()]
     check(sorted(rows) == ['Вторая Лавина', 'Старая игра'], f'her campaigns only ({rows})')
     an.goto(BASE + f'#/w/{W}'); an.wait_for_selector('.db-grid', timeout=20000)
@@ -300,7 +317,7 @@ with sync_playwright() as p:
     own.uncheck(); an.get_by_role('button', name='Сохранить').click()
     check(wait_for(lambda: get(f'campaigns/{QC}').get('characters', {}).get(AN_UID) == []), 'she changes her current characters')
     an.goto(BASE + f'#/w/{W}/campaigns/{cid}'); an.wait_for_selector('.content', timeout=15000)
-    check(wait_for(lambda: 'Кампейн недоступен' in an.locator('.content').inner_text()), 'a campaign she is not in is closed to her')
+    check(wait_for(lambda: 'Игра недоступна' in an.locator('.content').inner_text()), 'a game she is not in is closed to her')
     an.goto(BASE + f'#/c/{QC}')
     # (the address is read from the page: Playwright's page.url can miss a replaceState right after a hash goto)
     check(wait_for(lambda: f'/w/{W}/campaigns/{QC}' in an.evaluate('location.hash')) and an.locator('.c-hero h1').inner_text() == 'Вторая Лавина',

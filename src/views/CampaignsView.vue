@@ -4,7 +4,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
-import { watchMyCampaigns, STATUS_LABELS } from '@/data/campaigns'
+import { watchMyCampaigns, FORMAT_LABELS, STATUS_LABELS } from '@/data/campaigns'
 import { formatDate, plural, errorText } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import CampaignCover from '@/components/campaign/CampaignCover.vue'
@@ -22,7 +22,7 @@ watch(() => [session.ready, session.user?.uid] as const, ([ready, u]) => {
   stop?.(); stop = null
   if (ready && !u) { void router.replace({ name: 'login', query: { next: route.fullPath } }); return }
   if (!u) return
-  stop = watchMyCampaigns(u, (r) => { rows.value = r; loading.value = false }, (e: any) => { loading.value = false; toast.error('Не удалось загрузить кампейны: ' + errorText(e)) })
+  stop = watchMyCampaigns(u, (r) => { rows.value = r; loading.value = false }, (e: any) => { loading.value = false; toast.error('Не удалось загрузить игры: ' + errorText(e)) })
 }, { immediate: true })
 onBeforeUnmount(() => stop?.())
 
@@ -35,15 +35,15 @@ const target = (c: Campaign) => (c.worldId ? { name: 'wcampaign', params: { wid:
 
 <template>
   <div class="page">
-    <h1 style="margin: 0 0 6px">Кампейны</h1>
+    <h1 style="margin: 0 0 6px">Игры</h1>
     <p class="muted" style="margin: 0 0 18px; max-width: 760px">
-      Игры, в которых вы участвуете. Кампейн живёт внутри своего мира: там его журнал, игроки и их персонажи. Новый кампейн создаётся в мире — откройте мир и раздел «Кампейны».
+      Все ваши игры во всех сеттингах — те, что вы ведёте, и те, где играете. Игра живёт внутри своего мира: там её журнал, участники и их персонажи. Новая игра создаётся в мире — откройте мир и раздел «Игры».
     </p>
 
     <div v-if="loading" class="empty"><Icon name="refresh-cw" class="spin" :size="24" /></div>
     <div v-else-if="!rows.length" class="card empty">
       <Icon name="swords" :size="34" />
-      <p>Вы пока не участвуете ни в одном кампейне. Мастер мира может добавить вас в кампейн или прислать ссылку-приглашение.</p>
+      <p>Вы пока не участвуете ни в одной игре. Мастер мира может добавить вас в игру или прислать ссылку-приглашение.</p>
       <RouterLink class="btn" :to="{ name: 'worlds' }"><Icon name="globe" :size="15" /> Мои миры</RouterLink>
     </div>
     <div v-else class="card camp-list">
@@ -53,6 +53,8 @@ const target = (c: Campaign) => (c.worldId ? { name: 'wcampaign', params: { wid:
           <span class="camp-name ellipsis">{{ c.name }}</span>
           <span class="faint small camp-facts">
             <span><Icon name="globe" :size="12" /> {{ c.worldName || 'без мира' }}</span>
+            <span v-if="c.format"><Icon name="hourglass" :size="12" /> {{ FORMAT_LABELS[c.format] }}</span>
+            <span v-if="c.intro?.length"><Icon name="compass" :size="12" /> {{ c.intro.slice(0, 2).map((r) => r.value).join(' · ') }}</span>
             <span><Icon :name="c.gmUids.includes(uid) ? 'crown' : 'user'" :size="12" /> {{ c.gmUids.includes(uid) ? 'Веду' : 'Играю' }}</span>
             <span><Icon name="users" :size="12" /> {{ c.memberUids.length }} {{ plural(c.memberUids.length, 'участник', 'участника', 'участников') }}</span>
             <span v-if="c.schedule"><Icon name="clock" :size="12" /> {{ c.schedule }}</span>

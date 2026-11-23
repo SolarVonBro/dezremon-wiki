@@ -30,7 +30,7 @@ async function accept() {
   busy.value = true
   try {
     const r = await acceptCampaignInvite(cid, code, session.user)
-    if (r.worldError) toast.info('В кампейн вы вступили, но в мир войти не удалось: ' + r.worldError)
+    if (r.worldError) toast.info('В игру вы вступили, но в мир войти не удалось: ' + r.worldError)
     // the campaign lives inside its world
     void router.replace(invite.value?.worldId ? { name: 'wcampaign', params: { wid: invite.value.worldId, cid } } : { name: 'campaign', params: { cid } })
   } catch (e: any) { error.value = errorText(e); state.value = 'error' } finally { busy.value = false }
@@ -43,24 +43,24 @@ async function accept() {
       <Icon name="swords" :size="40" />
       <template v-if="state === 'loading'"><Icon name="refresh-cw" class="spin" :size="22" /></template>
       <template v-else-if="state === 'login'">
-        <h2>Приглашение в кампейн</h2>
+        <h2>Приглашение в игру</h2>
         <p class="muted">Войдите или зарегистрируйтесь, чтобы принять приглашение.</p>
         <RouterLink class="btn btn-primary" :to="{ name: 'login', query: { next: route.fullPath } }"><Icon name="log-in" :size="15" /> Войти</RouterLink>
       </template>
       <template v-else-if="state === 'ready' && invite">
         <h2>«{{ invite.campaignName }}»</h2>
-        <p class="muted">Вас приглашают в кампейн {{ invite.role === 'gm' ? 'мастером' : 'игроком' }}<template v-if="invite.worldInviteCode"> — вместе с доступом к его миру</template>.</p>
+        <p class="muted">Вас приглашают в игру {{ invite.role === 'gm' ? 'мастером' : 'игроком' }}<template v-if="invite.worldInviteCode"> — вместе с доступом к его миру</template>.</p>
         <button class="btn btn-primary btn-lg" :disabled="busy" @click="accept"><Icon name="check" :size="16" /> Вступить {{ ROLE_LABELS[invite.role].toLowerCase() === 'мастер' ? 'мастером' : 'игроком' }}</button>
       </template>
       <template v-else-if="state === 'missing'">
         <h2>Приглашение недействительно</h2>
         <p class="muted">Ссылку отозвали или срок её действия истёк. Попросите мастера прислать новую.</p>
-        <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои кампейны</RouterLink>
+        <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои игры</RouterLink>
       </template>
       <template v-else>
         <h2>Не получилось</h2>
         <p class="muted">{{ error }}</p>
-        <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои кампейны</RouterLink>
+        <RouterLink class="btn" :to="{ name: 'campaigns' }">Мои игры</RouterLink>
       </template>
     </div>
   </div>

@@ -43,16 +43,16 @@ async function remove() {
   <Modal title="Настройки комнаты" width="520px" @close="emit('close')">
     <div class="stack">
       <label class="field"><span>Название</span><input v-model="form.name" class="input" maxlength="80" /></label>
-      <label class="field"><span>Кампейн</span>
+      <label class="field"><span>Игра</span>
         <select v-model="form.campaignId" class="input">
           <option value="">— не привязана —</option>
-          <option v-if="room.campaignId && !campaigns.some((c) => c.id === room.campaignId)" :value="room.campaignId">{{ room.campaignName || 'текущий кампейн' }}</option>
+          <option v-if="room.campaignId && !campaigns.some((c) => c.id === room.campaignId)" :value="room.campaignId">{{ room.campaignName || 'текущая игра' }}</option>
           <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </label>
       <div class="field"><span>Кто может зайти</span>
         <label class="check"><input v-model="form.access" type="radio" value="link" /> Все, у кого есть ссылка (нужен вход в аккаунт)</label>
-        <label class="check" :class="{ faint: !form.campaignId }"><input v-model="form.access" type="radio" value="campaign" :disabled="!form.campaignId" /> Только участники кампейна</label>
+        <label class="check" :class="{ faint: !form.campaignId }"><input v-model="form.access" type="radio" value="campaign" :disabled="!form.campaignId" /> Только участники игры</label>
       </div>
       <div class="field"><span>Кто управляет музыкой</span>
         <label class="check"><input v-model="form.controlMode" type="radio" value="hosts" /> Владелец и ведущие</label>

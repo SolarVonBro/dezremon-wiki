@@ -191,7 +191,7 @@ const settingsOpen = ref(false)
     <div v-else-if="room === null" class="card empty" style="max-width: 560px; margin: 40px auto">
       <Icon name="lock" :size="34" />
       <h2>Комната недоступна</h2>
-      <p class="muted">Её удалили, или она только для участников кампейна, в котором вас нет.</p>
+      <p class="muted">Её удалили, или она только для участников игры, в которой вас нет.</p>
       <RouterLink class="btn" :to="{ name: 'rooms' }">Мои комнаты</RouterLink>
     </div>
     <template v-else>
@@ -199,8 +199,8 @@ const settingsOpen = ref(false)
         <div class="grow" style="min-width: 0">
           <h1 class="ellipsis"><Icon name="headphones" :size="26" /> {{ room.name }}</h1>
           <div class="row gap-sm wrap small muted">
-            <RouterLink v-if="room.campaignId" :to="{ name: 'campaign', params: { cid: room.campaignId } }"><Icon name="swords" :size="13" /> {{ room.campaignName || 'кампейн' }}</RouterLink>
-            <span>{{ room.access === 'campaign' ? 'только участники кампейна' : 'вход по ссылке' }}</span>
+            <RouterLink v-if="room.campaignId" :to="{ name: 'campaign', params: { cid: room.campaignId } }"><Icon name="swords" :size="13" /> {{ room.campaignName || 'игра' }}</RouterLink>
+            <span>{{ room.access === 'campaign' ? 'только участники игры' : 'вход по ссылке' }}</span>
             <span>· {{ room.controlMode === 'everyone' ? 'управляют все' : 'управляют ведущие' }}</span>
             <span v-if="!canControl" class="badge">вы слушатель</span>
           </div>

@@ -86,7 +86,7 @@ with sync_playwright() as p:
     step('GM: sign in, portrait in the hub top bar')
     login(gm, GM)
     check(gm.locator('.app-bar .user-btn').count() == 1, 'portrait button in the top bar')
-    check(gm.locator('.app-nav a', has_text='Кампейны').count() == 1 and gm.locator('.app-nav a', has_text='Комнаты').count() == 1, 'top bar has Кампейны and Комнаты')
+    check(gm.locator('.app-nav a', has_text='Игры').count() == 1 and gm.locator('.app-nav a', has_text='Комнаты').count() == 1, 'top bar has Игры and Комнаты')
     check(gm.locator('.app-nav a', has_text='Админка').count() == 0, 'no admin link for a normal user')
 
     step('GM: create a world with a character')
@@ -104,12 +104,12 @@ with sync_playwright() as p:
 
     step('GM: new campaign from the world sidebar')
     gm.goto(BASE + f'#/w/{wid}')
-    gm.locator('.sb-section-title', has_text='Кампейны').locator('a[title="Новый кампейн в этом мире"]').click()
+    gm.locator('.sb-section-title', has_text='Мои игры').locator('a[title="Новая игра в этом мире"]').click()
     gm.wait_for_selector('.modal input[placeholder="Тени над Вельмором"]')
-    check(gm.locator('.modal select').count() == 1 and 'Мир ' + RUN in gm.locator('.modal').inner_text(), 'the form names the world, no world choice')
+    check(gm.locator(f'.modal option[value="{wid}"]').count() == 0 and 'Мир ' + RUN in gm.locator('.modal').inner_text(), 'the form names the world, no world choice')
     gm.locator('.modal input[placeholder="Тени над Вельмором"]').fill('Тени над Вельмором')
     gm.locator('.modal textarea').fill('Городская интрига.\nВторая строка.')
-    gm.locator('.modal').get_by_role('button', name='Создать кампейн').click()
+    gm.locator('.modal').get_by_role('button', name='Создать игру').click()
     gm.wait_for_selector('.c-hero h1', timeout=20000)
     cid = gm.url.split('/campaigns/')[1].split('/')[0].split('?')[0]
     check(f'/w/{wid}/campaigns/' in gm.url, 'the campaign page is inside the world')
@@ -365,11 +365,11 @@ with sync_playwright() as p:
     check(ad.locator('.app-nav a', has_text='Админка').count() == 1, 'admin link for the service admin')
     ad.goto(BASE + '#/admin')
     ad.wait_for_selector('.urow', timeout=20000)
-    for t in ['Пользователи', 'Миры', 'Кампейны', 'Комнаты']:
+    for t in ['Пользователи', 'Миры', 'Игры', 'Комнаты']:
         n = ad.locator('.stat-row').inner_text()
     check(ad.locator('.urow').count() >= 3, 'users listed')
     ad.locator('.tabs .tab', has_text='Миры').click(); ad.wait_for_selector('td:has-text("Мир ' + RUN + '")')
-    ad.locator('.tabs .tab', has_text='Кампейны').click(); ad.wait_for_selector('td:has-text("Тени над Вельмором")')
+    ad.locator('.tabs .tab', has_text='Игры').click(); ad.wait_for_selector('td:has-text("Тени над Вельмором")')
     ad.locator('.tabs .tab', has_text='Комнаты').click(); ad.wait_for_selector('td:has-text("Таверна ' + RUN + '")')
     check(True, 'worlds, campaigns and rooms listed')
     ad.locator('.tabs .tab', has_text='Ресурсы').click(); ad.wait_for_selector('text=Место в базе — весь проект', timeout=15000)

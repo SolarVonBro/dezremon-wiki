@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue
 import { useRoute, useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
 import { isServiceAdmin } from '@/data/admin'
-import { currentCharacters, watchCampaign, watchParticipants, watchSessions, removeParticipant, STATUS_LABELS, ROLE_LABELS } from '@/data/campaigns'
+import { currentCharacters, watchCampaign, watchParticipants, watchSessions, removeParticipant, FORMAT_LABELS, STATUS_LABELS, ROLE_LABELS } from '@/data/campaigns'
 import { formatDate, untilTime, plural, errorText } from '@/data/util'
 import { cropOf } from '@/data/crop'
 import Icon from '@/components/common/Icon.vue'
@@ -50,7 +50,7 @@ const isMember = computed(() => !!campaign.value?.memberUids.includes(uid.value)
 type Tab = 'overview' | 'sessions' | 'people' | 'rooms' | 'settings'
 const tab = computed<Tab>(() => (route.params.tab as Tab) || 'overview')
 function setTab(t: Tab) { void router.replace({ name: 'wcampaign', params: { wid: world.wid!, cid, tab: t === 'overview' ? undefined : t } }) }
-watch(() => campaign.value?.name, (n) => { if (n) document.title = `${n} — ${world.world?.name ?? 'кампейн'}` }, { immediate: true })
+watch(() => campaign.value?.name, (n) => { if (n) document.title = `${n} — ${world.world?.name ?? 'игра'}` }, { immediate: true })
 
 const people = computed(() => [...participants.value].sort((a, b) => (a.role === b.role ? a.displayName.localeCompare(b.displayName, 'ru') : a.role === 'gm' ? -1 : 1)))
 const charsOf = (p: CampaignParticipant) => (campaign.value ? currentCharacters(campaign.value, p).map((id) => world.get(id)).filter((e) => !!e) : [])
@@ -64,10 +64,10 @@ const nextAt = computed(() => {
 })
 
 async function leave() {
-  if (!campaign.value || !confirm(`Покинуть кампейн «${campaign.value.name}»? Вернуть вас сможет мастер.`)) return
+  if (!campaign.value || !confirm(`Покинуть игру «${campaign.value.name}»? Вернуть вас сможет мастер.`)) return
   try {
     await removeParticipant(cid, uid.value, true)
-    toast.success('Вы покинули кампейн')
+    toast.success('Вы покинули игру')
     void router.replace({ name: 'wcampaigns', params: { wid: world.wid! } })
   } catch (e: any) { toast.error('Не удалось: ' + errorText(e)) }
 }
@@ -76,16 +76,16 @@ async function leave() {
 <template>
   <Teleport defer to="#crumbs">
     <RouterLink :to="{ name: 'dashboard', params: { wid: world.wid! } }">{{ world.world?.name }}</RouterLink>
-    <Icon name="chevron-right" :size="13" /><RouterLink :to="{ name: 'wcampaigns', params: { wid: world.wid! } }">Кампейны</RouterLink>
+    <Icon name="chevron-right" :size="13" /><RouterLink :to="{ name: 'wcampaigns', params: { wid: world.wid! } }">Игры</RouterLink>
     <template v-if="campaign"><Icon name="chevron-right" :size="13" /><span class="ellipsis" style="color: var(--text)">{{ campaign.name }}</span></template>
   </Teleport>
   <div class="content">
     <div v-if="campaign === undefined" class="empty"><Icon name="refresh-cw" class="spin" :size="26" /></div>
     <div v-else-if="campaign === null" class="card empty" style="max-width: 560px; margin: 40px auto">
       <Icon name="lock" :size="34" />
-      <h2>Кампейн недоступен</h2>
-      <p class="muted">Его удалили, или вы в нём не участвуете. Добавить вас в кампейн может мастер мира.</p>
-      <RouterLink class="btn" :to="{ name: 'wcampaigns', params: { wid: world.wid! } }">Кампейны мира</RouterLink>
+      <h2>Игра недоступна</h2>
+      <p class="muted">Её удалили, или вы в ней не участвуете. Добавить вас в игру может мастер мира.</p>
+      <RouterLink class="btn" :to="{ name: 'wcampaigns', params: { wid: world.wid! } }">Игры мира</RouterLink>
     </div>
     <template v-else>
       <section class="c-hero">
@@ -93,14 +93,15 @@ async function leave() {
         <div class="c-hero-text">
           <div class="row gap-sm wrap">
             <span class="badge" :class="{ 'badge-public': campaign.status === 'active' }">{{ STATUS_LABELS[campaign.status] }}</span>
+            <span v-if="campaign.format" class="badge">{{ FORMAT_LABELS[campaign.format] }}</span>
             <span v-if="isGM && !isMember" class="badge badge-secret">вы — мастер мира</span>
           </div>
           <h1>{{ campaign.name }}</h1>
           <div class="c-meta">
             <span v-if="campaign.schedule"><Icon name="clock" :size="14" /> {{ campaign.schedule }}</span>
             <span><Icon name="users" :size="14" /> {{ participants.length }} {{ plural(participants.length, 'участник', 'участника', 'участников') }}</span>
-            <RouterLink v-if="tag" :to="{ name: 'entity', params: { wid: world.wid!, eid: tag.id }, query: { tab: 'feature' } }" class="tag-chip" :style="{ '--tag-color': tag.fields?.colour }" title="Статьи с тегом кампейна">{{ tag.name }}</RouterLink>
-            <RouterLink v-if="campaign.roomId && isMember" class="c-room" :to="{ name: 'room', params: { rid: campaign.roomId } }" title="Музыкальная комната кампейна"><Icon name="headphones" :size="14" /> Музыкальная комната</RouterLink>
+            <RouterLink v-if="tag" :to="{ name: 'entity', params: { wid: world.wid!, eid: tag.id }, query: { tab: 'feature' } }" class="tag-chip" :style="{ '--tag-color': tag.fields?.colour }" title="Статьи с тегом игры">{{ tag.name }}</RouterLink>
+            <RouterLink v-if="campaign.roomId && isMember" class="c-room" :to="{ name: 'room', params: { rid: campaign.roomId } }" title="Музыкальная комната игры"><Icon name="headphones" :size="14" /> Музыкальная комната</RouterLink>
           </div>
         </div>
       </section>
@@ -118,7 +119,7 @@ async function leave() {
           <section v-if="nextAt" class="card card-pad next-card">
             <Icon name="calendar-clock" :size="22" />
             <div class="grow">
-              <div class="section-title" style="margin: 0">Следующая игра</div>
+              <div class="section-title" style="margin: 0">Следующая встреча</div>
               <div class="next-date">{{ formatDate(nextAt) }}</div>
               <div class="faint small">{{ nextAt > Date.now() ? untilTime(nextAt) : 'сейчас' }}{{ nextPlanned?.title ? ' · ' + nextPlanned.title : '' }}</div>
             </div>
@@ -157,12 +158,17 @@ async function leave() {
           </section>
         </div>
         <aside class="stack">
+          <section v-if="campaign.intro?.length || isGM" class="card card-pad intro-card">
+            <h3 class="panel-title"><Icon name="compass" /> Вводная</h3>
+            <dl v-if="campaign.intro?.length" class="facts intro-facts"><template v-for="(r, i) in campaign.intro" :key="i"><dt>{{ r.name }}</dt><dd>{{ r.value }}</dd></template></dl>
+            <p v-else class="faint" style="margin: 0">Жанр, настроение, система, уровень — добавьте вводную в <a href="#" @click.prevent="setTab('settings')">настройках</a>.</p>
+          </section>
           <section class="card card-pad">
-            <h3 class="panel-title"><Icon name="scroll" /> О кампейне</h3>
+            <h3 class="panel-title"><Icon name="scroll" /> Об игре</h3>
             <p v-if="campaign.description" class="desc">{{ campaign.description }}</p>
             <p v-else class="faint" style="margin: 0">Описания пока нет.<template v-if="isGM"> Его можно добавить в настройках.</template></p>
           </section>
-          <button v-if="isMember && campaign.ownerId !== uid" class="btn btn-ghost btn-sm" style="align-self: flex-start" @click="leave"><Icon name="log-out" :size="14" /> Покинуть кампейн</button>
+          <button v-if="isMember && campaign.ownerId !== uid" class="btn btn-ghost btn-sm" style="align-self: flex-start" @click="leave"><Icon name="log-out" :size="14" /> Покинуть игру</button>
         </aside>
       </div>
 
@@ -191,6 +197,8 @@ async function leave() {
 .next-card > .icon { color: var(--accent); }
 .next-date { font: 700 24px var(--font-head); }
 .desc { white-space: pre-wrap; margin: 0; }
+.intro-facts { margin: 0; }
+.intro-facts dd { white-space: pre-wrap; }
 .last-html { margin-top: 8px; font-size: 16px; max-height: 360px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
 .ov-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 18px; }
 .ov-person { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }

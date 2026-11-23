@@ -58,7 +58,7 @@ const typeLabel = (e: Entity) => ({ pc: 'PC', npc: 'NPC' } as Record<string, str
 <template>
   <section class="card card-pad">
     <h3 class="panel-title"><Icon name="users" /> Игроки и их текущие персонажи</h3>
-    <p class="faint small" style="margin: -4px 0 10px">Текущие персонажи — те, которыми игрок играет в этом кампейне сейчас. Игрок выбирает их сам, мастер — за любого. Добавить или убрать игроков можно в настройках кампейна{{ isGm ? '' : ' (у мастера)' }}.</p>
+    <p class="faint small" style="margin: -4px 0 10px">Текущие персонажи — те, которыми игрок играет в этой игре сейчас. Игрок выбирает их сам, мастер — за любого. Добавить или убрать участников можно в настройках игры{{ isGm ? '' : ' (у мастера)' }}.</p>
     <div v-if="!people.length" class="faint">Игроков пока нет.</div>
     <div v-for="p in people" :key="p.uid" class="person">
       <span class="avatar round" style="width: 40px; height: 40px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="18" /></span>

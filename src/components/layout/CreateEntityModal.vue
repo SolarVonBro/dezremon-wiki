@@ -82,9 +82,9 @@ async function create() {
         <MemberPicker v-if="own && world.isMaster" v-model="ownerUid" label="Чей персонаж" />
         <span v-if="own" class="faint small">Статью увидят только {{ ownerName }} и мастера, а в меню мира она появится в разделе «Мои персонажи»{{ ownerIsMe ? '' : ' у игрока' }}. Видимость можно поменять позже.</span>
       </div>
-      <label v-if="showCampaign" class="field"><span>Кампейн</span>
-        <select v-model="campaignTagId" class="input" aria-label="Кампейн">
-          <option :value="null">— без кампейна —</option>
+      <label v-if="showCampaign" class="field"><span>Игра</span>
+        <select v-model="campaignTagId" class="input" aria-label="Игра">
+          <option :value="null">— без игры —</option>
           <option v-for="t in world.campaignTags" :key="t.id" :value="t.id">{{ t.name }}</option>
         </select>
       </label>

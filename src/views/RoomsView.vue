@@ -54,7 +54,7 @@ async function create() {
       <h1 class="grow" style="margin: 0">Музыкальные комнаты</h1>
       <button class="btn btn-primary" @click="openCreate()"><Icon name="plus" :size="16" /> Новая комната</button>
     </div>
-    <p class="muted" style="margin: 0 0 18px; max-width: 760px">Слушайте музыку с YouTube вместе: у всех в комнате играет одно и то же в одну и ту же секунду. Есть очередь, повтор, чат и дополнительные дорожки — фон вроде дождя или шума таверны поверх музыки. Комнату можно привязать к кампейну.</p>
+    <p class="muted" style="margin: 0 0 18px; max-width: 760px">Слушайте музыку с YouTube вместе: у всех в комнате играет одно и то же в одну и ту же секунду. Есть очередь, повтор, чат и дополнительные дорожки — фон вроде дождя или шума таверны поверх музыки. Комнату можно привязать к игре.</p>
 
     <div v-if="loading" class="empty"><Icon name="refresh-cw" class="spin" :size="24" /></div>
     <div v-else-if="!rooms.length" class="card empty">
@@ -78,14 +78,14 @@ async function create() {
     <Modal v-if="creating" title="Новая комната" width="520px" @close="creating = false">
       <form class="stack" @submit.prevent="create">
         <label class="field"><span>Название</span><input v-model="form.name" class="input" maxlength="80" placeholder="Таверна «Пьяный грифон»" autofocus /></label>
-        <label class="field"><span>Кампейн (необязательно)</span>
+        <label class="field"><span>Игра (необязательно)</span>
           <select v-model="form.campaignId" class="input" @change="form.access = form.campaignId ? 'campaign' : 'link'">
-            <option value="">— без кампейна —</option>
+            <option value="">— без игры —</option>
             <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </label>
         <div v-if="form.campaignId" class="field"><span>Кто может зайти</span>
-          <label class="check"><input v-model="form.access" type="radio" value="campaign" /> Только участники кампейна</label>
+          <label class="check"><input v-model="form.access" type="radio" value="campaign" /> Только участники игры</label>
           <label class="check"><input v-model="form.access" type="radio" value="link" /> Все, у кого есть ссылка</label>
         </div>
         <div class="field"><span>Кто управляет музыкой</span>

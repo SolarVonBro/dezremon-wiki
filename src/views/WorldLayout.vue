@@ -158,10 +158,10 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
       <div class="sb-search"><QuickSearch /></div>
       <div v-if="world.isMember && !world.preview" class="sb-section" style="padding-top: 0">
         <button class="btn btn-primary" style="width: 100%" title="Создать статью (N)" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать</button>
-        <div v-if="autoTag" class="sb-autotag" title="Этот тег кампейна добавляется ко всем новым статьям (кроме тегов). Выбор — над списком статей любого раздела.">
+        <div v-if="autoTag" class="sb-autotag" title="Этот тег игры добавляется ко всем новым статьям (кроме тегов). Выбор — над списком статей любого раздела.">
           <span class="tag-chip" :style="{ '--tag-color': autoTag.fields?.colour }">{{ autoTag.name }}</span>
           <span class="faint small grow">к новым статьям</span>
-          <button class="icon-btn" style="width: 20px; height: 20px" title="Не добавлять тег кампейна к новым статьям" @click="world.campaignTagPref.auto = false"><Icon name="x" :size="12" /></button>
+          <button class="icon-btn" style="width: 20px; height: 20px" title="Не добавлять тег игры к новым статьям" @click="world.campaignTagPref.auto = false"><Icon name="x" :size="12" /></button>
         </div>
       </div>
       <nav class="sb-section">

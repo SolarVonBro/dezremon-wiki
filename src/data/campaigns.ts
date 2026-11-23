@@ -9,12 +9,21 @@ import { db } from '@/firebase'
 import { now, randomId } from './util'
 import { deleteCampaignTree } from './admin'
 import { acceptInvite } from '@/stores/world'
-import type { Campaign, CampaignInvite, CampaignParticipant, CampaignRole, CampaignSession, CampaignStatus, Member } from '@/model/types'
+import type { Campaign, CampaignFormat, CampaignInvite, CampaignParticipant, CampaignRole, CampaignSession, CampaignStatus, Member } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
 
-export const STATUS_LABELS: Record<CampaignStatus, string> = { planning: 'Готовится', active: 'Идёт', paused: 'На паузе', finished: 'Завершён' }
+export const STATUS_LABELS: Record<CampaignStatus, string> = { planning: 'Готовится', active: 'Идёт', paused: 'На паузе', finished: 'Завершена' }
 export const ROLE_LABELS: Record<CampaignRole, string> = { gm: 'Мастер', player: 'Игрок' }
+export const FORMAT_LABELS: Record<CampaignFormat, string> = { oneshot: 'Ваншот', short: 'Короткий кампейн', long: 'Длительный кампейн', open: 'Открытый стол' }
+export const FORMAT_HINTS: Record<CampaignFormat, string> = {
+  oneshot: 'одна встреча', short: 'несколько встреч', long: 'месяцы игры, развитие персонажей', open: 'вестмарч: состав групп меняется от встречи к встрече',
+}
+/** Lines the intro starts with (a master fills what matters and adds his own). */
+export const INTRO_KEYS = ['Жанр', 'Настроение', 'Система', 'Уровень персонажей', 'Игроков', 'Ограничения и табу', 'Возраст']
+/** The intro without empty lines (what gets saved). */
+export const cleanIntro = (rows: Array<{ name: string; value: string }>) =>
+  rows.map((r) => ({ name: r.name.trim().slice(0, 60), value: r.value.trim().slice(0, 500) })).filter((r) => r.name && r.value)
 
 const campRef = (cid: string) => doc(db, 'campaigns', cid)
 const sub = (cid: string, name: string) => collection(db, 'campaigns', cid, name)
@@ -23,7 +32,7 @@ const nameOf = (u: UserLike) => u.displayName || u.email || 'Без имени'
 export function normalizeCampaign(id: string, d: any): Campaign {
   return {
     name: '', description: '', cover: null, worldId: null, worldName: '', ownerId: '', gmUids: [], memberUids: [], status: 'active',
-    schedule: '', nextSessionAt: null, tagId: null, characters: {}, createdAt: 0, updatedAt: 0, ...d, id,
+    schedule: '', nextSessionAt: null, tagId: null, characters: {}, format: null, intro: [], createdAt: 0, updatedAt: 0, ...d, id,
   }
 }
 
@@ -37,11 +46,11 @@ export function currentCharacters(c: Campaign, p: Pick<CampaignParticipant, 'uid
 // ---------- campaigns ----------
 export const newCampaignId = () => doc(collection(db, 'campaigns')).id
 
-export async function createCampaign(user: UserLike, data: Pick<Campaign, 'name' | 'description' | 'worldId' | 'worldName' | 'status' | 'schedule' | 'cover'> & { tagId?: string | null }, id = newCampaignId()): Promise<string> {
-  if (!data.worldId) throw new Error('Кампейн создаётся в мире')
+export async function createCampaign(user: UserLike, data: Pick<Campaign, 'name' | 'description' | 'worldId' | 'worldName' | 'status' | 'schedule' | 'cover'> & Partial<Pick<Campaign, 'tagId' | 'format' | 'intro'>>, id = newCampaignId()): Promise<string> {
+  if (!data.worldId) throw new Error('Игра создаётся в мире')
   const ref = doc(db, 'campaigns', id)
   const t = now()
-  const c: Omit<Campaign, 'id'> = { tagId: null, characters: {}, ...data, ownerId: user.uid, gmUids: [user.uid], memberUids: [user.uid], nextSessionAt: null, createdAt: t, updatedAt: t }
+  const c: Omit<Campaign, 'id'> = { tagId: null, characters: {}, format: null, intro: [], ...data, ownerId: user.uid, gmUids: [user.uid], memberUids: [user.uid], nextSessionAt: null, createdAt: t, updatedAt: t }
   const p: CampaignParticipant = { uid: user.uid, role: 'gm', displayName: nameOf(user), photoURL: user.photoURL ?? null, characterId: null, characterName: '', joinedAt: t }
   const b = writeBatch(db)
   b.set(ref, c)
@@ -141,7 +150,7 @@ export async function createCampaignInvite(c: Campaign, by: string, role: Campai
   if (withWorld && c.worldId) {
     worldInviteCode = randomId(12)
     await setDoc(doc(db, 'worlds', c.worldId, 'invites', worldInviteCode), {
-      code: worldInviteCode, role: role === 'gm' ? 'master' : 'player', createdBy: by, createdAt: t, expiresAt, note: `Кампейн «${c.name}»`, worldName: c.worldName,
+      code: worldInviteCode, role: role === 'gm' ? 'master' : 'player', createdBy: by, createdAt: t, expiresAt, note: `Игра «${c.name}»`, worldName: c.worldName,
     })
   }
   const code = randomId(12)
