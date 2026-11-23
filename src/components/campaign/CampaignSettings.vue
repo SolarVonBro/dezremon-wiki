@@ -3,7 +3,7 @@ import { errorText } from '@/data/util'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { updateCampaign, FORMAT_HINTS, FORMAT_LABELS, STATUS_LABELS, cleanIntro } from '@/data/campaigns'
-import { deleteWorldCampaign, renameCampaignTag } from '@/data/worldCampaigns'
+import { deleteWorldCampaign, syncCampaignTag } from '@/data/worldCampaigns'
 import { useWorld } from '@/stores/world'
 import { processImage } from '@/data/images'
 import { toLocalInput, fromLocalInput } from './dates'
@@ -40,7 +40,9 @@ async function save() {
       name, description: form.value.description.trim(), status: form.value.status, schedule: form.value.schedule.trim(),
       nextSessionAt: fromLocalInput(form.value.next), cover: form.value.cover, format: form.value.format, intro: cleanIntro(form.value.intro),
     })
-    if (name !== before.name) await renameCampaignTag(before, name)
+    if (name !== before.name || form.value.status !== before.status) {
+      await syncCampaignTag(before, { name: name !== before.name ? name : undefined, status: form.value.status !== before.status ? form.value.status : undefined })
+    }
     toast.success('Сохранено')
   } catch (e: any) { toast.error('Не удалось сохранить: ' + errorText(e)) } finally { busy.value = false }
 }

@@ -56,18 +56,28 @@ export async function createWorldCampaign(user: UserLike, data: { name: string; 
   const world = useWorld()
   if (!world.wid || !world.world) throw new Error('Мир не открыт')
   const cid = newCampaignId()
-  const tagId = await world.createEntity('tag', campaignTagName(data.name), { fields: { colour: campaignTagColour(data.name), campaignId: cid }, ...tagVisibility() })
+  const tagId = await world.createEntity('tag', campaignTagName(data.name), { fields: { colour: campaignTagColour(data.name), campaignId: cid, campaignStatus: data.status }, ...tagVisibility() })
   await createCampaign(user, { ...data, worldId: world.wid, worldName: world.world.name, tagId }, cid)
   await createCampaignRoom(user, cid, data.name)
   return cid
 }
 
-/** The campaign's name changed: its tag follows, and so does its music room while it still has the old name. */
-export async function renameCampaignTag(c: Campaign, name: string) {
+/**
+ * The game's name or status changed: its tag follows (the tag keeps a copy of the status in fields.campaignStatus —
+ * members who are not in the game cannot read the game itself, yet their lists order games by status), and so does
+ * its music room while it still has the old name.
+ */
+export async function syncCampaignTag(c: Campaign, change: { name?: string; status?: CampaignStatus }) {
   const world = useWorld()
   const tag = c.tagId ? world.getAny(c.tagId) : null
-  if (tag && !tag.deleted && world.wid === c.worldId) await world.updateEntity(tag.id, { name: campaignTagName(name) })
-  if (c.roomId) {
+  if (tag && !tag.deleted && world.wid === c.worldId) {
+    await world.updateEntity(tag.id, {
+      ...(change.name !== undefined ? { name: campaignTagName(change.name) } : {}),
+      ...(change.status ? { fields: { ...tag.fields, campaignStatus: change.status } } : {}),
+    }).catch(() => {})
+  }
+  const name = change.name
+  if (name !== undefined && c.roomId) {
     // only the room's owner and hosts may rename it; anyone else leaves it as it is
     const r = await getDoc(doc(db, 'rooms', c.roomId)).catch(() => null)
     if (r?.exists()) await updateRoom(c.roomId, r.data().name === c.name ? { name, campaignName: name } : { campaignName: name }).catch(() => {})
@@ -110,8 +120,8 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
   const camps = snap.docs.map((d) => normalizeCampaign(d.id, d.data()))
   const tags = () => [...world.entities.values()].filter((e) => e.type === 'tag' && !e.isTemplate && !e.deleted)
   let newCampaigns = 0, newTags = 0
-  const link = async (t: Entity, c: Pick<Campaign, 'id' | 'name' | 'tagId'>) => {
-    await world.updateEntity(t.id, { name: campaignTagName(c.name), fields: { ...t.fields, campaignId: c.id } })
+  const link = async (t: Entity, c: Pick<Campaign, 'id' | 'name' | 'tagId' | 'status'>) => {
+    await world.updateEntity(t.id, { name: campaignTagName(c.name), fields: { ...t.fields, campaignId: c.id, campaignStatus: c.status } })
     if (c.tagId !== t.id) await updateCampaign(c.id, { tagId: t.id })
   }
 
@@ -120,7 +130,7 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
     if (isCampaignTag(t) || !isQuotedName(t.name)) continue
     const name = plainCampaignName(t.name)
     if (!name) continue
-    let c: Pick<Campaign, 'id' | 'name' | 'tagId'> | undefined = camps.find((x) => !x.tagId && x.name.trim().toLowerCase() === name.toLowerCase())
+    let c: Pick<Campaign, 'id' | 'name' | 'tagId' | 'status'> | undefined = camps.find((x) => !x.tagId && x.name.trim().toLowerCase() === name.toLowerCase())
     if (!c) {
       const cid = `${w}_${t.id}`
       const had = await getDoc(doc(db, 'campaigns', cid)).then((s) => s.exists()).catch(() => false)
@@ -130,7 +140,7 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
         await createCampaignRoom(user, cid, name)
         newCampaigns++
       }
-      c = { id: cid, name, tagId: t.id }
+      c = { id: cid, name, tagId: t.id, status: 'active' }
     }
     await link(t, c)
   }
@@ -141,11 +151,13 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
     if (all.some((t) => t.fields?.campaignId === c.id)) {
       const t = all.find((x) => x.fields?.campaignId === c.id)!
       if (c.tagId !== t.id) await updateCampaign(c.id, { tagId: t.id })
+      // the copy of the status on the tag (games whose status changed before the copy existed)
+      if (t.fields?.campaignStatus !== c.status) await world.updateEntity(t.id, { fields: { ...t.fields, campaignStatus: c.status } })
       continue
     }
     const same = all.find((t) => !isCampaignTag(t) && plainCampaignName(t.name).toLowerCase() === c.name.trim().toLowerCase())
     if (same) { await link(same, c); continue }
-    const tagId = await world.createEntity('tag', campaignTagName(c.name), { fields: { colour: campaignTagColour(c.name), campaignId: c.id }, ...tagVisibility() })
+    const tagId = await world.createEntity('tag', campaignTagName(c.name), { fields: { colour: campaignTagColour(c.name), campaignId: c.id, campaignStatus: c.status }, ...tagVisibility() })
     await updateCampaign(c.id, { tagId })
     newTags++
   }

@@ -121,8 +121,8 @@ const KIND_RUNS = [{ key: 'pc', label: 'Игровые персонажи' }, { 
 function runs(list: Entity[]) {
   return KIND_RUNS.map((r) => ({ ...r, items: list.filter((e) => (charTypeOfKind(e.kind) ?? '') === r.key).sort(byRichness) })).filter((r) => r.items.length)
 }
-// order of the groups: running games, characters outside games, paused, being prepared, finished. A game a player
-// cannot open (only its tag is visible) has no known status: it goes right after the running ones.
+// order of the groups: running games, characters outside games, paused, being prepared, finished. The status of a game
+// one is not in comes from its tag (fields.campaignStatus); a tag without it (not updated yet) goes after the running ones.
 const GROUP_RANK: Record<string, number> = { active: 0, unknown: 1, none: 2, paused: 3, planning: 4, finished: 5 }
 const STATUS_NOTE: Partial<Record<CampaignStatus, string>> = { paused: 'на паузе', planning: 'готовится', finished: 'завершена' }
 const campaignGroups = computed(() => {
@@ -131,7 +131,9 @@ const campaignGroups = computed(() => {
   const groups: G[] = []
   for (const t of world.campaignTags) {
     const c = worldCampaigns.value.find((x) => x.tagId === t.id || x.id === t.fields?.campaignId) ?? null
-    groups.push({ key: t.id, title: t.name, colour: t.fields?.colour ?? null, tagId: t.id, cid: c?.id ?? null, status: c?.status ?? null, ids: new Set(Object.values(c?.characters ?? {}).flat()) })
+    // a game one is not in cannot be read: its tag carries a copy of the status
+    const status = c?.status ?? (t.fields?.campaignStatus as CampaignStatus | undefined) ?? null
+    groups.push({ key: t.id, title: t.name, colour: t.fields?.colour ?? null, tagId: t.id, cid: c?.id ?? null, status, ids: new Set(Object.values(c?.characters ?? {}).flat()) })
   }
   for (const c of worldCampaigns.value) {
     if (groups.some((g) => g.cid === c.id)) continue
@@ -141,7 +143,7 @@ const campaignGroups = computed(() => {
   const out = groups.map((g) => {
     const list = items.value.filter((e) => (g.tagId && e.tagIds.includes(g.tagId)) || g.ids.has(e.id))
     list.forEach((e) => placed.add(e.id))
-    return { ...g, rank: GROUP_RANK[g.cid ? g.status ?? 'active' : 'unknown'], note: g.status ? STATUS_NOTE[g.status] ?? '' : '', count: list.length, runs: runs(list) }
+    return { ...g, rank: GROUP_RANK[g.status ?? 'unknown'], note: g.status ? STATUS_NOTE[g.status] ?? '' : '', count: list.length, runs: runs(list) }
   }).filter((g) => g.count)
   const rest = items.value.filter((e) => !placed.has(e.id))
   if (rest.length) out.push({ key: '_none', title: 'Вне игр', colour: null, tagId: null, cid: null, status: null, ids: new Set(), rank: GROUP_RANK.none, note: '', count: rest.length, runs: runs(rest) })
