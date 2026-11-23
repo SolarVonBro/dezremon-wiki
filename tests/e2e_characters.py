@@ -144,7 +144,9 @@ with sync_playwright() as p:
 
     print('== «Глазами игрока»: her characters under «Мои персонажи»')
     gm.goto(BASE + f'#/w/{wid}'); gm.wait_for_selector('.db-grid', timeout=15000)
-    check(gm.locator('.sidebar .sb-chars').count() == 0, 'the master has no characters: no section')
+    sec = gm.locator('.sidebar .sb-chars')
+    check(sec.count() == 1 and 'персонажей пока нет' in sec.inner_text().lower() and sec.locator('.sb-link').count() == 0, 'the master has no characters: the section is there, empty')
+    check(sec.locator('button[title="Создать своего персонажа"]').count() == 1, 'the master may create one: «+»')
     gm.get_by_role('button', name='Глазами игрока').click()
     gm.locator('.menu .menu-item', has_text='Игрок Анна').click(); gm.wait_for_timeout(1200)
     names = gm.locator('.sidebar .sb-chars .sb-link').all_inner_texts()
@@ -172,6 +174,7 @@ with sync_playwright() as p:
     cp = pl.locator('.char-player').inner_text()
     check('Игрок Анна' in cp and 'это вы' in cp and pl.locator('.char-player select').count() == 0, f'her character\'s page: «Игрок Анна · это вы» ({cp!r})')
     check(len(pl.locator('.sidebar .sb-chars .sb-link').all_inner_texts()) == 4, 'her sidebar: four characters')
+    check(pl.locator('.sidebar .sb-chars button[title="Создать своего персонажа"]').count() == 0, 'players may not create characters here: no «+»')
     pl.goto(BASE + f'#/w/{wid}'); pl.wait_for_selector('.db-grid', timeout=15000); pl.wait_for_timeout(1000)
     block = pl.locator('.dbv-chars a')
     check(block.count() == 4, f'overview block «Мои персонажи»: four ({block.count()})')

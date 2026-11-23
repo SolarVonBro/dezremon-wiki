@@ -46,6 +46,10 @@ const counts = computed(() => {
   for (const [k, v] of world.byType) m[k] = v.length
   return m
 })
+// «Мои персонажи»: for every member (not guests, not a service admin who is not a member), also while looking
+// through a player's eyes; hidden only if characters are switched off and there are none
+const showChars = computed(() => !!world.member && !world.preview?.guest && (world.enabledTypes('character') || world.viewCharacters.length > 0))
+const canAddChar = computed(() => world.enabledTypes('character') && world.canCreate('character'))
 const roleLabel = computed(() => (world.adminView ? 'Администратор сервиса' : ({ owner: 'Владелец', master: 'Мастер', player: 'Игрок' } as Record<string, string>)[world.role ?? ''] ?? 'Гость'))
 
 const saveState = computed(() => {
@@ -143,12 +147,15 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         <RouterLink class="sb-link" :to="{ name: 'graph', params: { wid: world.wid ?? '' } }"><Icon name="network" :size="17" /> Граф связей</RouterLink>
         <RouterLink class="sb-link" :to="{ name: 'gallery', params: { wid: world.wid ?? '' } }"><Icon name="images" :size="17" /> Галерея</RouterLink>
       </nav>
-      <!-- the characters of this member (or of the player whose eyes the master looks through) -->
-      <nav v-if="world.viewCharacters.length" class="sb-section sb-chars">
-        <div class="sb-section-title">Мои персонажи</div>
+      <!-- the characters of this member (or of the player whose eyes the master looks through); always there for members -->
+      <nav v-if="showChars" class="sb-section sb-chars">
+        <div class="sb-section-title">Мои персонажи
+          <button v-if="canAddChar" class="icon-btn" style="width: 22px; height: 22px" title="Создать своего персонажа" @click="createRequest = { type: 'character', mine: true }"><Icon name="plus" :size="14" /></button>
+        </div>
         <RouterLink v-for="c in world.viewCharacters" :key="c.id" class="sb-link" :to="{ name: 'entity', params: { wid: world.wid ?? '', eid: c.id } }">
           <span class="sb-char-ava"><Thumb :id="c.imageId" :crop="cropOf(c)"><Icon name="user" :size="12" /></Thumb></span><span class="ellipsis">{{ c.name }}</span>
         </RouterLink>
+        <div v-if="!world.viewCharacters.length" class="faint small sb-chars-empty">{{ canAddChar || world.isMaster ? 'Персонажей пока нет.' : 'Персонажей пока нет — их закрепляет мастер.' }}</div>
       </nav>
       <BookmarksNav />
       <WorldCampaignsNav />
@@ -182,7 +189,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         <component :is="Component" :key="route.params.eid ?? route.name" />
       </RouterView>
     </div>
-    <CreateEntityModal v-if="createRequest" :initial-type="createRequest.type" :parent-id="createRequest.parentId" @close="createRequest = null" @created="(id) => { createRequest = null; router.push({ name: 'entity', params: { wid: world.wid!, eid: id }, query: { edit: '1' } }) }" />
+    <CreateEntityModal v-if="createRequest" :initial-type="createRequest.type" :parent-id="createRequest.parentId" :mine="createRequest.mine" @close="createRequest = null" @created="(id) => { createRequest = null; router.push({ name: 'entity', params: { wid: world.wid!, eid: id }, query: { edit: '1' } }) }" />
   </div>
   </div>
 </template>

@@ -12,7 +12,7 @@ import { randomId } from '@/data/util'
 import { CHAR_TYPE_KIND, charTypeOfKind, type CharType } from '@/data/charType'
 import type { Visibility } from '@/model/types'
 
-const props = defineProps<{ initialType?: string | null; parentId?: string | null }>()
+const props = defineProps<{ initialType?: string | null; parentId?: string | null; mine?: boolean }>()
 const emit = defineEmits<{ close: []; created: [id: string] }>()
 const world = useWorld()
 
@@ -29,8 +29,8 @@ const def = computed(() => (type.value ? typeDef(type.value) : null))
 // characters: PC / NPC / no type (the «Тип» field; the PC / NPC tags follow) and «a player's character»: the new
 // character goes to a member (a player creating it — to themselves) and only that member and the masters see it
 const isChar = computed(() => type.value === 'character')
-const charType = ref<CharType | null>(null)
-const own = ref(false)
+const charType = ref<CharType | null>(props.mine ? 'pc' : null)
+const own = ref(!!props.mine)
 // whoever creates it by default; only masters may give it to somebody else (a service admin who is not a member: a player)
 const ownerUid = ref<string | null>(world.member || !world.isMaster ? world.uid : (world.players[0]?.uid ?? null))
 const ownerIsMe = computed(() => ownerUid.value === world.uid)
