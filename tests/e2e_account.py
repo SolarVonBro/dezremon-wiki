@@ -163,6 +163,10 @@ with sync_playwright() as p:
     me.get_by_role('button', name='Сохранить кадр').click()
     check(wait_for(lambda: get(f'users/{ME_UID}').get('avatar') != av and abs((get(f'users/{ME_UID}').get('avatarCrop') or {}).get('x', 0) - 80) < 3), 'framing again changes the picture')
     av2 = get(f'users/{ME_UID}')['avatar']
+    check(me.evaluate(f"localStorage.getItem('dw.avatar.{ME_UID}')") == av2, 'this browser remembers the picture')
+    me.reload(); me.wait_for_selector('.u-head .u-ava', timeout=15000)
+    check(me.locator('.u-head .u-ava img').get_attribute('src') == av2 and me.locator('.app-bar .user-btn img').get_attribute('src') == av2,
+          'after a reload the own picture is there at once (not the old one)')
 
     print('== another member sees it; no cabinet tabs there')
     ot = page()
@@ -187,6 +191,11 @@ with sync_playwright() as p:
     me.locator('label.field', has_text='Имя').get_by_role('button', name='Сохранить').click()
     check(wait_for(lambda: get(f'worlds/{W}/members/{ME_UID}').get('displayName') == 'Лана Новая'), 'the name still changes everywhere')
     check(wait_for(lambda: 'Лана Новая' in me.locator('.u-name').inner_text()), 'and in the header')
+    check(wait_for(lambda: get(f'campaigns/g{RUN}/participants/{ME_UID}').get('displayName') == 'Лана Новая'), 'and in the game\'s participant record')
+    ot.goto(BASE + f'#/w/{W}/campaigns/g{RUN}'); ot.wait_for_selector('.ov-people', timeout=15000)
+    check(wait_for(lambda: 'Лана Новая' in ot.locator('.ov-people').inner_text()), 'the game page shows the new name')
+    ot.locator('.tabs .tab', has_text='Игроки').click(); ot.wait_for_selector('.person', timeout=10000)
+    check('Лана Новая' in ot.locator('.person', has_text='Лана').inner_text(), 'and its «Игроки» tab')
     me.screenshot(path=os.path.join(OUT, 'a-2-profile.png'))
 
     print('== phone width')

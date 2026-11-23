@@ -27,7 +27,11 @@ async function run(fn: () => Promise<unknown>, ok?: string) {
 
 // ---------- players ----------
 const inCampaign = computed(() => props.participants.map((p) => p.uid))
-const people = computed(() => [...props.participants].sort((a, b) => (a.role === b.role ? a.displayName.localeCompare(b.displayName, 'ru') : a.role === 'gm' ? -1 : 1)))
+// a participant as the world knows him now (the participant record keeps the name and picture of when he joined)
+const memberOf = (uid: string) => world.members.find((m) => m.uid === uid)
+const nameOf = (p: CampaignParticipant) => memberOf(p.uid)?.displayName || p.displayName
+const photoOf = (p: CampaignParticipant) => (memberOf(p.uid) ? memberOf(p.uid)!.photoURL : p.photoURL)
+const people = computed(() => [...props.participants].sort((a, b) => (a.role === b.role ? nameOf(a).localeCompare(nameOf(b), 'ru') : a.role === 'gm' ? -1 : 1)))
 const adding = ref<string | null>(null)
 function add(u: string) {
   adding.value = null
@@ -39,8 +43,8 @@ function add(u: string) {
 }
 function setRole(p: CampaignParticipant, role: CampaignRole) { void run(() => setParticipantRole(props.campaign.id, p.uid, role)) }
 function remove(p: CampaignParticipant) {
-  if (!confirm(`Убрать «${p.displayName}» из игры? Участником мира он останется.`)) return
-  void run(() => removeParticipant(props.campaign.id, p.uid), `${p.displayName} больше не в игре`)
+  if (!confirm(`Убрать «${nameOf(p)}» из игры? Участником мира он останется.`)) return
+  void run(() => removeParticipant(props.campaign.id, p.uid), `${nameOf(p)} больше не в игре`)
 }
 
 // ---------- invites (people who are not in the world yet) ----------
@@ -70,8 +74,8 @@ function revoke(i: CampaignInvite) { void run(() => deleteCampaignInvite(props.c
     <section class="card card-pad stack-sm">
       <h3 class="panel-title" style="margin: 0"><Icon name="users" /> Участники игры</h3>
       <div v-for="p in people" :key="p.uid" class="rel-row cma-row">
-        <span class="avatar round" style="width: 28px; height: 28px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
-        <span class="grow" style="min-width: 0"><b>{{ p.displayName }}</b> <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
+        <span class="avatar round" style="width: 28px; height: 28px"><img v-if="photoOf(p)" :src="photoOf(p)!" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
+        <span class="grow" style="min-width: 0"><b>{{ nameOf(p) }}</b> <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
           <span v-if="p.uid === campaign.ownerId" class="badge">создатель</span><span v-if="p.uid === uid" class="faint small"> (вы)</span></span>
         <template v-if="p.uid !== campaign.ownerId">
           <button v-if="p.role === 'player'" class="icon-btn" title="Сделать мастером (со-ведущим)" :disabled="busy" @click="setRole(p, 'gm')"><Icon name="crown" :size="15" /></button>

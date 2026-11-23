@@ -46,7 +46,7 @@ async function restore(r: Revision) {
       <div v-else-if="!revs.length" class="empty">История пока пуста.</div>
       <button v-for="r in revs" :key="r.id" class="pick-row" :class="{ active: selected?.id === r.id }" style="width: 100%" @click="selected = r">
         <Icon name="clock" :size="14" />
-        <span class="grow"><b>{{ formatDate(r.createdAt) }}</b><br /><span class="faint small">{{ r.createdByName }} · {{ sizeDiff(r) }} зн.</span></span>
+        <span class="grow"><b>{{ formatDate(r.createdAt) }}</b><br /><span class="faint small">{{ world.members.find((m) => m.uid === r.createdBy)?.displayName || r.createdByName }} · {{ sizeDiff(r) }} зн.</span></span>
       </button>
     </div>
     <div class="card card-pad">

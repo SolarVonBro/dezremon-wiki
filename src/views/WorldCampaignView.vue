@@ -55,7 +55,11 @@ const tab = computed<Tab>(() => (route.params.tab as Tab) || 'overview')
 function setTab(t: Tab) { void router.replace({ name: 'wcampaign', params: { wid: world.wid!, cid, tab: t === 'overview' ? undefined : t } }) }
 watch(() => campaign.value?.name, (n) => { if (n) document.title = `${n} — ${world.world?.name ?? 'игра'}` }, { immediate: true })
 
-const people = computed(() => [...participants.value].sort((a, b) => (a.role === b.role ? a.displayName.localeCompare(b.displayName, 'ru') : a.role === 'gm' ? -1 : 1)))
+// a participant as the world knows him now (the participant record keeps the name and picture of when he joined)
+const memberOf = (uid: string) => world.members.find((m) => m.uid === uid)
+const nameOf = (p: CampaignParticipant) => memberOf(p.uid)?.displayName || p.displayName
+const photoOf = (p: CampaignParticipant) => (memberOf(p.uid) ? memberOf(p.uid)!.photoURL : p.photoURL)
+const people = computed(() => [...participants.value].sort((a, b) => (a.role === b.role ? nameOf(a).localeCompare(nameOf(b), 'ru') : a.role === 'gm' ? -1 : 1)))
 // the cover opens full screen (the full-size picture of the world, or the small copy of older games)
 async function openCover() {
   const c = campaign.value
@@ -155,8 +159,8 @@ async function leave() {
             <div class="ov-people">
               <div v-for="p in people" :key="p.uid" class="ov-person">
                 <div class="row gap-sm ov-who">
-                  <span class="avatar round" style="width: 26px; height: 26px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="13" /></span>
-                  <RouterLink class="ov-name ellipsis" :to="{ name: 'user', params: { uid: p.uid } }">{{ p.displayName }}</RouterLink><span v-if="p.role === 'gm'" class="badge">{{ ROLE_LABELS.gm }}</span>
+                  <span class="avatar round" style="width: 26px; height: 26px"><img v-if="photoOf(p)" :src="photoOf(p)!" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="13" /></span>
+                  <RouterLink class="ov-name ellipsis" :to="{ name: 'user', params: { uid: p.uid } }">{{ nameOf(p) }}</RouterLink><span v-if="p.role === 'gm'" class="badge">{{ ROLE_LABELS.gm }}</span>
                 </div>
                 <div class="ov-chars">
                   <RouterLink v-for="e in charsOf(p)" :key="e!.id" class="ov-char" :to="{ name: 'entity', params: { wid: world.wid!, eid: e!.id } }" :title="e!.name">

@@ -91,13 +91,14 @@ async function sendReply() {
   const r = replyTo.value
   if (!r || !replyText.value.trim() || busy.value) return
   // answering the thread's own top comment needs no «→ name»; a reply inside the thread names whom it answers
-  const to = r.c.parentId ? { toUid: r.c.createdBy, toName: r.c.authorName } : { toUid: '', toName: '' }
+  const to = r.c.parentId ? { toUid: r.c.createdBy, toName: nameOf(r.c) } : { toUid: '', toName: '' }
   const ok = await run(() => addComment(world.wid!, props.entity, author(), replyText.value, { parentId: r.thread, toUid: to.toUid, toName: to.toName }))
   if (ok) { replyTo.value = null; replyText.value = '' }
 }
+const nameOf = (c: Comment) => world.members.find((m) => m.uid === c.createdBy)?.displayName || c.authorName
 function save(c: Comment, t: string) { void run(() => editComment(world.wid!, c, t, world.uid!)) }
 function remove(c: Comment) {
-  if (!confirm(c.createdBy === world.uid ? 'Удалить ваш комментарий?' : `Удалить комментарий «${c.authorName}»?`)) return
+  if (!confirm(c.createdBy === world.uid ? 'Удалить ваш комментарий?' : `Удалить комментарий «${nameOf(c)}»?`)) return
   void run(() => deleteComment(world.wid!, c, rows.value, world.uid!), 'Комментарий удалён')
 }
 function like(c: Comment) { if (world.uid) void run(() => toggleLike(world.wid!, c, world.uid!)) }
@@ -143,7 +144,7 @@ const label = computed(() => (count.value ? `${count.value} ${plural(count.value
             <CommentItem v-for="r in t.replies" :key="r.id" :c="r" :can-write="canWrite" :article-author="entity.createdBy" :highlight="target === r.id"
               @reply="startReply" @save="save" @remove="remove" @like="like" @link="copyLink" />
             <div v-if="replyTo?.thread === t.top.id" class="cm-reply-box stack-sm">
-              <div class="faint small"><Icon name="reply" :size="13" /> Ответ {{ replyTo.c.authorName }}
+              <div class="faint small"><Icon name="reply" :size="13" /> Ответ {{ nameOf(replyTo.c) }}
                 <button class="icon-btn" style="width: 20px; height: 20px" title="Отменить ответ" @click="replyTo = null"><Icon name="x" :size="12" /></button>
               </div>
               <textarea ref="replyBox" v-model="replyText" class="input" rows="2" :maxlength="COMMENT_MAX" placeholder="Ваш ответ…" aria-label="Ответ"

@@ -48,23 +48,44 @@ export const useSession = defineStore('session', () => {
    * provider's photo everywhere: worlds, games, comments, rooms. The source and the frame are kept for re-framing.
    */
   const avatar = ref<string | null>(null)
+  /**
+   * Whether we know if the user has an own picture. Until then nothing is shown rather than the provider's photo
+   * (it would flash and look like the old picture came back). This browser remembers the answer (AVATAR_KEY).
+   */
+  const avatarKnown = ref(false)
+  const AVATAR_KEY = (uid: string) => `dw.avatar.${uid}`
+  function rememberAvatar(uid: string, v: string | null) { try { localStorage.setItem(AVATAR_KEY(uid), v ?? '') } catch { /* private mode */ } }
+  function recallAvatar(uid: string): string | null | undefined {
+    try { const v = localStorage.getItem(AVATAR_KEY(uid)); return v === null ? undefined : v || null } catch { return undefined }
+  }
   /** The picture to show and to copy into new records (own picture → the provider's photo → none). */
-  const photo = computed(() => { void rev.value; return avatar.value ?? user.value?.photoURL ?? null })
+  const photo = computed(() => { void rev.value; return avatar.value ?? (avatarKnown.value ? user.value?.photoURL ?? null : null) })
   /** The current user as new records copy him (name, e-mail, picture). */
   const me = computed(() => { void rev.value; const u = user.value; return u ? { uid: u.uid, displayName: u.displayName, email: u.email, photoURL: photo.value } : null })
 
   onAuthStateChanged(auth, (u) => {
     user.value = u
-    avatar.value = null
+    const known = u ? recallAvatar(u.uid) : undefined
+    avatar.value = known ?? null
+    avatarKnown.value = known !== undefined
     ready.value = true
     resolveReady()
     if (u) {
       void setDoc(doc(db, 'users', u.uid), {
         uid: u.uid, displayName: u.displayName ?? u.email ?? 'Без имени', email: u.email ?? '', photoURL: u.photoURL ?? null, lastSeen: Date.now(),
       }, { merge: true }).catch(() => {})
+      // the own picture from the user's record; the public card is refreshed only once it is known (a failed read
+      // must not publish the provider's photo over the own one)
       void getDoc(doc(db, 'users', u.uid)).then((s) => {
-        if (user.value?.uid === u.uid) avatar.value = (s.data()?.avatar as string | undefined) ?? null
-      }).catch(() => {}).finally(() => { void publishProfile(u, photo.value).catch(() => {}) })
+        if (user.value?.uid !== u.uid) return
+        avatar.value = (s.data()?.avatar as string | undefined) ?? null
+        avatarKnown.value = true
+        rememberAvatar(u.uid, avatar.value)
+        void publishProfile(u, photo.value).catch(() => {})
+      }).catch(() => {
+        // the record could not be read: show at least the provider's photo, but do not publish it
+        if (user.value?.uid === u.uid && !avatarKnown.value) avatarKnown.value = true
+      })
     }
   })
 
@@ -113,13 +134,18 @@ export const useSession = defineStore('session', () => {
     if (!u || !name.trim()) return
     await updateProfile(u, { displayName: name.trim() })
     await setDoc(doc(db, 'users', u.uid), { displayName: name.trim() }, { merge: true })
-    await publishProfile(u, photo.value).catch(() => {})
+    if (avatarKnown.value) await publishProfile(u, photo.value).catch(() => {})
     const ms = await myMemberships()
     for (let i = 0; i < ms.length; i += 400) {
       const b = writeBatch(db)
       ms.slice(i, i + 400).forEach((d) => b.update(d.ref, { displayName: name.trim() }))
       await b.commit()
     }
+    // games keep a copy of the name in their participant records, rooms the name of their owner
+    const games = await getDocs(query(collection(db, 'campaigns'), where('memberUids', 'array-contains', u.uid))).catch(() => null)
+    await Promise.all((games?.docs ?? []).map((g) => updateDoc(doc(db, 'campaigns', g.id, 'participants', u.uid), { displayName: name.trim() }).catch(() => {})))
+    const rooms = await getDocs(query(collection(db, 'rooms'), where('memberUids', 'array-contains', u.uid))).catch(() => null)
+    await Promise.all((rooms?.docs ?? []).filter((r) => r.data().ownerId === u.uid).map((r) => updateDoc(r.ref, { ownerName: name.trim() }).catch(() => {})))
     rev.value++
   }
   /**
@@ -133,6 +159,8 @@ export const useSession = defineStore('session', () => {
       ? { avatar: next.image, avatarSource: next.source, avatarCrop: next.crop }
       : { avatar: deleteField(), avatarSource: deleteField(), avatarCrop: deleteField() }, { merge: true })
     avatar.value = next?.image ?? null
+    avatarKnown.value = true
+    rememberAvatar(u.uid, avatar.value)
     const p = photo.value
     await publishProfile(u, p).catch(() => {})
     const ms = await myMemberships()
@@ -193,6 +221,7 @@ export const useSession = defineStore('session', () => {
     for (const d of ms) await deleteDoc(d.ref)
     await deleteDoc(doc(db, 'users', u.uid)).catch(() => {})
     await deleteDoc(doc(db, 'profiles', u.uid)).catch(() => {})
+    try { localStorage.removeItem(AVATAR_KEY(u.uid)) } catch { /* private mode */ }
     avatar.value = null
     await deleteUser(u)
   }

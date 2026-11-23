@@ -493,7 +493,10 @@ export interface UserProfile {
   uid: string
   displayName: string
   email: string
+  /** the sign-in provider's photo */
   photoURL: string | null
+  /** the user's own picture (framed square, data URL) — shown instead of photoURL when set */
+  avatar?: string | null
   lastSeen: number
   createdAt?: number
 }

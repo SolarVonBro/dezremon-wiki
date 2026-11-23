@@ -12,6 +12,10 @@ const emit = defineEmits<{ reply: [c: Comment]; save: [c: Comment, text: string]
 const world = useWorld()
 
 const mine = computed(() => props.c.createdBy === world.uid && !world.preview)
+// the author as the world knows him now (the comment keeps the name and picture of when it was written)
+const author = computed(() => world.members.find((m) => m.uid === props.c.createdBy) ?? null)
+const authorName = computed(() => author.value?.displayName || props.c.authorName)
+const authorPhoto = computed(() => (author.value ? author.value.photoURL : props.c.authorPhoto))
 const canDelete = computed(() => (mine.value || world.isMaster) && !props.c.removed)
 const liked = computed(() => !!world.uid && props.c.likes.includes(world.uid))
 const role = computed(() => {
@@ -41,14 +45,14 @@ function save() {
 
 <template>
   <div class="cm" :class="{ reply: !!c.parentId, hl: highlight }" :id="'comment-' + c.id">
-    <span class="avatar round cm-ava"><img v-if="c.authorPhoto && !c.removed" :src="c.authorPhoto" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
+    <span class="avatar round cm-ava"><img v-if="authorPhoto && !c.removed" :src="authorPhoto" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
     <div class="cm-body">
       <template v-if="c.removed">
         <div class="cm-removed faint small"><Icon name="trash2" :size="13" /> Комментарий удалён</div>
       </template>
       <template v-else>
         <div class="cm-head">
-          <RouterLink class="cm-author" :to="{ name: 'user', params: { uid: c.createdBy } }">{{ c.authorName }}</RouterLink>
+          <RouterLink class="cm-author" :to="{ name: 'user', params: { uid: c.createdBy } }">{{ authorName }}</RouterLink>
           <span v-if="role" class="badge cm-role">{{ role }}</span>
           <span v-if="c.replyToName" class="faint small cm-to"><Icon name="corner-down-right" :size="12" /> {{ c.replyToName }}</span>
           <span class="faint small" :title="formatDate(c.createdAt)">{{ relativeTime(c.createdAt) }}</span>

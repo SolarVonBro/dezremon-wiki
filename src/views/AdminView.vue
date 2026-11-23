@@ -171,7 +171,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
         <p class="faint small" style="margin: 0">Список строится по профилям, которые пишутся при каждом входе. Удалить сам аккаунт входа или сменить его пароль можно только в консоли Firebase.</p>
         <div v-for="u in shownUsers" :key="u.uid" class="urow" :class="{ banned: banMap.has(u.uid) }">
           <div class="row gap" style="cursor: pointer" @click="openUser = openUser === u.uid ? null : u.uid">
-            <span class="avatar round" style="width: 36px; height: 36px"><img v-if="u.photoURL" :src="u.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="17" /></span>
+            <span class="avatar round" style="width: 36px; height: 36px"><img v-if="u.avatar || u.photoURL" :src="(u.avatar || u.photoURL)!" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="17" /></span>
             <div class="grow" style="min-width: 0">
               <div class="row gap-sm wrap"><b class="ellipsis">{{ u.displayName || '(без имени)' }}</b>
                 <span v-if="isServiceAdmin(u.uid)" class="badge badge-public">админ</span>

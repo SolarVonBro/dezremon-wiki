@@ -19,7 +19,11 @@ const props = defineProps<{ campaign: Campaign; participants: CampaignParticipan
 const world = useWorld()
 const uid = computed(() => world.uid ?? '')
 
-const people = computed(() => [...props.participants].sort((a, b) => (a.role === b.role ? a.displayName.localeCompare(b.displayName, 'ru') : a.role === 'gm' ? -1 : 1)))
+// a participant as the world knows him now (the participant record keeps the name and picture of when he joined)
+const memberOf = (uid: string) => world.members.find((m) => m.uid === uid)
+const nameOf = (p: CampaignParticipant) => memberOf(p.uid)?.displayName || p.displayName
+const photoOf = (p: CampaignParticipant) => (memberOf(p.uid) ? memberOf(p.uid)!.photoURL : p.photoURL)
+const people = computed(() => [...props.participants].sort((a, b) => (a.role === b.role ? nameOf(a).localeCompare(nameOf(b), 'ru') : a.role === 'gm' ? -1 : 1)))
 const chars = (p: CampaignParticipant) => currentCharacters(props.campaign, p).map((id) => world.get(id)).filter((e): e is Entity => !!e)
 const canEdit = (p: CampaignParticipant) => !world.preview && (props.isGm || p.uid === uid.value)
 
@@ -61,10 +65,10 @@ const typeLabel = (e: Entity) => ({ pc: 'PC', npc: 'NPC' } as Record<string, str
     <p class="faint small" style="margin: -4px 0 10px">Текущие персонажи — те, которыми игрок играет в этой игре сейчас. Игрок выбирает их сам, мастер — за любого. Добавить или убрать участников можно в настройках игры{{ isGm ? '' : ' (у мастера)' }}.</p>
     <div v-if="!people.length" class="faint">Игроков пока нет.</div>
     <div v-for="p in people" :key="p.uid" class="person">
-      <span class="avatar round" style="width: 40px; height: 40px"><img v-if="p.photoURL" :src="p.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="18" /></span>
+      <span class="avatar round" style="width: 40px; height: 40px"><img v-if="photoOf(p)" :src="photoOf(p)!" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="18" /></span>
       <div class="grow" style="min-width: 0">
         <div class="row gap-sm wrap">
-          <RouterLink class="p-name" :to="{ name: 'user', params: { uid: p.uid } }">{{ p.displayName }}</RouterLink>
+          <RouterLink class="p-name" :to="{ name: 'user', params: { uid: p.uid } }">{{ nameOf(p) }}</RouterLink>
           <span class="badge" :class="{ 'badge-public': p.role === 'gm' }">{{ ROLE_LABELS[p.role] }}</span>
           <span v-if="p.uid === campaign.ownerId" class="badge">создатель</span>
           <span v-if="p.uid === uid" class="faint small">(вы)</span>
@@ -82,7 +86,7 @@ const typeLabel = (e: Entity) => ({ pc: 'PC', npc: 'NPC' } as Record<string, str
     </div>
   </section>
 
-  <Modal v-if="editing" :title="'Текущие персонажи: ' + editing.p.displayName" width="520px" @close="editing = null">
+  <Modal v-if="editing" :title="'Текущие персонажи: ' + nameOf(editing.p)" width="520px" @close="editing = null">
     <div class="stack">
       <div v-if="own.length" class="field"><span>Персонажи участника в мире</span>
         <label v-for="e in own" :key="e.id" class="check own-char"><input type="checkbox" :checked="editing.ids.includes(e.id)" @change="toggle(e.id)" />
