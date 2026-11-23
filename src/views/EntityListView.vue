@@ -20,7 +20,7 @@ import { toast } from '@/components/common/toast'
 import { charTypeOfKind } from '@/data/charType'
 import { isCampaignTag } from '@/data/campaignTags'
 import { worldCampaigns } from '@/data/worldCampaigns'
-import type { Entity, Visibility } from '@/model/types'
+import type { CampaignStatus, Entity, Visibility } from '@/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,8 +30,13 @@ const def = computed(() => typeDef(type.value))
 
 function readPref<T>(k: string, d: T): T { try { return (JSON.parse(localStorage.getItem('dw.list.' + k) ?? 'null') as T) ?? d } catch { return d } }
 function writePref(k: string, v: unknown) { try { localStorage.setItem('dw.list.' + k, JSON.stringify(v)) } catch { /* ignore */ } }
-const view = ref<'cards' | 'table' | 'tree' | 'campaigns'>(readPref('view', 'cards'))
-watch(view, (v) => writePref('view', v))
+type View = 'cards' | 'table' | 'tree' | 'campaigns'
+// the view is remembered per section; characters open «По играм» until another view is chosen for them
+const viewPrefs = ref<Record<string, View>>(readPref('views', {}))
+const view = computed<View>({
+  get: () => viewPrefs.value[type.value] ?? (type.value === 'character' ? 'campaigns' : readPref<View>('view', 'cards')),
+  set: (v) => { viewPrefs.value = { ...viewPrefs.value, [type.value]: v }; writePref('views', viewPrefs.value) },
+})
 /** «По кампейнам» exists for characters only; the tree only for types with a parent. */
 const shownView = computed(() => (view.value === 'campaigns' && type.value !== 'character') || (view.value === 'tree' && !def.value.parentLabel) ? 'cards' : view.value)
 const panelOpen = ref<boolean>(readPref('panel', false))
@@ -116,26 +121,31 @@ const KIND_RUNS = [{ key: 'pc', label: 'Игровые персонажи' }, { 
 function runs(list: Entity[]) {
   return KIND_RUNS.map((r) => ({ ...r, items: list.filter((e) => (charTypeOfKind(e.kind) ?? '') === r.key).sort(byRichness) })).filter((r) => r.items.length)
 }
+// order of the groups: running games, characters outside games, paused, being prepared, finished. A game a player
+// cannot open (only its tag is visible) has no known status: it goes right after the running ones.
+const GROUP_RANK: Record<string, number> = { active: 0, unknown: 1, none: 2, paused: 3, planning: 4, finished: 5 }
+const STATUS_NOTE: Partial<Record<CampaignStatus, string>> = { paused: 'на паузе', planning: 'готовится', finished: 'завершена' }
 const campaignGroups = computed(() => {
   if (shownView.value !== 'campaigns') return []
-  const groups: Array<{ key: string; title: string; colour: string | null; tagId: string | null; cid: string | null; ids: Set<string> }> = []
+  type G = { key: string; title: string; colour: string | null; tagId: string | null; cid: string | null; status: CampaignStatus | null; ids: Set<string> }
+  const groups: G[] = []
   for (const t of world.campaignTags) {
     const c = worldCampaigns.value.find((x) => x.tagId === t.id || x.id === t.fields?.campaignId) ?? null
-    groups.push({ key: t.id, title: t.name, colour: t.fields?.colour ?? null, tagId: t.id, cid: c?.id ?? null, ids: new Set(Object.values(c?.characters ?? {}).flat()) })
+    groups.push({ key: t.id, title: t.name, colour: t.fields?.colour ?? null, tagId: t.id, cid: c?.id ?? null, status: c?.status ?? null, ids: new Set(Object.values(c?.characters ?? {}).flat()) })
   }
   for (const c of worldCampaigns.value) {
     if (groups.some((g) => g.cid === c.id)) continue
-    groups.push({ key: c.id, title: '⚔ ' + c.name, colour: null, tagId: null, cid: c.id, ids: new Set(Object.values(c.characters ?? {}).flat()) })
+    groups.push({ key: c.id, title: '⚔ ' + c.name, colour: null, tagId: null, cid: c.id, status: c.status, ids: new Set(Object.values(c.characters ?? {}).flat()) })
   }
   const placed = new Set<string>()
   const out = groups.map((g) => {
     const list = items.value.filter((e) => (g.tagId && e.tagIds.includes(g.tagId)) || g.ids.has(e.id))
     list.forEach((e) => placed.add(e.id))
-    return { ...g, count: list.length, runs: runs(list) }
+    return { ...g, rank: GROUP_RANK[g.cid ? g.status ?? 'active' : 'unknown'], note: g.status ? STATUS_NOTE[g.status] ?? '' : '', count: list.length, runs: runs(list) }
   }).filter((g) => g.count)
   const rest = items.value.filter((e) => !placed.has(e.id))
-  if (rest.length) out.push({ key: '_none', title: 'Вне игр', colour: null, tagId: null, cid: null, ids: new Set(), count: rest.length, runs: runs(rest) })
-  return out
+  if (rest.length) out.push({ key: '_none', title: 'Вне игр', colour: null, tagId: null, cid: null, status: null, ids: new Set(), rank: GROUP_RANK.none, note: '', count: rest.length, runs: runs(rest) })
+  return out.sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title, 'ru'))
 })
 
 // ---------- the campaign whose tag goes on new articles (all sections; kept per world on this device) ----------
@@ -340,6 +350,7 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
         <h2 class="camp-group-head">
           <RouterLink v-if="g.cid" :to="{ name: 'wcampaign', params: { wid: world.wid!, cid: g.cid } }" class="camp-group-title" :style="{ '--tag-color': g.colour || 'var(--accent)' }">{{ g.title }}</RouterLink>
           <span v-else class="camp-group-title" :style="{ '--tag-color': g.colour || 'var(--border)' }">{{ g.title }}</span>
+          <span v-if="g.note" class="badge camp-group-note">{{ g.note }}</span>
           <span class="faint" style="font-size: 15px">{{ g.count }}</span>
         </h2>
         <template v-for="r in g.runs" :key="r.key">
@@ -412,7 +423,9 @@ async function runBulk(kind: 'visibility' | 'addTag' | 'removeTag' | 'trash') {
 .camp-bar.on { border-style: solid; border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--accent-soft); color: var(--text); }
 .camp-bar > .icon { color: var(--accent); }
 .camp-bar-select { width: auto; min-width: 180px; max-width: 100%; }
-.camp-groups { gap: 26px; }
+.camp-groups { gap: 0; }
+.camp-group + .camp-group { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 20px; }
+.camp-group-note { font-size: 11.5px; align-self: center; }
 .camp-group-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; font-size: 22px; }
 .camp-group-title { color: var(--text); text-decoration: none; padding-left: 10px; border-left: 4px solid var(--tag-color); }
 a.camp-group-title:hover { color: var(--accent); }

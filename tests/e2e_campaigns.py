@@ -222,17 +222,38 @@ with sync_playwright() as p:
     gm.screenshot(path=os.path.join(OUT, 'k-3-member-card.png'))
     gm.locator('.modal-head .icon-btn').first.click(); gm.wait_for_timeout(300)
 
-    print('== characters by campaign')
+    print('== characters by game: the default view; running games, outside games, paused, being prepared, finished')
+    T2 = int(time.time() * 1000)
+    rest('PATCH', f'{FS}/campaigns/old1?updateMask.fieldPaths=status&updateMask.fieldPaths=characters&updateMask.fieldPaths=updatedAt',
+         {'fields': {'status': enc('paused'), 'characters': enc({AN_UID: ['loner']}), 'updatedAt': enc(T2)}})
+    for gid, gname, st, ch in [('plan1', 'Утро гильдии', 'planning', 'anvar'), ('done1', 'Былое', 'finished', 'lira')]:
+        put(f'campaigns/{gid}', {'name': gname, 'description': '', 'cover': None, 'worldId': W, 'worldName': WORLD, 'ownerId': GM_UID, 'gmUids': [GM_UID],
+                                 'memberUids': [GM_UID], 'status': st, 'schedule': '', 'nextSessionAt': None, 'characters': {AN_UID: [ch]}, 'createdAt': T2, 'updatedAt': T2})
+    ent('stray', 'character', 'Бродяга', kind='NPC', tagIds=['tag-npc'], updatedAt=T2)
     gm.goto(BASE + f'#/w/{W}/t/character'); gm.wait_for_selector('.page-head', timeout=15000)
-    gm.locator('button[title^="По играм"]').click(); gm.wait_for_selector('.camp-group', timeout=10000)
-    heads = [x.strip() for x in gm.locator('.camp-group-head .camp-group-title').all_inner_texts()]
-    check(heads == ['⚔ Вторая Лавина', 'Вне игр'], f'groups: the game, then the rest ({heads})')
+    check(wait_for(lambda: gm.locator('.camp-group').count() >= 2), 'characters open «По играм» without choosing it')
+    check(gm.locator('button[title^="По играм"].on').count() == 1, 'and the switch shows it')
+    want = ['⚔ Вторая Лавина', 'Вне игр', '⚔ Старая игра', '⚔ Утро гильдии', '⚔ Былое']
+    check(wait_for(lambda: [x.strip() for x in gm.locator('.camp-group-head .camp-group-title').all_inner_texts()] == want),
+          f'group order ({[x.strip() for x in gm.locator(".camp-group-head .camp-group-title").all_inner_texts()]})')
+    notes = [gm.locator('.camp-group').nth(i).locator('.camp-group-note').all_inner_texts() for i in range(5)]
+    check(notes == [[], [], ['на паузе'], ['готовится'], ['завершена']], f'status marks ({notes})')
+    bw = [gm.locator('.camp-group').nth(i).evaluate("e => getComputedStyle(e).borderTopWidth") for i in range(2)]
+    check(bw[0] == '0px' and bw[1] == '1px', f'lines between the groups ({bw})')
+    w = gm.locator('.card-grid .ecard').first.evaluate('e => e.getBoundingClientRect().width')
+    check(w < 205, f'smaller tiles ({w:.0f}px)')
     g = gm.locator('.camp-group').first
     runs = [x.strip().lower() for x in g.locator('.camp-run').all_inner_texts()]
     check(runs == ['игровые персонажи · 2', 'npc · 2'], f'PCs first, then NPCs ({runs})')
     names = [x.strip() for x in g.locator('.ecard-name').all_inner_texts()]
     check(names == ['Сир Анвар', 'Лира', 'Страж ворот', 'Торговец'], f'picture and text first in each run ({names})')
-    check([x.strip() for x in gm.locator('.camp-group').nth(1).locator('.ecard-name').all_inner_texts()] == ['Отшельник'], 'the rest outside campaigns')
+    check([x.strip() for x in gm.locator('.camp-group').nth(1).locator('.ecard-name').all_inner_texts()] == ['Бродяга'], 'characters of no game: right after the running games')
+    check([x.strip() for x in gm.locator('.camp-group').nth(2).locator('.ecard-name').all_inner_texts()] == ['Отшельник'], 'a current character of a paused game is in its group')
+    gm.locator('button[title="Таблица"]').click(); gm.wait_for_selector('table', timeout=5000)
+    gm.goto(BASE + f'#/w/{W}/t/location'); gm.wait_for_selector('.page-head', timeout=15000)
+    gm.goto(BASE + f'#/w/{W}/t/character'); gm.wait_for_selector('table', timeout=15000)
+    check(True, 'a chosen view is remembered for the section')
+    gm.locator('button[title^="По играм"]').click(); gm.wait_for_selector('.camp-group', timeout=5000)
     gm.screenshot(path=os.path.join(OUT, 'k-4-by-campaign.png'))
 
     print('== the campaign tag on new articles')
@@ -293,7 +314,7 @@ with sync_playwright() as p:
     names = [x.strip().splitlines()[0] for x in sb.locator('.sb-link[href*="/campaigns/"]').all_inner_texts()]
     check(names[:2] == ['Вторая Лавина', 'Третья кампания 2'], f'running first ({names})')
     more = sb.locator('.sb-more')
-    check(more.count() == 1 and 'Все игры мира: 4' in more.inner_text(), f'a link to all games of the world ({more.inner_text() if more.count() else ""})')
+    check(more.count() == 1 and 'Все игры мира: 6' in more.inner_text(), f'a link to all games of the world ({more.inner_text() if more.count() else ""})')
     gm.screenshot(path=os.path.join(OUT, 'k-8-sidebar.png'), clip={'x': 0, 'y': 300, 'width': 280, 'height': 420})
     more.click(); gm.wait_for_url(f'**/w/{W}/campaigns', timeout=10000)
     check(gm.locator('.camp-card', has_text='Старая игра').count() == 1 and gm.locator('.camp-card', has_text='Законченная').count() == 1, 'the world\'s «Игры» page lists all of them')
