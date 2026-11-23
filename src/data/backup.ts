@@ -357,6 +357,8 @@ export interface RestoreOptions {
   restoreMembers?: boolean
   /** Collections to leave out (e.g. ['revisions'] to save writes). In 'replace' mode they are left untouched. */
   skipCollections?: string[]
+  /** The picture of your member record (your own picture; defaults to the sign-in provider's photo). */
+  photoURL?: string | null
 }
 
 export interface RestoreReport {
@@ -423,7 +425,7 @@ export async function restoreWorld(
       const prevMe = b.collections.get('members')?.[user.uid]
       const me: Member = {
         uid: user.uid, role: 'owner', displayName: user.displayName || user.email || 'Мастер', email: user.email ?? '',
-        photoURL: user.photoURL ?? null, joinedAt: t, favorites: Array.isArray(prevMe?.favorites) ? prevMe.favorites : [],
+        photoURL: opts.photoURL !== undefined ? opts.photoURL : user.photoURL ?? null, joinedAt: t, favorites: Array.isArray(prevMe?.favorites) ? prevMe.favorites : [],
         characterIds: characterIdsOf(prevMe),
       }
       const w = {

@@ -6,7 +6,7 @@ import {
   reauthenticateWithCredential, reauthenticateWithPopup, updatePassword, linkWithCredential, linkWithPopup, unlink, deleteUser,
   type User,
 } from 'firebase/auth'
-import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
+import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocFromServer, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
 import { setUserTheme, type UserTheme } from '@/themes/apply'
 import { publishProfile } from '@/data/profileCard'
@@ -54,6 +54,12 @@ export const useSession = defineStore('session', () => {
    */
   const avatarKnown = ref(false)
   const AVATAR_KEY = (uid: string) => `dw.avatar.${uid}`
+  /**
+   * The user's record as the server has it. Never read while a merge write to it is pending: Firestore (even
+   * getDocFromServer) then answers with the fields of that write alone — without the own picture, which looked like
+   * the old photo came back after every reload. Offline it fails, and the remembered picture stays.
+   */
+  const readMine = (uid: string) => getDocFromServer(doc(db, 'users', uid))
   function rememberAvatar(uid: string, v: string | null) { try { localStorage.setItem(AVATAR_KEY(uid), v ?? '') } catch { /* private mode */ } }
   function recallAvatar(uid: string): string | null | undefined {
     try { const v = localStorage.getItem(AVATAR_KEY(uid)); return v === null ? undefined : v || null } catch { return undefined }
@@ -71,12 +77,12 @@ export const useSession = defineStore('session', () => {
     ready.value = true
     resolveReady()
     if (u) {
-      void setDoc(doc(db, 'users', u.uid), {
+      const visit = () => setDoc(doc(db, 'users', u.uid), {
         uid: u.uid, displayName: u.displayName ?? u.email ?? 'Без имени', email: u.email ?? '', photoURL: u.photoURL ?? null, lastSeen: Date.now(),
       }, { merge: true }).catch(() => {})
-      // the own picture from the user's record; the public card is refreshed only once it is known (a failed read
-      // must not publish the provider's photo over the own one)
-      void getDoc(doc(db, 'users', u.uid)).then((s) => {
+      // the own picture from the user's record, read before the visit is written (see readMine); the public card is
+      // refreshed only once it is known (a failed read must not publish the provider's photo over the own one)
+      void readMine(u.uid).then((s) => {
         if (user.value?.uid !== u.uid) return
         avatar.value = (s.data()?.avatar as string | undefined) ?? null
         avatarKnown.value = true
@@ -85,7 +91,7 @@ export const useSession = defineStore('session', () => {
       }).catch(() => {
         // the record could not be read: show at least the provider's photo, but do not publish it
         if (user.value?.uid === u.uid && !avatarKnown.value) avatarKnown.value = true
-      })
+      }).finally(visit)
     }
   })
 
@@ -177,7 +183,7 @@ export const useSession = defineStore('session', () => {
   async function avatarSource(): Promise<{ source: string; crop: { x: number; y: number; zoom: number } | null } | null> {
     const u = auth.currentUser
     if (!u) return null
-    const d = (await getDoc(doc(db, 'users', u.uid))).data()
+    const d = (await readMine(u.uid).catch(() => getDoc(doc(db, 'users', u.uid)))).data()
     return d?.avatarSource ? { source: d.avatarSource as string, crop: (d.avatarCrop as { x: number; y: number; zoom: number } | null) ?? null } : null
   }
   async function reauth(password?: string) {

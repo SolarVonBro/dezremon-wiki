@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useWorld } from '@/stores/world'
+import { useSession } from '@/stores/session'
 import Icon from '@/components/common/Icon.vue'
 import { toast } from '@/components/common/toast'
 import { downloadBlob, formatDate, plural, relativeTime } from '@/data/util'
@@ -130,7 +131,7 @@ async function doRestore() {
   rReport.value = null
   try {
     rReport.value = await restoreWorld(rFile.value, rMode.value, world.wid ?? undefined, (p) => { rProgress.value = p }, {
-      name: rName.value, restoreMembers: rMembers.value, skipCollections: rSkipRevisions.value ? ['revisions'] : [],
+      name: rName.value, restoreMembers: rMembers.value, skipCollections: rSkipRevisions.value ? ['revisions'] : [], photoURL: useSession().photo,
     })
     if (rReport.value.ok) toast.success(rMode.value === 'new' ? 'Мир восстановлен' : 'Содержимое мира заменено')
     else toast.error('Восстановление прервано')
