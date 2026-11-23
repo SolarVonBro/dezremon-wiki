@@ -61,7 +61,7 @@ with sync_playwright() as p:
         print('   WORLD', pg.url.split('/w/')[1].split('/')[0])
 
     def create(type_label, name):
-        pg.locator('.sidebar').get_by_role('button', name='Создать').click()
+        pg.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
         pg.locator('.type-tile', has_text=type_label).click()
         pg.locator('.modal input.input').first.fill(name)
         pg.get_by_role('button', name='Создать и редактировать').click()

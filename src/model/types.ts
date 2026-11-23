@@ -210,6 +210,32 @@ export interface Entity extends Visible, Stamped {
   isTemplate: boolean
   deleted: boolean
   deletedAt: number | null
+  /** Comments under the article (kept here so the button «Комментарии (N)» costs no reads). */
+  commentCount?: number
+  /** When the last comment was written: a comment also bumps updatedAt (so the count reaches every reader), and this
+   *  tells «a comment» from «an edit». */
+  commentedAt?: number
+}
+
+/**
+ * worlds/{w}/comments/{id} — discussion under an article, loaded only when the reader opens it. Visibility mirrors
+ * the article (its allowedUids plus its author). Replies are one level deep: parentId is the thread's top comment,
+ * replyTo* names the comment's author answered inside the thread.
+ */
+export interface Comment extends Visible, Stamped {
+  id: string
+  entityId: string
+  parentId: string | null
+  replyToUid: string | null
+  replyToName: string
+  text: string
+  authorName: string
+  authorPhoto: string | null
+  /** uids of members who liked it */
+  likes: string[]
+  editedAt: number | null
+  /** Deleted while it had replies: stays as «Комментарий удалён» so the thread keeps its place. */
+  removed: boolean
 }
 
 /** worlds/{w}/bodies/{entityId} — readable article text (secret blocks removed). */
@@ -470,6 +496,19 @@ export interface UserProfile {
   photoURL: string | null
   lastSeen: number
   createdAt?: number
+}
+
+/**
+ * profiles/{uid} — the public card of an account (no e-mail): anyone with the uid may read it, for the user's page
+ * (#/u/{uid}) reached from comments and member lists. Written by the user on every sign-in.
+ */
+export interface PublicProfile {
+  uid: string
+  displayName: string
+  photoURL: string | null
+  /** first sign-in seen by the service */
+  since: number
+  updatedAt: number
 }
 
 /** serviceBans/{uid} — the account was blocked by a service administrator. */

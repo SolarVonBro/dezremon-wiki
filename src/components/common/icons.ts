@@ -2,6 +2,7 @@
 import {
   User, MapPin, Users, Landmark, Gem, StickyNote, Flame, CalendarDays, Dna, PawPrint, Scroll, BookOpen, Sparkles, Map, History, Tag, MessagesSquare, Dices, ListChecks, FileText, Bold, Italic, Underline, Strikethrough, Subscript, Superscript, Code, SquareCode, Highlighter, Baseline, Palette, RemoveFormatting, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, ListTodo, IndentIncrease, IndentDecrease, Link, Unlink, Image, Table, Minus, Quote, Lock, Info, SquarePlay, FileCode, Search, Maximize2, Minimize2, Undo2, Redo2, Heading1, Heading2, Heading3, Heading4, Columns2, Columns3, Columns4, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Plus, X, Trash2, Pencil, Eye, EyeOff, Settings, LogOut, LogIn, Home, LayoutDashboard, Star, Share2, Download, Upload, Sun, Moon, Network, GitBranch, Archive, RotateCcw, Copy, Check, CircleCheck, TriangleAlert, Folder, FolderOpen, Images, Menu, MoreHorizontal, GripVertical, ExternalLink, Shield, Globe, Save, Clock, Type, PanelRightOpen, TableCellsMerge, TableCellsSplit, Rows3, BetweenHorizontalStart, BetweenVerticalStart, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pilcrow, WrapText, Square, Crown, Swords, Castle, Skull, Heart, Zap, Feather, Compass, Bookmark, Filter, LayoutGrid, LayoutList, Printer, KeyRound, Mail, UserPlus, Hash, Smile, CaseSensitive, Replace, ReplaceAll, TextQuote, Calendar, Circle, Hexagon, Spline, Locate, ZoomIn, ZoomOut, Layers, Pin, Route, Video, FileDown, FileUp, Database, HardDrive, SlidersHorizontal, Shuffle, Dice5, Inbox, Paintbrush, Scale, Ruler, Weight, Coins, TreePine, Mountain, Waves, Ship, Building2, Church, Tent, Ghost, Bug, Bird, Fish, Rabbit, Wand2, BookMarked, Gavel, Crosshair, Anchor, Flag, Key, Footprints, Brush, Award, Trophy, Sword, Rows2, Grid3x3, PaintBucket, MoveVertical, AlignVerticalJustifyCenter, Link2, Unlink2, RefreshCw, Wifi, WifiOff, CloudUpload, Cloud, User2, UserRound, Contact, Library, TextSearch, Command, Slash, Hourglass, Telescope, Gauge, Leaf, Sprout, Snowflake, Droplet, Sunrise, Lightbulb, Puzzle, Music, Bell, Mic, Camera, Sparkle, Orbit, Atom, FlaskConical, Pickaxe, Hammer, Axe, Shovel, Wheat, Apple, Beer, Wine, Utensils, Store, Factory, Warehouse, School, Hospital, Banknote, Handshake, HeartHandshake, Baby, PersonStanding, Venus, Mars, Eclipse, StarOff, CircleDot, Target,
   Play, Pause, SkipForward, SkipBack, Volume2, Volume1, VolumeX, Repeat, Repeat1, ListMusic, Headphones, Radio, Disc3, Send, ShieldCheck, Ban, UserX, UserCheck, AudioLines, ListPlus, Gamepad2, CalendarClock, DoorOpen, Activity, ServerCog, ListVideo, CirclePlay, LockOpen,
+  Reply, CornerDownRight, MessageSquare,
 } from '@lucide/vue'
 
 export const ICONS: Record<string, any> = {
@@ -19,6 +20,9 @@ export const ICONS: Record<string, any> = {
   'radio': Radio,
   'disc-3': Disc3,
   'send': Send,
+  'reply': Reply,
+  'corner-down-right': CornerDownRight,
+  'message-square': MessageSquare,
   'shield-check': ShieldCheck,
   'ban': Ban,
   'user-x': UserX,

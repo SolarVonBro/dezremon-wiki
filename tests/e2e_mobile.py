@@ -136,7 +136,7 @@ def preview_player(pg):
     eye_menu(pg); pg.get_by_role('button', name='Любой игрок').click(); settle(pg)
 def create_modal(pg):
     pg.goto(e('hero')); settle(pg); pg.locator('.topbar button[title="Меню"]').click(); pg.wait_for_timeout(400)
-    pg.locator('.sidebar').get_by_role('button', name='Создать').click(); pg.wait_for_timeout(600)
+    pg.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click(); pg.wait_for_timeout(600)
 def create_modal_type(pg):
     create_modal(pg); pg.locator('.type-tile', has_text='Персонаж').click(); pg.wait_for_timeout(600)
 def settings_modal(pg):

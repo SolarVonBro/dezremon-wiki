@@ -36,6 +36,7 @@ const CalendarViewer = defineAsyncComponent(() => import('@/components/modules/C
 const RemindersPanel = defineAsyncComponent(() => import('@/components/modules/RemindersPanel.vue'))
 const TimelineViewer = defineAsyncComponent(() => import('@/components/modules/TimelineViewer.vue'))
 const FamilyTree = defineAsyncComponent(() => import('@/components/modules/FamilyTree.vue'))
+const CommentsSection = defineAsyncComponent(() => import('@/components/entity/CommentsSection.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -225,9 +226,11 @@ watch(() => entity.value?.name, (n) => { if (n) document.title = `${n} — ${wor
             <p>Здесь пока нет текста.</p>
             <button v-if="canEdit" class="btn btn-primary" @click="toggleEdit"><Icon name="pencil" :size="15" /> Написать статью</button>
           </div>
-          <div v-if="entity.updatedAt" class="faint small" style="margin-top: 18px">Изменено {{ relativeTime(entity.updatedAt) }} · {{ world.memberName(entity.updatedBy) }}</div>
+          <!-- a comment bumps updatedAt too (so its number reaches every reader): that is not an edit -->
+          <div v-if="entity.updatedAt && entity.updatedAt !== entity.commentedAt" class="faint small" style="margin-top: 18px">Изменено {{ relativeTime(entity.updatedAt) }} · {{ world.memberName(entity.updatedBy) }}</div>
         </article>
         <PostsList :entity="entity" position="after" :editing="editing" />
+        <CommentsSection v-if="!editing" :entity="entity" />
       </div>
       <aside class="entity-side">
         <FactsPanel :entity="entity" :editing="editing" />

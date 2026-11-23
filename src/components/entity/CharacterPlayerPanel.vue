@@ -50,7 +50,7 @@ function openToPlayer() {
     </template>
     <div v-else-if="player" class="row gap-sm">
       <span class="avatar round" style="width: 26px; height: 26px"><img v-if="player.photoURL" :src="player.photoURL" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="14" /></span>
-      <b class="grow ellipsis">{{ player.displayName }}</b>
+      <RouterLink class="grow ellipsis cp-name" :to="{ name: 'user', params: { uid: player.uid } }">{{ player.displayName }}</RouterLink>
       <span v-if="isMine" class="badge badge-public">это вы</span>
     </div>
   </div>
@@ -62,4 +62,6 @@ function openToPlayer() {
   color: var(--text); background: color-mix(in srgb, var(--warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
 }
 .cp-warn > .icon { color: var(--warning); }
+.cp-name { font-weight: 600; color: var(--text); text-decoration: none; }
+.cp-name:hover { color: var(--accent); text-decoration: underline; }
 </style>

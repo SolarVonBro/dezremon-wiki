@@ -10,6 +10,7 @@ import { isServiceAdmin } from '@/data/admin'
 import { cache } from '@/data/cache'
 import { syncCollection, type SyncHandle } from '@/data/sync'
 import { canSee, characterIdsOf, coll, docRef, isMasterRole, narrows, visibleQueries, type Access } from '@/data/access'
+import { syncCommentVisibility } from '@/data/comments'
 import { ensureImageAccess, imageIdsInHtml } from '@/data/images'
 import { watchWorldRequests } from '@/data/joinRequests'
 import { hasSecretBlocks, mentionIds, stripSecrets } from '@/data/html'
@@ -17,7 +18,7 @@ import { clean, excerptOf, htmlToText, now, plural, randomId, sortByName } from 
 import { CHAR_TAG_COLOUR, CHAR_TYPE_KIND, CHAR_TYPES, charTypeFix, charTypeOfKind, type CharTagIds, type CharType } from '@/data/charType'
 import { setCustomTypes, typeDef } from '@/model/entityTypes'
 import type {
-  Attribute, Ban, Entity, Invite, JoinRequest, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
+  Attribute, Ban, Comment, Entity, Invite, JoinRequest, Member, Relation, Revision, Role, Secrets, Visibility, World, WorldSettings,
 } from '@/model/types'
 import { toast } from '@/components/common/toast'
 
@@ -434,6 +435,13 @@ export const useWorld = defineStore('world', () => {
     }
     await track(batch.commit())
     if (visChanged || 'imageId' in patch || 'headerImageId' in patch || 'fields' in patch) void widenEntityImages(next, visChanged && !narrows(prev, next))
+    if (visChanged && next.commentCount) void syncComments(next)
+  }
+
+  /** Comments mirror their article's visibility (they are loaded on demand, so they are fixed here, not by sync). */
+  async function syncComments(e: Entity) {
+    const rows = await fetchRows<Comment>('comments', 'entityId', e.id).catch(() => [])
+    if (rows.length) await track(syncCommentVisibility(wid.value!, e, rows), 'Видимость комментариев')
   }
 
   /**
@@ -454,7 +462,7 @@ export const useWorld = defineStore('world', () => {
     const w = wid.value!
     const todo = ids.map((id) => entities.value.get(id)).filter(Boolean) as Entity[]
     let done = 0, narrowed = false
-    const widened: Entity[] = []
+    const widened: Entity[] = [], commented: Entity[] = []
     for (let i = 0; i < todo.length; i += 200) {
       const batch = writeBatch(db)
       const m = new Map(entities.value)
@@ -470,6 +478,7 @@ export const useWorld = defineStore('world', () => {
           batch.set(docRef(w, 'bodies', prev.id), { visibility: next.visibility, allowedUids: next.allowedUids, createdBy: next.createdBy }, { merge: true })
           if (narrows(prev, next)) narrowed = true
           else widened.push(next)
+          if (next.commentCount) commented.push(next)
         }
         n++
       }
@@ -479,6 +488,7 @@ export const useWorld = defineStore('world', () => {
     }
     if (narrowed) await bumpAcl()
     for (const e of widened) await widenEntityImages(e, true)
+    for (const e of commented) await syncComments(e)
     return todo.length
   }
 
@@ -489,7 +499,7 @@ export const useWorld = defineStore('world', () => {
   async function setWorldVisibility(from: Visibility, to: Visibility, onProgress: (done: number, name: string) => void = () => {}) {
     const w = wid.value!
     const names = ['entities', 'bodies', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
-      'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'bookmarks']
+      'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'bookmarks', 'comments']
     let done = 0
     for (const name of names) {
       const snap = await getDocs(query(coll(w, name), where('visibility', '==', from)))
@@ -521,6 +531,7 @@ export const useWorld = defineStore('world', () => {
       ['entityAbilities', 'entityId'], ['questElements', 'questId'], ['reminders', 'entityId'], ['reminders', 'calendarId'],
       ['timelineEras', 'timelineId'], ['timelineElements', 'timelineId'], ['mapLayers', 'mapId'], ['mapGroups', 'mapId'],
       ['mapMarkers', 'mapId'], ['messages', 'conversationId'], ['relations', 'sourceId'], ['relations', 'targetId'], ['revisions', 'entityId'],
+      ['comments', 'entityId'],
     ]
     const found = await Promise.all(childQueries.map(([c, f]) => getDocs(query(coll(w, c), where(f, '==', id))).then((s) => s.docs.map((d) => d.ref)).catch(() => [])))
     const all = [...refs, ...found.flat()]
@@ -786,7 +797,7 @@ export const useWorld = defineStore('world', () => {
     const me = uid.value!
     const names = ['entities', 'bodies', 'secrets', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
       'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images', 'imageChunks', 'revisions', 'bookmarks',
-      'invites', 'joinRequests', 'bans', 'members']
+      'comments', 'invites', 'joinRequests', 'bans', 'members']
     let done = 0
     for (const name of names) {
       const snap = await getDocs(coll(w, name))

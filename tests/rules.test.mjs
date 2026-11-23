@@ -131,6 +131,78 @@ await t('player cannot read secret revisions of others', async () => {
   await assertSucceeds(setDoc(doc(owner, 'worlds', 'w1', 'revisions', 'rv1'), { entityId: 'gm', html: 's', createdBy: 'owner', createdAt: now }))
   await assertFails(getDoc(doc(player, 'worlds', 'w1', 'revisions', 'rv1')))
 })
+console.log('comments')
+const cm = (id, entityId, by, vis, extra = {}) => ({
+  id, entityId, parentId: null, replyToUid: null, replyToName: '', text: 'привет', authorName: by, authorPhoto: null, likes: [], editedAt: null,
+  removed: false, visibility: vis, allowedUids: [], createdBy: by, updatedBy: by, createdAt: now, updatedAt: now, ...extra,
+})
+const cref = (db, id) => doc(db, 'worlds', 'w1', 'comments', id)
+await t('player comments an article he reads, with its counter in one batch', async () => {
+  const b = writeBatch(player)
+  b.set(cref(player, 'k1'), cm('k1', 'pub', 'player', 'public'))
+  b.update(doc(player, 'worlds', 'w1', 'entities', 'pub'), { commentCount: 1, commentedAt: now + 5, updatedAt: now + 5 })
+  await assertSucceeds(b.commit())
+})
+await t('the counter does not open other fields of the article', () => assertFails(updateDoc(doc(player, 'worlds', 'w1', 'entities', 'pub'), { commentCount: 2, name: 'hack' })))
+await t('a comment mirrors the article\'s visibility', () => assertFails(setDoc(cref(player, 'k0'), cm('k0', 'mem', 'player', 'public'))))
+await t('no comments on articles one cannot read', async () => {
+  await assertFails(setDoc(cref(player, 'k0'), cm('k0', 'gm', 'player', 'master')))
+  await assertFails(setDoc(cref(player2, 'k0'), cm('k0', 'cus', 'player2', 'custom')))
+  await assertFails(setDoc(cref(player, 'k0'), cm('k0', 'nope', 'player', 'members')))
+})
+await t('a new comment has no likes and is not removed; not in someone else\'s name', async () => {
+  await assertFails(setDoc(cref(player, 'k0'), cm('k0', 'pub', 'player', 'public', { likes: ['player2'] })))
+  await assertFails(setDoc(cref(player, 'k0'), cm('k0', 'pub', 'player2', 'public')))
+})
+await t('another member reads it, may not edit it, likes only with his own uid', async () => {
+  await assertSucceeds(getDoc(cref(player2, 'k1')))
+  await assertFails(updateDoc(cref(player2, 'k1'), { text: 'hack' }))
+  await assertSucceeds(updateDoc(cref(player2, 'k1'), { likes: ['player2'] }))
+  await assertFails(updateDoc(cref(player2, 'k1'), { likes: ['player2', 'owner'] }))
+})
+await t('the author edits the text, not the likes or the author', async () => {
+  await assertSucceeds(updateDoc(cref(player, 'k1'), { text: 'исправлено', editedAt: now + 6, updatedAt: now + 6 }))
+  await assertFails(updateDoc(cref(player, 'k1'), { likes: ['a', 'b'] }))
+  await assertFails(updateDoc(cref(player, 'k1'), { createdBy: 'player2' }))
+})
+await t('deleting: not someone else\'s; the author and masters may', async () => {
+  await assertSucceeds(setDoc(cref(player2, 'k2'), cm('k2', 'pub', 'player2', 'public')))
+  await assertFails(deleteDoc(cref(player, 'k2')))
+  await assertSucceeds(deleteDoc(cref(owner, 'k2')))
+  await assertSucceeds(setDoc(cref(player2, 'k3'), cm('k3', 'pub', 'player2', 'public')))
+  await assertSucceeds(deleteDoc(cref(player2, 'k3')))
+})
+await t('a «deleted» placeholder goes with the last reply, by whoever wrote it', async () => {
+  await assertSucceeds(setDoc(cref(player2, 'k4'), cm('k4', 'pub', 'player2', 'public')))
+  await assertSucceeds(updateDoc(cref(player2, 'k4'), { text: '', removed: true, updatedAt: now + 7, updatedBy: 'player2' }))
+  await assertSucceeds(deleteDoc(cref(player, 'k4')))
+})
+await t('whoever edits the article carries its comments to a new visibility', async () => {
+  await assertSucceeds(setDoc(cref(owner, 'k5'), cm('k5', 'mem', 'owner', 'members')))
+  await assertFails(updateDoc(cref(player2, 'k5'), { visibility: 'custom', allowedUids: ['player2'] }))
+  await assertSucceeds(updateDoc(cref(player, 'k5'), { visibility: 'custom', allowedUids: ['player', 'owner'] }))
+  await assertFails(getDoc(cref(player2, 'k5')))
+})
+await t('player queries comments of one article like other rows', async () => {
+  const s = await assertSucceeds(getDocs(query(collection(player, 'worlds', 'w1', 'comments'), where('entityId', '==', 'pub'), where('visibility', 'in', ['public', 'members']))))
+  if (s.size !== 1) throw new Error('expected 1, got ' + s.size)
+  await assertFails(getDocs(query(collection(player2, 'worlds', 'w1', 'comments'), where('entityId', '==', 'mem'))))
+})
+await t('guests do not read comments of a closed world', () => assertFails(getDoc(cref(guest, 'k1'))))
+
+console.log('public profiles')
+const card = (uid, extra = {}) => ({ uid, displayName: 'Имя', photoURL: null, since: now, updatedAt: now, ...extra })
+await t('the user writes his own card, nobody else\'s, without extra fields', async () => {
+  await assertSucceeds(setDoc(doc(player, 'profiles', 'player'), card('player')))
+  await assertFails(setDoc(doc(player2, 'profiles', 'player'), card('player')))
+  await assertFails(setDoc(doc(player, 'profiles', 'player'), card('player', { email: 'p@x.ru' })))
+})
+await t('anyone reads a card by uid, nobody lists them', async () => {
+  await assertSucceeds(getDoc(doc(guest, 'profiles', 'player')))
+  await assertFails(getDocs(collection(guest, 'profiles')))
+  await assertFails(getDocs(collection(player2, 'profiles')))
+})
+
 await t('player cannot delete entities', () => assertFails(deleteDoc(doc(player, 'worlds', 'w1', 'entities', 'j1'))))
 await t('owner removes a player; player loses access', async () => {
   await assertSucceeds(deleteDoc(doc(owner, 'worlds', 'w1', 'members', 'player2')))

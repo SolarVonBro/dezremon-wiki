@@ -36,6 +36,7 @@ async function logout() { await session.signOut(); world.close(); void router.pu
     <div class="menu">
       <template v-if="session.user">
         <div class="menu-label">{{ session.displayName() }}</div>
+        <RouterLink class="menu-item" :to="{ name: 'user', params: { uid: session.user.uid } }"><Icon name="contact" :size="15" /> Моя страница</RouterLink>
         <RouterLink class="menu-item" :to="{ name: 'account' }"><Icon name="user" :size="15" /> Личный кабинет</RouterLink>
         <RouterLink class="menu-item" :to="{ name: 'account', query: { tab: 'security' } }"><Icon name="key-round" :size="15" /> Вход и безопасность</RouterLink>
         <div class="menu-sep" />

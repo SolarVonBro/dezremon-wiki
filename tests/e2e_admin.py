@@ -65,7 +65,7 @@ with sync_playwright() as p:
         state['world'] = own.url.rstrip('/')
         print('   WORLD', state['world'].split('/w/')[1])
         for typ, name, vis in [('Персонаж', 'Герой игрока', None), ('Заметка', 'Тайна мастера', 'master')]:
-            own.locator('.sidebar').get_by_role('button', name='Создать').click()
+            own.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
             own.locator('.type-tile', has_text=typ).click()
             own.locator('.modal input.input').first.fill(name)
             if vis == 'master':
@@ -118,7 +118,7 @@ with sync_playwright() as p:
         assert pl.locator('.sidebar .sb-chars .sb-link', has_text='Герой игрока').count() == 1
         pl.goto(state['world'] + '/t/note'); pl.wait_for_timeout(2500)
         assert pl.locator('.ecard', has_text='Тайна мастера').count() == 1, 'shared note not visible'
-        pl.locator('.sidebar').get_by_role('button', name='Создать').click()
+        pl.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
         assert pl.locator('.type-tile', has_text='Персонаж').count() == 1, 'cannot create character'
         pl.keyboard.press('Escape')
         shot(pl, 'a5-player-dashboard')

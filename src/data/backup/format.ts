@@ -16,7 +16,7 @@ export const BACKUP_VERSION = 1
 /** Every collection under worlds/{wid} that a backup may contain (imageChunks are stored as image files). */
 export const WORLD_COLLECTIONS = [
   'entities', 'bodies', 'secrets', 'posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements',
-  'reminders', 'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'images',
+  'reminders', 'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'comments', 'images',
   'revisions', 'bookmarks', 'members', 'invites',
 ] as const
 

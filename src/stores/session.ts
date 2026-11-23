@@ -9,6 +9,7 @@ import {
 import { collectionGroup, deleteDoc, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db } from '@/firebase'
 import { setUserTheme, type UserTheme } from '@/themes/apply'
+import { publishProfile } from '@/data/profileCard'
 
 export type ThemeMode = UserTheme
 
@@ -50,6 +51,7 @@ export const useSession = defineStore('session', () => {
       void setDoc(doc(db, 'users', u.uid), {
         uid: u.uid, displayName: u.displayName ?? u.email ?? 'Без имени', email: u.email ?? '', photoURL: u.photoURL ?? null, lastSeen: Date.now(),
       }, { merge: true }).catch(() => {})
+      void publishProfile(u).catch(() => {})
     }
   })
 
@@ -73,6 +75,7 @@ export const useSession = defineStore('session', () => {
       if (name) {
         await updateProfile(cred.user, { displayName: name })
         await setDoc(doc(db, 'users', cred.user.uid), { displayName: name }, { merge: true }).catch(() => {})
+        void publishProfile(cred.user).catch(() => {})
       }
       user.value = auth.currentUser
       rev.value++
@@ -97,6 +100,7 @@ export const useSession = defineStore('session', () => {
     if (!u || !name.trim()) return
     await updateProfile(u, { displayName: name.trim() })
     await setDoc(doc(db, 'users', u.uid), { displayName: name.trim() }, { merge: true })
+    await publishProfile(u).catch(() => {})
     const ms = await myMemberships()
     for (let i = 0; i < ms.length; i += 400) {
       const b = writeBatch(db)
@@ -145,6 +149,7 @@ export const useSession = defineStore('session', () => {
     await reauth(password)
     for (const d of ms) await deleteDoc(d.ref)
     await deleteDoc(doc(db, 'users', u.uid)).catch(() => {})
+    await deleteDoc(doc(db, 'profiles', u.uid)).catch(() => {})
     await deleteUser(u)
   }
 

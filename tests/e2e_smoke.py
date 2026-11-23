@@ -75,7 +75,7 @@ with sync_playwright() as p:
     print('   WORLD', world_url.split('/w/')[1].split('/')[0], flush=True)
 
     step('create a location via modal')
-    pg.locator('.sidebar').get_by_role('button', name='Создать').click()
+    pg.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
     pg.locator('.type-tile', has_text='Локация').click()
     pg.locator('.modal input.input').first.fill('Вельмор')
     pg.get_by_role('button', name='Создать и редактировать').click()
@@ -85,7 +85,7 @@ with sync_playwright() as p:
     pg.wait_for_selector('.save-state:has-text("Сохранено")', timeout=20000)
 
     step('create a character and write a rich article')
-    pg.locator('.sidebar').get_by_role('button', name='Создать').click()
+    pg.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
     pg.locator('.type-tile', has_text='Персонаж').click()
     pg.locator('.modal input.input').first.fill('Аэлин Тарн')
     pg.get_by_role('button', name='Создать и редактировать').click()

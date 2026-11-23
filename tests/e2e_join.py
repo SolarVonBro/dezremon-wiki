@@ -46,7 +46,7 @@ def watch(pg, label):
 
 
 def create(pg, typ, name, vis):
-    pg.locator('.sidebar').get_by_role('button', name='Создать').click()
+    pg.locator('.sidebar').get_by_role('button', name='Создать', exact=True).click()
     pg.locator('.type-tile', has_text=typ).click()
     pg.locator('.modal input.input').first.fill(name)
     pg.locator('.modal .vis-opt', has_text=vis).click()

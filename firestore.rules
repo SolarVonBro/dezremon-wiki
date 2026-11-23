@@ -59,6 +59,17 @@ service cloud.firestore {
       allow delete: if signedIn() && (uid() == u || isAdmin());
     }
 
+    // Public card of an account (PublicProfile in src/model/types.ts): name, photo, since — never the e-mail.
+    // Read by uid only (no listing), so nobody can enumerate accounts.
+    match /profiles/{u} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, update: if signedIn() && uid() == u && request.resource.data.uid == u
+        && request.resource.data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'since', 'updatedAt'])
+        && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100;
+      allow delete: if signedIn() && (uid() == u || isAdmin());
+    }
+
     // ---------------- service level ----------------
     match /serviceBans/{u} {
       allow read: if signedIn() && (u == uid() || isAdmin());
@@ -170,8 +181,40 @@ service cloud.firestore {
           && request.resource.data.get('editorUids', []) == resource.data.get('editorUids', [])
           && request.resource.data.get('hasSecrets', false) == false
           && visOk(w)
-        );
+        )
+          // whoever reads the article keeps its comment counter (in one batch with the comment, see comments below)
+          || (isMember(w) && canRead(w, resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount', 'commentedAt', 'updatedAt']));
         allow delete: if isMaster(w);
+      }
+
+      // Discussion under an article (src/data/comments.ts). Visibility mirrors the article; members who read the
+      // article write; the author edits and deletes, masters moderate; a like touches only `likes` (one's own uid).
+      match /comments/{c} {
+        function article(d) { return entityNow(w, d.entityId); }
+        allow read: if canRead(w, resource.data);
+        allow create: if isMember(w) && request.resource.data.createdBy == uid()
+          && exists(/databases/$(database)/documents/worlds/$(w)/entities/$(request.resource.data.entityId))
+          && canRead(w, article(request.resource.data))
+          && request.resource.data.visibility == article(request.resource.data).visibility
+          && request.resource.data.text is string && request.resource.data.text.size() <= 4000
+          && request.resource.data.likes.size() == 0 && request.resource.data.removed == false;
+        allow update: if isMaster(w)
+          // the author: the text, or deleting it as «Комментарий удалён» (it has replies)
+          || (isMember(w) && resource.data.createdBy == uid()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt', 'removed', 'updatedAt', 'updatedBy'])
+              && request.resource.data.text is string && request.resource.data.text.size() <= 4000)
+          // a like: a member adds or removes only their own uid
+          || (isMember(w) && canRead(w, resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+              && request.resource.data.likes.toSet().difference(resource.data.likes.toSet())
+                   .union(resource.data.likes.toSet().difference(request.resource.data.likes.toSet())).hasOnly([uid()]))
+          // whoever edits the article carries its comments along when its visibility changes
+          || (canEditEntity(w, resource.data.entityId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility', 'allowedUids']));
+        allow delete: if isMaster(w) || (isMember(w) && resource.data.createdBy == uid())
+          // a «Комментарий удалён» placeholder goes away with the last reply under it
+          || (isMember(w) && resource.data.get('removed', false) == true && canRead(w, resource.data));
       }
 
       // Readable article text (secret blocks stripped). Mirrors the entity's visibility.

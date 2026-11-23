@@ -801,6 +801,48 @@
           "arrayConfig": "CONTAINS"
         }
       ]
+    },
+    {
+      "collectionGroup": "comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entityId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entityId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "allowedUids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entityId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdBy",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -999,6 +1041,96 @@
           "queryScope": "COLLECTION_GROUP"
         }
       ]
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "commentCount",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "entities",
+      "fieldPath": "commentedAt",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "id",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "parentId",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "replyToUid",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "replyToName",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "text",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "authorName",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "authorPhoto",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "likes",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "editedAt",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "removed",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "createdAt",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "updatedAt",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "updatedBy",
+      "ttl": false,
+      "indexes": []
     }
   ]
 }

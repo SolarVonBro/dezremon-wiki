@@ -291,7 +291,7 @@ export interface BackupInspection {
 
 function contentCollections(b: OpenedBackup, skip: Set<string>): string[] {
   const ORDER = ['images', 'entities', 'bodies', 'secrets', 'relations', 'posts', 'orgMembers', 'inventory', 'entityAbilities',
-    'questElements', 'reminders', 'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'bookmarks', 'revisions']
+    'questElements', 'reminders', 'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages', 'comments', 'bookmarks', 'revisions']
   const names = [...b.collections.keys()].filter((n) => !NON_CONTENT_COLLECTIONS.has(n) && !skip.has(n))
   return names.sort((x, y) => {
     const ix = ORDER.indexOf(x), iy = ORDER.indexOf(y)

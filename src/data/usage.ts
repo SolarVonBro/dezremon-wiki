@@ -16,7 +16,7 @@ export const SPARK = { storageBytes: 1024 ** 3, reads: 50_000, writes: 20_000, d
  * Nothing queries them on the server, so indexing them would only waste storage and write cost.
  */
 export const INDEX_EXEMPT: Record<string, string[]> = {
-  entities: ['name', 'kind', 'fields', 'attributes', 'excerpt', 'tooltip', 'links', 'aliases', 'mentions', 'tagIds'],
+  entities: ['name', 'kind', 'fields', 'attributes', 'excerpt', 'tooltip', 'links', 'aliases', 'mentions', 'tagIds', 'commentCount', 'commentedAt'],
   bodies: ['html'],
   secrets: ['html', 'attributes', 'gmNotes'],
   revisions: ['html', 'name', 'createdByName'],
@@ -28,6 +28,7 @@ export const INDEX_EXEMPT: Record<string, string[]> = {
   questElements: ['html'],
   mapMarkers: ['html', 'points'],
   messages: ['text'],
+  comments: ['id', 'parentId', 'replyToUid', 'replyToName', 'text', 'authorName', 'authorPhoto', 'likes', 'editedAt', 'removed', 'createdAt', 'updatedAt', 'updatedBy'],
 }
 
 /** Composite indexes per collection (number of fields only matters for the estimate). */
@@ -40,7 +41,7 @@ const COMPOSITES: Record<string, string[][]> = {
 const CHILD_PARENT: Record<string, string[]> = {
   posts: ['entityId'], orgMembers: ['organisationId', 'characterId'], inventory: ['ownerId'], entityAbilities: ['entityId', 'abilityId'],
   questElements: ['questId'], reminders: ['entityId', 'calendarId'], timelineEras: ['timelineId'], timelineElements: ['timelineId'],
-  mapLayers: ['mapId'], mapGroups: ['mapId'], mapMarkers: ['mapId'], messages: ['conversationId'],
+  mapLayers: ['mapId'], mapGroups: ['mapId'], mapMarkers: ['mapId'], messages: ['conversationId'], comments: ['entityId'],
 }
 for (const [c, parents] of Object.entries(CHILD_PARENT)) {
   COMPOSITES[c] = parents.flatMap((p) => [[p, 'visibility'], [p, 'allowedUids'], [p, 'createdBy']])
