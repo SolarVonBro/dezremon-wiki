@@ -100,6 +100,7 @@ async function leave() {
             <span v-if="campaign.schedule"><Icon name="clock" :size="14" /> {{ campaign.schedule }}</span>
             <span><Icon name="users" :size="14" /> {{ participants.length }} {{ plural(participants.length, 'участник', 'участника', 'участников') }}</span>
             <RouterLink v-if="tag" :to="{ name: 'entity', params: { wid: world.wid!, eid: tag.id }, query: { tab: 'feature' } }" class="tag-chip" :style="{ '--tag-color': tag.fields?.colour }" title="Статьи с тегом кампейна">{{ tag.name }}</RouterLink>
+            <RouterLink v-if="campaign.roomId && isMember" class="c-room" :to="{ name: 'room', params: { rid: campaign.roomId } }" title="Музыкальная комната кампейна"><Icon name="headphones" :size="14" /> Музыкальная комната</RouterLink>
           </div>
         </div>
       </section>
@@ -182,7 +183,9 @@ async function leave() {
 .c-hero-text { min-width: 0; flex: 1; }
 .c-hero h1 { margin: 6px 0 6px; font-size: 40px; line-height: 1.05; overflow-wrap: break-word; }
 .c-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; color: var(--text-muted); font-size: 14px; }
-.c-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.c-meta > span, .c-room { display: inline-flex; align-items: center; gap: 5px; }
+.c-room { color: var(--accent); text-decoration: none; }
+.c-room:hover { text-decoration: underline; }
 .ov-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 .next-card { display: flex; align-items: center; gap: 14px; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .next-card > .icon { color: var(--accent); }

@@ -155,6 +155,11 @@ with sync_playwright() as p:
     ot = get(f'worlds/{W}/entities/{get("campaigns/old1")["tagId"]}')
     check(ot['name'] == '⚔ Старая игра' and ot['fields']['campaignId'] == 'old1', f'named «⚔ Старая игра» ({ot["name"]})')
     check(get(f'worlds/{W}/entities/plain')['name'] == 'Война', 'other tags untouched')
+    check(wait_for(lambda: len(query('rooms', 'campaignId', QC)) == 1), 'the new campaign got a music room')
+    r = query('rooms', 'campaignId', QC)[0]
+    check(r['name'] == 'Вторая Лавина' and r['ownerId'] == GM_UID and r['access'] == 'campaign' and get(f'campaigns/{QC}').get('roomId') == r['_id'],
+          f'named like the campaign, owned by its creator, open to its members ({r["name"]}, {r["access"]})')
+    check(not query('rooms', 'campaignId', 'old1'), 'campaigns that existed before get no room')
     check(wait_for(lambda: gm.locator('.sidebar .sb-link', has_text='Вторая Лавина').count() == 1 and gm.locator('.sidebar .sb-link', has_text='Старая игра').count() == 1), 'both in the sidebar')
 
     print('== the global page lists campaigns and leads into the world')
@@ -178,6 +183,10 @@ with sync_playwright() as p:
     cid = gm.url.split('/campaigns/')[1].split('/')[0]
     check(wait_for(lambda: any(e['name'] == '⚔ Третья кампания' and e.get('fields', {}).get('campaignId') == cid for e in query('entities', 'type', 'tag', f'/worlds/{W}'))), 'tag «⚔ Третья кампания» in the world')
     check(get(f'campaigns/{cid}')['tagId'], 'the campaign knows its tag')
+    check(wait_for(lambda: get(f'campaigns/{cid}').get('roomId')), 'and its music room')
+    room = get(f'rooms/{get(f"campaigns/{cid}")["roomId"]}')
+    check(room['name'] == 'Третья кампания' and room['ownerId'] == GM_UID and room['campaignId'] == cid and room['access'] == 'campaign', f'the room: same name, the creator owns it ({room["name"]})')
+    check(wait_for(lambda: gm.locator('.c-room').count() == 1), 'the campaign page links to its room')
 
     print('== settings: add a member of the world; rename (the tag follows)')
     gm.locator('.tabs .tab', has_text='Настройки').click(); gm.wait_for_selector('.member-picker', timeout=10000)
@@ -186,6 +195,7 @@ with sync_playwright() as p:
     name = gm.locator('label.field', has_text='Название').locator('input')
     name.fill('Третья кампания 2'); gm.get_by_role('button', name='Сохранить').click()
     check(wait_for(lambda: get(f'worlds/{W}/entities/{get(f"campaigns/{cid}")["tagId"]}')['name'] == '⚔ Третья кампания 2'), 'renaming the campaign renames its tag')
+    check(wait_for(lambda: get(f'rooms/{get(f"campaigns/{cid}")["roomId"]}')['name'] == 'Третья кампания 2'), 'and its room')
 
     print('== the member card: campaigns of the world')
     gm.goto(BASE + f'#/w/{W}/settings/members'); gm.wait_for_selector('tr', timeout=15000)
@@ -279,6 +289,9 @@ with sync_playwright() as p:
     check(sorted(rows) == ['Вторая Лавина', 'Старая игра'], f'her campaigns only ({rows})')
     an.goto(BASE + f'#/w/{W}'); an.wait_for_selector('.db-grid', timeout=20000)
     check(wait_for(lambda: an.locator('.sidebar .sb-link', has_text='Вторая Лавина').count() == 1) and an.locator('.sidebar .sb-link', has_text='Третья').count() == 0, 'world sidebar: hers, not the others')
+    an.goto(BASE + f'#/w/{W}/campaigns/{QC}'); an.wait_for_selector('.c-room', timeout=15000)
+    an.locator('.c-room').click()
+    check(wait_for(lambda: an.locator('.room-head h1').count() == 1 and 'Вторая Лавина' in an.locator('.room-head h1').inner_text()), 'a player of the campaign enters its room')
     an.goto(BASE + f'#/w/{W}/campaigns/{QC}/people'); an.wait_for_selector('.person', timeout=15000)
     check(an.locator('.person', has_text='Борис').get_by_role('button', name='Персонажи').count() == 0, 'she cannot change Boris\'s characters')
     an.locator('.person', has_text='Анна').get_by_role('button', name='Персонажи').click()

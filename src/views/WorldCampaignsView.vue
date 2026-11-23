@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The campaigns of this world: all of them for its masters, one's own for players. Masters create campaigns here;
-// a new campaign gets its tag «⚔ name» in the world at once.
+// a new campaign gets its tag «⚔ name» in the world and a music room of the same name at once.
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
@@ -95,7 +95,7 @@ async function create() {
     <Modal v-if="creating" title="Новый кампейн" width="560px" @close="creating = false">
       <form class="stack" @submit.prevent="create">
         <label class="field"><span>Название</span><input v-model="form.name" class="input" maxlength="120" placeholder="Тени над Вельмором" autofocus /></label>
-        <p class="faint small" style="margin: -6px 0 0">Кампейн пройдёт в мире «{{ world.world?.name }}». В мире появится тег «⚔ {{ form.name.trim() || 'название' }}».</p>
+        <p class="faint small" style="margin: -6px 0 0">Кампейн пройдёт в мире «{{ world.world?.name }}». В мире появится тег «⚔ {{ form.name.trim() || 'название' }}», а для игры — музыкальная комната с тем же названием (её владелец — вы).</p>
         <label class="field"><span>Описание</span><textarea v-model="form.description" class="input" rows="3" placeholder="О чём игра, тон, ожидания…" /></label>
         <div class="row gap wrap">
           <label class="field grow"><span>Статус</span>

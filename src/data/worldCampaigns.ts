@@ -1,7 +1,7 @@
 // The world's side of campaigns: the campaigns of the open world (followed while a world is open: all of them for
 // its masters, the user's own for players) and everything that ties a campaign to the world — its tag (created with
-// the campaign, renamed with it, set free when it is deleted) and the one-time sorting out of older data (tags in
-// quotes become campaigns, campaigns without a tag get one).
+// the campaign, renamed with it, set free when it is deleted), its music room (created with it, owned by its creator)
+// and the one-time sorting out of older data (tags in quotes become campaigns, campaigns without a tag get one).
 import { ref } from 'vue'
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@/firebase'
@@ -10,6 +10,7 @@ import { characterIdsOf } from './access'
 import { addParticipants, createCampaign, deleteCampaign, newCampaignId, normalizeCampaign, updateCampaign, watchWorldCampaigns } from './campaigns'
 import { campaignTagColour, campaignTagName, isCampaignTag, isQuotedName, plainCampaignName } from './campaignTags'
 import { plural } from './util'
+import { createRoom, updateRoom } from './rooms'
 import type { Campaign, CampaignStatus, Entity } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
@@ -35,21 +36,42 @@ function tagVisibility() {
   return { visibility: world.world?.isPublic ? 'public' as const : 'members' as const, allowedUids: [] }
 }
 
-/** A master creates a campaign in the open world; its tag «⚔ name» appears in the world at once. */
+/**
+ * The campaign's music room: same name, owned by whoever created the campaign, open to the campaign's members.
+ * A failure here does not undo the campaign (the room can be made later on its «Комнаты» tab).
+ */
+async function createCampaignRoom(user: UserLike, cid: string, name: string): Promise<string | null> {
+  try {
+    const rid = await createRoom(user, { name, campaignId: cid, campaignName: name, access: 'campaign', controlMode: 'hosts' })
+    await updateCampaign(cid, { roomId: rid })
+    return rid
+  } catch (e) {
+    console.warn('campaign room', e)
+    return null
+  }
+}
+
+/** A master creates a campaign in the open world; its tag «⚔ name» appears in the world and its music room opens. */
 export async function createWorldCampaign(user: UserLike, data: { name: string; description: string; status: CampaignStatus; schedule: string; cover: string | null }): Promise<string> {
   const world = useWorld()
   if (!world.wid || !world.world) throw new Error('Мир не открыт')
   const cid = newCampaignId()
   const tagId = await world.createEntity('tag', campaignTagName(data.name), { fields: { colour: campaignTagColour(data.name), campaignId: cid }, ...tagVisibility() })
   await createCampaign(user, { ...data, worldId: world.wid, worldName: world.world.name, tagId }, cid)
+  await createCampaignRoom(user, cid, data.name)
   return cid
 }
 
-/** The campaign's name changed: its tag follows. */
+/** The campaign's name changed: its tag follows, and so does its music room while it still has the old name. */
 export async function renameCampaignTag(c: Campaign, name: string) {
   const world = useWorld()
   const tag = c.tagId ? world.getAny(c.tagId) : null
   if (tag && !tag.deleted && world.wid === c.worldId) await world.updateEntity(tag.id, { name: campaignTagName(name) })
+  if (c.roomId) {
+    // only the room's owner and hosts may rename it; anyone else leaves it as it is
+    const r = await getDoc(doc(db, 'rooms', c.roomId)).catch(() => null)
+    if (r?.exists()) await updateRoom(c.roomId, r.data().name === c.name ? { name, campaignName: name } : { campaignName: name }).catch(() => {})
+  }
 }
 
 /** Deletes a campaign; its tag stays in the world as an ordinary tag (articles keep it). */
@@ -105,6 +127,7 @@ export async function ensureCampaignTags(user: UserLike): Promise<string> {
       if (!had) {
         await createCampaign(user, { name, description: '', worldId: w, worldName: world.world.name, status: 'active', schedule: '', cover: null, tagId: t.id }, cid)
         await addParticipants(cid, playersOfTag(t.id).filter((p) => p.uid !== user.uid))
+        await createCampaignRoom(user, cid, name)
         newCampaigns++
       }
       c = { id: cid, name, tagId: t.id }

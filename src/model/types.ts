@@ -556,6 +556,8 @@ export interface Campaign {
   tagId?: string | null
   /** Characters of the world each participant plays in this campaign now: uid → entity ids. */
   characters?: Record<string, string[]>
+  /** The music room created with the campaign (same name, owned by the campaign's creator, open to its members). */
+  roomId?: string | null
   createdAt: number
   updatedAt: number
 }
