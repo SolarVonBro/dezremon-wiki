@@ -21,6 +21,7 @@
 .dl-design:hover { color: var(--text); border-color: var(--border-strong); }
 .dl-design.on { color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .dl-design b { color: var(--text-faint); font-weight: 600; margin-right: 2px; }
+.dl-sep { width: 1px; align-self: stretch; margin: 3px 4px; background: var(--border-strong); flex-shrink: 0; }
 .dl-sw { display: inline-flex; }
 .dl-sw i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgb(255 255 255 / 25%); margin-left: -4px; }
 .dl-sw i:first-child { margin-left: 0; }
