@@ -110,6 +110,7 @@ async function leave() {
         <div class="c-cover-wrap">
           <CampaignCover :campaign="campaign" hires class="c-cover" :class="{ zoomable: !!(campaign.cover || campaign.coverImageId) }" :title="campaign.cover || campaign.coverImageId ? 'Открыть обложку' : undefined" @click="openCover" />
           <button v-if="isGM && (campaign.cover || campaign.coverImageId)" type="button" class="c-crop-btn" title="Кадр обложки: центрирование и масштаб" @click="framingCover = true"><Icon name="crosshair" :size="15" /></button>
+          <button v-if="isGM && campaign.cover && !campaign.coverImageId" type="button" class="c-lowres" title="Обложка хранится маленькой копией (загружена до обновления). Загрузите её заново в настройках — будет чёткой." @click="setTab('settings')"><Icon name="triangle-alert" :size="13" /> низкое качество</button>
         </div>
         <div class="c-hero-text">
           <div class="row gap-sm wrap">
@@ -216,6 +217,8 @@ async function leave() {
   display: inline-flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 55%); color: #fff;
 }
 .c-crop-btn:hover { background: rgb(0 0 0 / 75%); }
+.c-lowres { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgb(0 0 0 / 62%); color: #ffd98a; }
+.c-lowres:hover { background: rgb(0 0 0 / 80%); }
 /* the page background: fixed under the page area only (the app bar and the sidebar keep their own), blurred, dimmed */
 .content.has-bg { position: relative; isolation: isolate; }
 .c-bg { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: 0; bottom: 0; z-index: -1; overflow: hidden; pointer-events: none; }

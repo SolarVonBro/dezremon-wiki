@@ -101,6 +101,7 @@ async function remove() {
         <div class="grow stack-sm">
           <b>Обложка</b>
           <span class="faint small">На странице игры и в списках игр. По щелчку открывается на весь экран.</span>
+          <span v-if="campaign.cover && !campaign.coverImageId" class="small old-cover"><Icon name="triangle-alert" :size="13" /> Эта обложка загружена раньше и хранится только маленькой копией, поэтому выглядит размыто. Загрузите её заново («Заменить») — будет чёткой и откроется в полном размере.</span>
           <div class="row gap-sm wrap">
             <button class="btn btn-sm" :disabled="busy" @click="choosing = 'cover'"><Icon name="image" :size="14" /> {{ campaign.cover || campaign.coverImageId ? 'Заменить' : 'Выбрать картинку' }}</button>
             <button v-if="campaign.cover || campaign.coverImageId" class="btn btn-sm" :disabled="busy" title="Центрирование и масштаб" @click="framing = 'cover'"><Icon name="crosshair" :size="14" /> Кадр</button>
@@ -149,6 +150,8 @@ async function remove() {
 .pic-row { display: flex; gap: 14px; align-items: flex-start; }
 .pic-row + .pic-row { border-top: 1px solid var(--border); padding-top: 12px; }
 .pic-prev { width: 160px; height: 90px; border-radius: 10px; flex: none; overflow: hidden; }
+.old-cover { color: var(--text); display: flex; gap: 6px; align-items: flex-start; }
+.old-cover > .icon { color: var(--warning); flex: none; margin-top: 2px; }
 .pic-bg { background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
 .pic-bg :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 520px) { .pic-row { flex-direction: column; } }
