@@ -1,5 +1,8 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator } from 'firebase/auth'
+import {
+  initializeAuth, getAuth, connectAuthEmulator, browserPopupRedirectResolver,
+  browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence,
+} from 'firebase/auth'
 import { initializeFirestore, memoryLocalCache, connectFirestoreEmulator, setLogLevel } from 'firebase/firestore'
 import { firebaseConfig } from './firebaseConfig'
 
@@ -8,7 +11,19 @@ import { firebaseConfig } from './firebaseConfig'
 const useEmulator = import.meta.env.VITE_EMULATOR === '1'
 
 export const app = initializeApp(useEmulator ? { ...firebaseConfig, projectId: 'demo-dezremon', apiKey: 'demo-key' } : firebaseConfig)
-export const auth = getAuth(app)
+// Prefer localStorage over IndexedDB for auth persistence: IndexedDB stalls/locks across suspended tabs or corrupt
+// DB states would otherwise drop the session on reload or block signing back in. Keeping indexedDBLocalPersistence
+// in the hierarchy transparently migrates existing sessions stored in IDB to localStorage on the next visit.
+export const auth = (() => {
+  try {
+    return initializeAuth(app, {
+      popupRedirectResolver: browserPopupRedirectResolver,
+      persistence: [browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence],
+    })
+  } catch {
+    return getAuth(app)
+  }
+})()
 // Our own IndexedDB cache (src/data/cache.ts) does delta sync, so Firestore keeps only a memory cache.
 export const db = initializeFirestore(app, { localCache: memoryLocalCache(), ignoreUndefinedProperties: true })
 

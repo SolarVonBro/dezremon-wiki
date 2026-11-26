@@ -347,7 +347,24 @@ export const useWorld = defineStore('world', () => {
     revalidating = true
     try {
       const u = session.user
-      const ms = u ? await getDoc(doc(db, 'worlds', wid.value, 'members', u.uid)).catch(() => null) : null
+      let ms: Awaited<ReturnType<typeof getDoc>> | null = null
+      if (u) {
+        // Refresh the ID token first in case the permission error came from an expired token after sleep/offline.
+        await u.getIdToken(true).catch(() => null)
+        if (token !== openToken) return
+        try {
+          ms = await getDoc(doc(db, 'worlds', wid.value, 'members', u.uid))
+        } catch (e: any) {
+          if (token !== openToken) return
+          // Network/offline error: do not misclassify as removed from the world or wipe the local cache.
+          if (e?.code !== 'permission-denied') {
+            status.value = 'error'
+            errorText.value = e?.message ?? String(e)
+            return
+          }
+          ms = null
+        }
+      }
       if (token !== openToken) return
       member.value = ms?.exists() ? (ms.data() as Member) : null
       if (!member.value && !world.value?.isPublic && !isServiceAdmin(u?.uid)) {
@@ -355,9 +372,8 @@ export const useWorld = defineStore('world', () => {
         syncs = []
         entities.value = new Map()
         relations.value = new Map()
-        status.value = 'denied'
         void cache.clearWorld(wid.value)
-        resetStreams()
+        deny(wid.value, token)
         return
       }
       await restartSync()

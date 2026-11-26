@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import {
-  onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile, sendEmailVerification, EmailAuthProvider,
-  reauthenticateWithCredential, reauthenticateWithPopup, updatePassword, linkWithCredential, linkWithPopup, unlink, deleteUser,
+  onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider,
+  signOut as fbSignOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail,
+  updateProfile, sendEmailVerification, EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup,
+  updatePassword, linkWithCredential, linkWithPopup, unlink, deleteUser, setPersistence,
+  browserSessionPersistence, inMemoryPersistence,
   type User,
 } from 'firebase/auth'
 import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocFromServer, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
@@ -32,9 +34,13 @@ export const useSession = defineStore('session', () => {
   const ready = ref(false)
   /** true between "account created" and "name saved": pages wait for it so they see the chosen name */
   const registering = ref(false)
+  /** Error surfaced when returning from a failed Google redirect sign-in (or empty return under 3P cookie blocking). */
+  const redirectError = ref('')
   const rev = ref(0)
   const theme = ref<ThemeMode>(readTheme())
   const textSize = ref<TextSize>(readTextSize())
+  const REDIRECT_MARK = 'dw.googleRedirectAt'
+  const REDIRECT_NEXT = 'dw.loginNext'
   watch(textSize, (t) => {
     try { localStorage.setItem('dw.textSize', t) } catch { /* private mode */ }
     document.documentElement.style.setProperty('--prose-size', `${(TEXT_SIZES[t] ?? TEXT_SIZES.m).px}px`)
@@ -92,7 +98,21 @@ export const useSession = defineStore('session', () => {
         // the record could not be read: show at least the provider's photo, but do not publish it
         if (user.value?.uid === u.uid && !avatarKnown.value) avatarKnown.value = true
       }).finally(visit)
+      try { sessionStorage.removeItem(REDIRECT_MARK) } catch { /* private mode */ }
+      redirectError.value = ''
     }
+  })
+
+  // Surface errors (or silent drops under third-party storage partitioning) when returning from signInWithRedirect.
+  void getRedirectResult(auth).then((res) => {
+    let ts = 0
+    try { ts = Number(sessionStorage.getItem(REDIRECT_MARK) || 0); sessionStorage.removeItem(REDIRECT_MARK) } catch { /* private mode */ }
+    if (!res && !auth.currentUser && ts && Date.now() - ts < 5 * 60 * 1000) {
+      redirectError.value = 'Не удалось завершить вход через Google — браузер мог заблокировать сторонние cookies или хранилище. Попробуйте разрешить cookies, открыть сайт в другом браузере или войти по почте и паролю.'
+    }
+  }).catch((e) => {
+    try { sessionStorage.removeItem(REDIRECT_MARK) } catch { /* private mode */ }
+    redirectError.value = authErrorText(e)
   })
 
   watch(theme, (t) => {
@@ -100,18 +120,78 @@ export const useSession = defineStore('session', () => {
     setUserTheme(t)
   }, { immediate: true })
 
-  async function signInGoogle() {
+  function googleProvider() {
     const provider = new GoogleAuthProvider()
     provider.setCustomParameters({ prompt: 'select_account' })
-    await signInWithPopup(auth, provider)
+    return provider
+  }
+  function isStoragePersistenceError(e: any): boolean {
+    if (e?.code !== 'auth/internal-error') return false
+    const orig = e?.customData?.originalError
+    const msg = `${e?.message ?? ''} ${orig?.name ?? ''} ${orig?.message ?? ''}`
+    return /QuotaExceeded|InvalidStateError|SecurityError|DB_TIMEOUT|database connection is closing|IndexedDB|storage/i.test(msg)
+  }
+  async function runWithStorageFallback<T>(fn: () => Promise<T>, retryFn: () => Promise<T> = fn): Promise<T> {
+    try {
+      return await fn()
+    } catch (e: any) {
+      if (!isStoragePersistenceError(e)) throw e
+      let lastErr = e
+      for (const p of [browserSessionPersistence, inMemoryPersistence]) {
+        try {
+          await setPersistence(auth, p)
+          return await retryFn()
+        } catch (err: any) {
+          lastErr = err
+          if (!isStoragePersistenceError(err)) throw err
+        }
+      }
+      throw lastErr
+    }
+  }
+  async function signInGoogleRedirect(nextPath?: string) {
+    redirectError.value = ''
+    try {
+      sessionStorage.setItem(REDIRECT_MARK, String(Date.now()))
+      if (nextPath && nextPath.startsWith('/') && !nextPath.startsWith('//') && !nextPath.startsWith('/login')) {
+        sessionStorage.setItem(REDIRECT_NEXT, nextPath)
+      }
+    } catch { /* private mode */ }
+    await signInWithRedirect(auth, googleProvider())
+  }
+  function consumeRedirectNext(): string | null {
+    try {
+      const v = sessionStorage.getItem(REDIRECT_NEXT)
+      sessionStorage.removeItem(REDIRECT_NEXT)
+      return v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/login') ? v : null
+    } catch { return null }
+  }
+  async function signInGoogle(nextPath?: string) {
+    redirectError.value = ''
+    // iOS home-screen PWA: signInWithPopup creates a windowless popup whose promise never settles.
+    const iosStandalone = /iphone|ipad|ipod/i.test(navigator.userAgent) && !!(navigator as any).standalone
+    if (iosStandalone) { await signInGoogleRedirect(nextPath); return }
+    try {
+      await runWithStorageFallback(() => signInWithPopup(auth, googleProvider()))
+    } catch (e: any) {
+      if (e?.code === 'auth/popup-blocked' || e?.code === 'auth/operation-not-supported-in-this-environment') {
+        await signInGoogleRedirect(nextPath)
+        return
+      }
+      throw e
+    }
   }
   async function signInEmail(email: string, password: string) {
-    await signInWithEmailAndPassword(auth, email, password)
+    await runWithStorageFallback(() => signInWithEmailAndPassword(auth, email, password))
   }
   async function register(email: string, password: string, name: string) {
     registering.value = true
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      // If persistence failed after creating the user on the server, retry via signIn before createUser.
+      const cred = await runWithStorageFallback(
+        () => createUserWithEmailAndPassword(auth, email, password),
+        () => signInWithEmailAndPassword(auth, email, password).catch(() => createUserWithEmailAndPassword(auth, email, password)),
+      )
       if (name) {
         await updateProfile(cred.user, { displayName: name })
         await setDoc(doc(db, 'users', cred.user.uid), { displayName: name }, { merge: true }).catch(() => {})
@@ -233,7 +313,8 @@ export const useSession = defineStore('session', () => {
   }
 
   return {
-    user, ready, registering, whenReady, theme, textSize, signInGoogle, signInEmail, register, resetPassword, signOut, displayName,
+    user, ready, registering, redirectError, whenReady, theme, textSize, signInGoogle, signInGoogleRedirect, consumeRedirectNext,
+    signInEmail, register, resetPassword, signOut, displayName,
     rev, providers, updateDisplayName, changePassword, addPassword, linkGoogle, unlinkProvider, sendVerification, deleteAccount,
     avatar, photo, me, setAvatar, avatarSource,
   }
@@ -242,13 +323,21 @@ export const useSession = defineStore('session', () => {
 export function authErrorText(e: any): string {
   const code = String(e?.code ?? '')
   const map: Record<string, string> = {
-    'auth/invalid-credential': 'Неверная почта или пароль',
-    'auth/wrong-password': 'Неверный пароль',
+    'auth/invalid-credential': 'Неверная почта или пароль. Если раньше вы входили через Google — нажмите «Войти через Google»',
+    'auth/wrong-password': 'Неверный пароль. Если раньше вы входили через Google — нажмите «Войти через Google»',
     'auth/user-not-found': 'Пользователь не найден',
     'auth/email-already-in-use': 'Эта почта уже зарегистрирована',
     'auth/weak-password': 'Слишком простой пароль (минимум 6 символов)',
     'auth/invalid-email': 'Некорректная почта',
-    'auth/popup-closed-by-user': 'Окно входа закрыто',
+    'auth/popup-closed-by-user': 'Окно входа Google закрылось до завершения. Если вы не закрывали его сами — нажмите «Войти без всплывающего окна» или разрешите сторонние cookies',
+    'auth/popup-blocked': 'Браузер заблокировал всплывающее окно — разрешите всплывающие окна или нажмите «Войти без всплывающего окна»',
+    'auth/cancelled-popup-request': 'Запрос входа отменён — попробуйте ещё раз',
+    'auth/network-request-failed': 'Нет связи с сервером авторизации — проверьте интернет, VPN или блокировщик рекламы',
+    'auth/internal-error': 'Ошибка авторизации — проверьте интернет, блокировщик рекламы/трекеров или очистите данные сайта и попробуйте снова',
+    'auth/web-storage-unsupported': 'В браузере отключены cookies или хранилище сайта — включите их в настройках, чтобы войти',
+    'auth/user-disabled': 'Этот аккаунт отключён администратором',
+    'auth/user-token-expired': 'Сессия истекла — войдите заново',
+    'auth/account-exists-with-different-credential': 'Эта почта уже привязана к другому способу входа',
     'auth/too-many-requests': 'Слишком много попыток, попробуйте позже',
     'auth/operation-not-allowed': 'Этот способ входа не включён в Firebase',
     'auth/unauthorized-domain': 'Домен сайта не добавлен в Firebase Authentication',

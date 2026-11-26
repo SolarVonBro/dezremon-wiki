@@ -89,7 +89,13 @@ function onKey(e: KeyboardEvent) {
     createRequest.value = { type: null }
   }
 }
-const setOnline = () => (online.value = navigator.onLine)
+const setOnline = () => {
+  online.value = navigator.onLine
+  if (online.value && world.status === 'error' && route.params.wid) {
+    world.close()
+    void world.open(route.params.wid as string)
+  }
+}
 onMounted(() => {
   document.addEventListener('keydown', onKey)
   window.addEventListener('online', setOnline)

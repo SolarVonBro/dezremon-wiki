@@ -105,7 +105,8 @@ async function loadCharNames(wid: string, ids: string[]) {
 
 <template>
   <div class="page">
-    <div v-if="session.user">
+    <div v-if="!session.ready" class="empty"><Icon name="refresh-cw" class="spin" :size="24" /></div>
+    <div v-else-if="session.user">
       <div class="row gap wrap" style="margin-bottom: 14px">
         <h1 class="grow" style="margin: 0">Миры</h1>
         <button class="btn btn-primary" @click="creating = true"><Icon name="plus" :size="16" /> Новый мир</button>
