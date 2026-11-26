@@ -58,6 +58,7 @@ const banMap = computed(() => new Map(bans.value.map((b) => [b.uid, b])))
 const worldMap = computed(() => new Map(worlds.value.map((w) => [w.id, w])))
 const nameOf = (uid: string) => userMap.value.get(uid)?.displayName || uid.slice(0, 8)
 const membersOf = (wid: string) => memberships.value.filter((m) => m.wid === wid)
+const myRoleOf = (wid: string) => memberships.value.find((m) => m.wid === wid && m.member.uid === session.user?.uid)?.member.role ?? null
 const worldsOf = (uid: string) => memberships.value.filter((m) => m.member.uid === uid).map((m) => ({ world: worldMap.value.get(m.wid), role: m.member.role })).filter((x) => x.world)
 const campaignsOf = (uid: string) => campaigns.value.filter((c) => c.memberUids.includes(uid))
 const sizeOf = (wid: string) => { const r = usage.value.find((x) => x.id === wid); return r?.at ? formatBytes(r.bytes) : '—' }
@@ -194,7 +195,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
           <div v-if="openUser === u.uid" class="udetail small">
             <div class="faint">uid: <code>{{ u.uid }}</code><template v-if="banMap.get(u.uid)"> · заблокирован {{ formatDate(banMap.get(u.uid)!.createdAt) }}{{ banMap.get(u.uid)!.reason ? ': ' + banMap.get(u.uid)!.reason : '' }}</template></div>
             <div><b>Миры:</b>
-              <template v-if="worldsOf(u.uid).length"><span v-for="x in worldsOf(u.uid)" :key="x.world!.id" class="chip-link"><RouterLink :to="{ name: 'dashboard', params: { wid: x.world!.id } }">{{ x.world!.name }}</RouterLink> <span class="faint">({{ ROLE[x.role] }})</span></span></template>
+              <template v-if="worldsOf(u.uid).length"><span v-for="x in worldsOf(u.uid)" :key="x.world!.id" class="chip-link"><RouterLink :to="{ name: 'dashboard', params: { wid: x.world!.id }, query: { admin: 'view' } }">{{ x.world!.name }}</RouterLink> <span class="faint">({{ ROLE[x.role] }})</span></span></template>
               <span v-else class="faint"> нет</span>
             </div>
             <div><b>Игры:</b>
@@ -213,14 +214,20 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
             <thead><tr><th>Мир</th><th>Владелец</th><th>Участники</th><th>Доступ</th><th style="text-align: right">Объём</th><th>Изменён</th><th /></tr></thead>
             <tbody>
               <tr v-for="w in worlds" :key="w.id">
-                <td><RouterLink :to="{ name: 'dashboard', params: { wid: w.id } }"><b>{{ w.name }}</b></RouterLink></td>
+                <td>
+                  <RouterLink :to="{ name: 'dashboard', params: { wid: w.id }, query: { admin: 'view' } }" title="Открыть как администратор (только просмотр)"><b>{{ w.name }}</b></RouterLink>
+                  <span v-if="myRoleOf(w.id)" class="badge" style="margin-left: 6px">вы: {{ ROLE[myRoleOf(w.id)!] }}</span>
+                </td>
                 <td class="small">{{ nameOf(w.ownerId) }}</td>
                 <td class="small">{{ membersOf(w.id).length }}</td>
                 <td><span class="badge" :class="{ 'badge-public': w.isPublic }">{{ w.isPublic ? 'открытый' : 'закрытый' }}</span></td>
                 <td class="nowrap" style="text-align: right">{{ sizeOf(w.id) }}</td>
                 <td class="faint small nowrap">{{ relativeTime(w.updatedAt) }}</td>
                 <td class="nowrap">
-                  <RouterLink class="icon-btn" title="Настройки мира" :to="{ name: 'settings', params: { wid: w.id, tab: 'members' } }"><Icon name="settings" :size="15" /></RouterLink>
+                  <RouterLink class="icon-btn" title="Просмотр как админ (без редактирования)" :to="{ name: 'dashboard', params: { wid: w.id }, query: { admin: 'view' } }"><Icon name="eye" :size="15" /></RouterLink>
+                  <RouterLink class="icon-btn" title="Открыть как админ (с редактированием)" :to="{ name: 'dashboard', params: { wid: w.id }, query: { admin: 'edit' } }"><Icon name="pencil" :size="15" /></RouterLink>
+                  <RouterLink v-if="myRoleOf(w.id)" class="icon-btn" :title="'Войти как участник (' + ROLE[myRoleOf(w.id)!] + ')'" :to="{ name: 'dashboard', params: { wid: w.id }, query: { admin: 'member' } }"><Icon name="user" :size="15" /></RouterLink>
+                  <RouterLink class="icon-btn" title="Настройки мира (как админ)" :to="{ name: 'settings', params: { wid: w.id, tab: 'members' }, query: { admin: 'edit' } }"><Icon name="settings" :size="15" /></RouterLink>
                   <button class="icon-btn" title="Удалить мир" @click="deleting = { kind: 'world', id: w.id, name: w.name }; confirmText = ''"><Icon name="trash2" :size="15" /></button>
                 </td>
               </tr>
@@ -239,7 +246,7 @@ const ROLE: Record<string, string> = { owner: 'владелец', master: 'ма�
               <tr v-for="c in campaigns" :key="c.id">
                 <td><RouterLink :to="{ name: 'campaign', params: { cid: c.id } }"><b>{{ c.name }}</b></RouterLink></td>
                 <td class="small">{{ nameOf(c.ownerId) }}</td>
-                <td class="small"><RouterLink v-if="c.worldId && worldMap.get(c.worldId)" :to="{ name: 'dashboard', params: { wid: c.worldId } }">{{ c.worldName }}</RouterLink><span v-else class="faint">{{ c.worldName || '—' }}</span></td>
+                <td class="small"><RouterLink v-if="c.worldId && worldMap.get(c.worldId)" :to="{ name: 'dashboard', params: { wid: c.worldId }, query: { admin: 'view' } }">{{ c.worldName }}</RouterLink><span v-else class="faint">{{ c.worldName || '—' }}</span></td>
                 <td class="small">{{ c.memberUids.length }}</td>
                 <td><span class="badge">{{ STATUS_LABELS[c.status] }}</span></td>
                 <td class="faint small nowrap">{{ relativeTime(c.updatedAt) }}</td>

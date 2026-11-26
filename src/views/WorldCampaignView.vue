@@ -2,7 +2,6 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
-import { isServiceAdmin } from '@/data/admin'
 import { currentCharacters, watchCampaign, watchParticipants, watchSessions, removeParticipant, updateCampaign, FORMAT_LABELS, STATUS_LABELS, ROLE_LABELS } from '@/data/campaigns'
 import { formatDate, untilTime, plural, errorText } from '@/data/util'
 import { cropOf } from '@/data/crop'
@@ -44,10 +43,9 @@ onBeforeUnmount(() => stops.forEach((s) => s()))
 watch(() => world.status, (st) => { if (st === 'denied' || (st === 'ready' && !world.uid)) campaign.value = null }, { immediate: true })
 
 const uid = computed(() => world.uid ?? '')
-const admin = computed(() => isServiceAdmin(uid.value))
-/** GMs of the campaign and the world's masters run it (not while looking through a player's eyes). */
-const isGM = computed(() => !!campaign.value && !world.preview && (campaign.value.gmUids.includes(uid.value) || world.isMaster || admin.value))
-const isOwner = computed(() => !!campaign.value && !world.preview && (campaign.value.ownerId === uid.value || world.isOwner || admin.value))
+/** GMs of the campaign and the world's masters run it (not while looking through a player's eyes or in admin read-only view). */
+const isGM = computed(() => !!campaign.value && !world.preview && !world.adminReadOnly && (campaign.value.gmUids.includes(uid.value) || world.isMaster))
+const isOwner = computed(() => !!campaign.value && !world.preview && !world.adminReadOnly && (campaign.value.ownerId === uid.value || world.isOwner || world.adminEdit))
 const isMember = computed(() => !!campaign.value?.memberUids.includes(uid.value))
 
 type Tab = 'overview' | 'sessions' | 'people' | 'rooms' | 'settings'

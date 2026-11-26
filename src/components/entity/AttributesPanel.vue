@@ -25,9 +25,9 @@ function load() {
 }
 watch(() => [props.entity.attributes, world.secretsState[props.entity.id]], () => { if (!edit.value) load() }, { immediate: true })
 // masters: make sure private attributes are loaded (they live in the secrets doc)
-watch(() => props.entity.id, async () => { if (world.isMaster && props.entity.hasSecrets) { await world.loadText(props.entity.id); load() } }, { immediate: true })
+watch(() => [props.entity.id, world.canReadSecrets], async () => { if (world.canReadSecrets && props.entity.hasSecrets) { await world.loadText(props.entity.id); load() } }, { immediate: true })
 
-const visible = computed(() => (edit.value ? rows.value : rows.value.filter((r) => !r.isPrivate || world.isMaster)))
+const visible = computed(() => (edit.value ? rows.value : rows.value.filter((r) => !r.isPrivate || world.canReadSecrets)))
 
 function add(kind: AttributeKind = 'text') { rows.value.push({ id: randomId(8), name: '', value: kind === 'checkbox' ? 'false' : '', kind, isPinned: false, isPrivate: false }) }
 function move(i: number, d: -1 | 1) {

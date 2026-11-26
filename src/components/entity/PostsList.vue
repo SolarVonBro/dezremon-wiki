@@ -16,8 +16,8 @@ const posts = computed(() => all.value.filter((p) => (p.position ?? 'after') ===
 const editingId = ref<string | null>(null)
 const collapsed = ref<Record<string, boolean>>({})
 
-const canPost = computed(() => world.canEdit(props.entity) || (world.isMember && world.settings.playersCanPost))
-const canEditPost = (p: Post) => world.isMaster || p.createdBy === world.uid
+const canPost = computed(() => !world.preview && !world.adminReadOnly && (world.canEdit(props.entity) || (world.isMember && world.settings.playersCanPost)))
+const canEditPost = (p: Post) => !world.preview && !world.adminReadOnly && (world.isMaster || p.createdBy === world.uid)
 
 async function add() {
   const id = await world.saveRow('posts', {
@@ -55,5 +55,5 @@ function isCollapsed(p: Post) { return collapsed.value[p.id] ?? p.isCollapsed }
     </section>
   </template>
   <button v-if="editing && canPost && position === 'after'" class="btn btn-ghost" style="align-self: flex-start" @click="add"><Icon name="plus" :size="15" /> Добавить раздел<span class="hide-sm">&nbsp;(отдельный блок с собственной видимостью)</span></button>
-  <button v-else-if="!editing && position === 'after' && world.isMember && !world.canEdit(entity) && world.settings.playersCanPost" class="btn btn-ghost btn-sm" style="align-self: flex-start" @click="add"><Icon name="plus" :size="14" /> Добавить свою заметку</button>
+  <button v-else-if="!editing && position === 'after' && !world.preview && !world.adminReadOnly && world.isMember && !world.canEdit(entity) && world.settings.playersCanPost" class="btn btn-ghost btn-sm" style="align-self: flex-start" @click="add"><Icon name="plus" :size="14" /> Добавить свою заметку</button>
 </template>

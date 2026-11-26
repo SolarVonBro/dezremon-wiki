@@ -28,6 +28,7 @@ const shown = computed(() => gallery.list.filter((i) => (!folder.value || i.fold
 const totalSize = computed(() => gallery.list.reduce((s, i) => s + (i.size || 0), 0))
 
 async function upload(files: FileList | File[] | null | undefined) {
+  if (!world.isMember || world.preview || world.adminReadOnly) return
   const list = [...(files ?? [])].filter((f) => f.type.startsWith('image/'))
   if (!list.length) return
   busy.value += list.length
@@ -51,16 +52,16 @@ async function remove() {
   selected.value = null
 }
 async function view(i: ImageMeta) { openLightbox([{ src: await imageUrl(world.access, i.id, 'full'), caption: i.name }]) }
-const canManage = (i: ImageMeta) => world.isMaster || i.createdBy === world.uid
+const canManage = (i: ImageMeta) => !world.preview && !world.adminReadOnly && (world.isMaster || i.createdBy === world.uid)
 </script>
 
 <template>
   <Teleport defer to="#crumbs"><span style="color: var(--text)">Галерея</span></Teleport>
-  <div class="content" @dragover.prevent="drag = true" @dragleave.self="drag = false" @drop.prevent="drag = false; upload($event.dataTransfer?.files)">
+  <div class="content" @dragover.prevent="drag = world.isMember && !world.preview && !world.adminReadOnly" @dragleave.self="drag = false" @drop.prevent="drag = false; upload($event.dataTransfer?.files)">
     <div class="page-head">
       <Icon name="images" :size="28" /><h1 class="grow">Галерея</h1>
       <span class="muted small">{{ gallery.list.length }} изобр. · {{ (totalSize / 1024 / 1024).toFixed(1) }} МБ из ~1000 МБ бесплатной базы</span>
-      <button v-if="world.isMember" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" /> Загрузить</button>
+      <button v-if="world.isMember && !world.preview && !world.adminReadOnly" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" /> Загрузить</button>
       <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="upload(($event.target as HTMLInputElement).files)" />
     </div>
     <div class="list-toolbar">

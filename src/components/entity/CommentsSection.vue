@@ -25,8 +25,8 @@ let stop: (() => void) | null = null
 
 const live = computed(() => rows.value.filter((c) => !c.removed).length)
 const count = computed(() => (open.value && !loading.value ? live.value : props.entity.commentCount ?? 0))
-/** Members write (not guests, not a master looking through a player's eyes). */
-const canWrite = computed(() => !!world.member && !world.preview)
+/** Members write (not guests, not preview or admin read-only view). */
+const canWrite = computed(() => !!world.member && !world.preview && !world.adminReadOnly)
 const target = computed(() => (typeof route.query.c === 'string' ? route.query.c : null))
 
 // threads: top comments oldest first, replies under them; a reply whose thread is gone stands on its own
@@ -129,7 +129,7 @@ const label = computed(() => (count.value ? `${count.value} ${plural(count.value
         </div>
       </div>
       <p v-else class="faint small cm-note">
-        <template v-if="world.preview">В режиме просмотра писать нельзя.</template>
+        <template v-if="world.preview || world.adminReadOnly">В режиме просмотра писать нельзя.</template>
         <template v-else-if="!session.user"><RouterLink :to="{ name: 'login', query: { next: route.fullPath } }">Войдите</RouterLink>, чтобы участвовать в обсуждении.</template>
         <template v-else>Комментировать могут участники мира.</template>
       </p>

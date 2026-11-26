@@ -79,13 +79,13 @@ export function useDashData(blocks: Ref<DashBlock[]>) {
       case 'character': return characters.value.length > 0
       case 'campaigns': return campaigns.rows.length > 0 || (world.isMaster && !world.adminView)
       case 'random': return !!random(b)
-      case 'waiting': return world.isMaster && waiting(b).length > 0
+      case 'waiting': return world.canReadSecrets && waiting(b).length > 0
     }
     return false
   }
   /** Whether the block's "who sees it" setting lets the current viewer (or the previewed one) see it. */
   function allowed(b: DashBlock): boolean {
-    if (b.show === 'masters') return world.isMaster
+    if (b.show === 'masters') return world.canReadSecrets
     if (b.show === 'members') return world.isMember && !world.preview?.guest
     return true
   }

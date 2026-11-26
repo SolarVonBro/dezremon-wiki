@@ -30,7 +30,7 @@ async function act(fn: () => Promise<unknown>, ok: string) {
 }
 
 // ---------- role & ownership ----------
-const canChangeRole = computed(() => world.isOwner && m.value.role !== 'owner')
+const canChangeRole = computed(() => (world.isOwner || world.adminEdit) && m.value.role !== 'owner')
 function setRole(r: Role) { void act(() => world.setMemberRole(m.value.uid, r), `Роль: ${ROLE[r]}`) }
 function transfer() {
   if (!confirm(`Передать владение миром «${world.world?.name}» участнику ${m.value.displayName}? Вы станете мастером, а управлять ролями и удалить мир сможет только новый владелец.`)) return
@@ -100,7 +100,7 @@ const authored = computed(() => [...world.entities.values()].filter((e) => !e.de
 const edited = computed(() => [...world.entities.values()].filter((e) => !e.deleted && e.updatedBy === m.value.uid).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10))
 
 // ---------- removal ----------
-const canRemove = computed(() => !isSelf.value && m.value.role !== 'owner' && (world.isOwner || m.value.role === 'player'))
+const canRemove = computed(() => !isSelf.value && m.value.role !== 'owner' && (world.isOwner || world.adminEdit || m.value.role === 'player'))
 function kick() {
   if (!confirm(`Исключить ${m.value.displayName} из мира? Вернуться можно будет по приглашению.`)) return
   void act(async () => { await world.removeMember(m.value.uid); emit('close') }, 'Участник исключён')

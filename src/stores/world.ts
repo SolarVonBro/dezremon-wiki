@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: WorldSettings = {
 }
 
 type Status = 'idle' | 'loading' | 'ready' | 'denied' | 'error'
+export type AdminMode = 'view' | 'edit' | null
 
 export const useWorld = defineStore('world', () => {
   const session = useSession()
@@ -57,17 +58,46 @@ export const useWorld = defineStore('world', () => {
   let openToken = 0
 
   const uid = computed(() => session.user?.uid ?? null)
-  /** A service administrator who is not a member: acts as a master of the world (the rules grant the same). */
-  const adminView = computed(() => !member.value && !!world.value && isServiceAdmin(uid.value))
-  const role = computed<Role | null>(() => member.value?.role ?? (adminView.value ? 'master' : null))
+  /**
+   * Explicit service-admin mode for the open world ('view' = read-only, 'edit' = full master access, null = normal member).
+   * Stored in sessionStorage per world so refreshes keep the chosen mode; cleared on leaving the world layout.
+   */
+  const adminMode = ref<AdminMode>(null)
+  const adminModeKey = (id: string) => `dw.adminMode.${id}`
+  function readAdminMode(id: string): AdminMode {
+    try {
+      const v = sessionStorage.getItem(adminModeKey(id))
+      return v === 'view' || v === 'edit' ? v : null
+    } catch { return null }
+  }
+  function writeAdminMode(id: string, mode: AdminMode) {
+    try {
+      if (mode) sessionStorage.setItem(adminModeKey(id), mode)
+      else sessionStorage.removeItem(adminModeKey(id))
+    } catch { /* private mode */ }
+  }
+  const effectiveAdminMode = computed<AdminMode>(() => {
+    if (!world.value || !isServiceAdmin(uid.value)) return null
+    if (!member.value) return adminMode.value ?? 'view'
+    if (adminMode.value === 'view') return 'view'
+    if (adminMode.value === 'edit' && !isMasterRole(member.value.role)) return 'edit'
+    return null
+  })
+  /** Service administrator acting through elevated admin mode (read-only or edit). */
+  const adminView = computed(() => effectiveAdminMode.value !== null)
+  const adminReadOnly = computed(() => effectiveAdminMode.value === 'view')
+  const adminEdit = computed(() => effectiveAdminMode.value === 'edit')
+  const role = computed<Role | null>(() => (effectiveAdminMode.value ? 'master' : member.value?.role ?? null))
   /**
    * "View as player": a master sees the world exactly as a player (or one specific member) would —
    * hidden articles, rows and master secrets disappear, editing is off. Purely client-side.
    */
   const preview = ref<{ uid: string | null; name: string; guest?: boolean } | null>(null)
   const realMaster = computed(() => isMasterRole(role.value))
-  const isMaster = computed(() => realMaster.value && !preview.value)
-  const isOwner = computed(() => role.value === 'owner' && !preview.value)
+  /** May read master-only secrets, GM notes and private attributes (true in admin read-only view, false in player preview). */
+  const canReadSecrets = computed(() => realMaster.value && !preview.value)
+  const isMaster = computed(() => realMaster.value && !preview.value && !adminReadOnly.value)
+  const isOwner = computed(() => role.value === 'owner' && !preview.value && !adminReadOnly.value)
   const isMember = computed(() => !!role.value)
   const access = computed<Access>(() => ({ wid: wid.value ?? '', uid: uid.value, role: role.value }))
   /** Access used to decide what is shown (differs from `access` only in preview mode). */
@@ -175,15 +205,34 @@ export const useWorld = defineStore('world', () => {
   function getAny(id: string) { return entities.value.get(id) }
 
   function canEdit(e: Entity | undefined | null): boolean {
-    if (!e || !uid.value || !role.value || preview.value) return false
+    if (!e || !uid.value || !role.value || preview.value || adminReadOnly.value) return false
     if (isMaster.value) return true
     if (e.hasSecrets) return false
     return e.createdBy === uid.value || (e.editorUids ?? []).includes(uid.value)
   }
   function canCreate(type: string): boolean {
-    if (preview.value) return false
+    if (preview.value || adminReadOnly.value) return false
     if (isMaster.value) return true
     return !!role.value && (settings.value.playerCreateTypes.includes(type) || (member.value?.createTypes ?? []).includes(type))
+  }
+
+  async function setAdminMode(mode: AdminMode, targetWid?: string) {
+    const id = targetWid ?? wid.value
+    if (!id) return
+    const wasMaster = realMaster.value
+    writeAdminMode(id, mode)
+    if (wid.value !== id) return
+    adminMode.value = mode
+    if (!realMaster.value) preview.value = null
+    if (status.value === 'ready' && wasMaster !== realMaster.value) {
+      secretsState.value = {}
+      await restartSync()
+    }
+  }
+  function clearAdminMode(targetWid?: string) {
+    const id = targetWid ?? wid.value
+    if (id) writeAdminMode(id, null)
+    if (!targetWid || wid.value === targetWid) adminMode.value = null
   }
 
   // ---------- open / close ----------
@@ -209,6 +258,7 @@ export const useWorld = defineStore('world', () => {
     relations.value = new Map()
     secretsState.value = {}
     preview.value = null
+    adminMode.value = null
     status.value = 'idle'
     wid.value = null
   }
@@ -218,6 +268,7 @@ export const useWorld = defineStore('world', () => {
     close()
     const token = ++openToken
     wid.value = id
+    adminMode.value = readAdminMode(id)
     status.value = 'loading'
     await session.whenReady
     if (token !== openToken) return
@@ -281,7 +332,7 @@ export const useWorld = defineStore('world', () => {
       const prevAcl = world.value?.aclVersion
       world.value = { ...(s.data() as World), id }
       setCustomTypes(settings.value.customTypes)
-      if (prevAcl !== undefined && prevAcl !== world.value.aclVersion && !isMaster.value) void restartSync()
+      if (prevAcl !== undefined && prevAcl !== world.value.aclVersion && !realMaster.value) void restartSync()
     }, () => {}))
     const u = session.user
     if (u) {
@@ -295,7 +346,7 @@ export const useWorld = defineStore('world', () => {
           void open(id)
           return
         }
-        if (prevRole && !member.value && !world.value?.isPublic) {
+        if (prevRole && !member.value && !world.value?.isPublic && !effectiveAdminMode.value) {
           // removed, banned or left a closed world: drop everything we had, including the local cache
           syncs.forEach((x) => x.stop())
           syncs = []
@@ -306,7 +357,7 @@ export const useWorld = defineStore('world', () => {
           resetStreams()
           return
         }
-        if (prevRole !== member.value?.role && status.value === 'ready') void restartSync()
+        if (prevRole !== member.value?.role && status.value === 'ready' && !effectiveAdminMode.value) void restartSync()
       }, () => {}))
       unsubs.push(onSnapshot(collection(db, 'worlds', id, 'members'), (s) => {
         members.value = s.docs.map((d) => d.data() as Member).sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -587,7 +638,7 @@ export const useWorld = defineStore('world', () => {
   async function loadText(id: string): Promise<string> {
     const e = entities.value.get(id)
     if (!e) return ''
-    const wantSecret = isMaster.value && e.hasSecrets
+    const wantSecret = canReadSecrets.value && e.hasSecrets
     // No text was ever saved (bodyRev 0): there may be no bodies doc at all (e.g. imported articles without
     // text), and reading a missing doc is denied to players by the rules — so don't read.
     if (!e.bodyRev && !wantSecret) return ''
@@ -731,7 +782,7 @@ export const useWorld = defineStore('world', () => {
 
   // ---------- revisions ----------
   async function revisionsOf(entityId: string): Promise<Revision[]> {
-    const qs = isMaster.value
+    const qs = canReadSecrets.value
       ? [query(coll(wid.value!, 'revisions'), where('entityId', '==', entityId), orderBy('createdAt', 'desc'), qlimit(80))]
       : [query(coll(wid.value!, 'revisions'), where('entityId', '==', entityId), where('createdBy', '==', uid.value), orderBy('createdAt', 'desc'), qlimit(80))]
     const s = await getDocs(qs[0])
@@ -962,7 +1013,7 @@ export const useWorld = defineStore('world', () => {
 
   return {
     wid, world, member, members, players, entities, relations, status, errorText, pendingWrites, lastSavedAt, secretsState,
-    uid, role, adminView, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, list, trash, byType, children, tags, charTagIds, campaignTags, campaignTagPref, autoCampaignTagId, recent, visibleRelations, backlinks, enabledTypes,
+    uid, role, adminMode, effectiveAdminMode, adminView, adminReadOnly, adminEdit, canReadSecrets, isMaster, isOwner, isMember, access, settings, preview, realMaster, viewAccess, viewMember, viewCharacters, startPreview, stopPreview, setAdminMode, clearAdminMode, list, trash, byType, children, tags, charTagIds, campaignTags, campaignTagPref, autoCampaignTagId, recent, visibleRelations, backlinks, enabledTypes,
     get, getAny, canEdit, canCreate, open, close, restartSync,
     createEntity, updateEntity, deleteEntity, restoreEntity, purgeEntity, newEntityData, bulkUpdateEntities, setWorldVisibility,
     loadText, saveText, saveSecretsMeta,

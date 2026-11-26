@@ -27,7 +27,7 @@ async function prepare() {
   const m = new Map<string, string>()
   const missing = world.list.filter((e) => {
     const c = cached.get(e.id)
-    if (c && c.rev === e.bodyRev && (c.secret === (world.isMaster && e.hasSecrets))) { m.set(e.id, c.text); return false }
+    if (c && c.rev === e.bodyRev && (c.secret === (world.canReadSecrets && e.hasSecrets))) { m.set(e.id, c.text); return false }
     return e.bodyRev > 0
   })
   progress.value = { done: 0, total: missing.length }
@@ -36,7 +36,7 @@ async function prepare() {
     while (queue.length) {
       const e = queue.shift()!
       try {
-        const wantSecret = world.isMaster && e.hasSecrets
+        const wantSecret = world.canReadSecrets && e.hasSecrets
         const s = await getDoc(docRef(world.wid!, wantSecret ? 'secrets' : 'bodies', e.id))
         const html = (s.data()?.html as string) ?? ''
         const text = htmlToText(html)
@@ -57,6 +57,7 @@ async function prepare() {
   progress.value = null
 }
 onMounted(prepare)
+watch(() => world.canReadSecrets, () => void prepare())
 
 const results = computed(() => {
   void indexVersion.value

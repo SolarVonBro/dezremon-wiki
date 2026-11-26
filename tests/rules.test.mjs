@@ -563,6 +563,33 @@ await t('the owner deletes his campaign; a world master who is neither cannot; a
   await assertSucceeds(deleteDoc(doc(admin, 'campaigns', 'c2')))
 })
 
+console.log('character orgMembers from character sidebar')
+const p4 = env.authenticatedContext('p4').firestore()
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const f = ctx.firestore()
+  await setDoc(doc(f, 'worlds', 'wA', 'members', 'p4'), { uid: 'p4', role: 'player', displayName: 'p4', email: '', photoURL: null, joinedAt: now })
+  await setDoc(doc(f, 'worlds', 'wA', 'entities', 'org1'), V('members', { type: 'organisation', name: 'Орден', createdBy: 'owner' }))
+  await setDoc(doc(f, 'worlds', 'wA', 'entities', 'charP3'), V('members', { type: 'character', name: 'Герой P3', createdBy: 'p3' }))
+  await setDoc(doc(f, 'worlds', 'wA', 'entities', 'charOther'), V('members', { type: 'character', name: 'Чужой', createdBy: 'owner' }))
+})
+await t('player editing own character adds, updates and deletes orgMembers for a master-owned organisation', async () => {
+  const row = { id: 'om1', organisationId: 'org1', characterId: 'charP3', role: 'Адепт', status: 'active', isPinned: false, order: 0, visibility: 'members', allowedUids: [], createdBy: 'p3', updatedBy: 'p3', createdAt: now, updatedAt: now }
+  await assertSucceeds(setDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om1'), row))
+  await assertSucceeds(updateDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om1'), { role: 'Магистр', status: 'inactive' }))
+  // cannot reassign the row to another character the player cannot edit
+  await assertFails(updateDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om1'), { characterId: 'charOther' }))
+  await assertSucceeds(deleteDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om1')))
+})
+await t('player editing own character can also update/remove an orgMembers row created by master; other players cannot', async () => {
+  const row = { id: 'om2', organisationId: 'org1', characterId: 'charP3', role: 'Ученик', status: 'active', isPinned: false, order: 0, visibility: 'members', allowedUids: [], createdBy: 'owner', updatedBy: 'owner', createdAt: now, updatedAt: now }
+  await assertSucceeds(setDoc(doc(owner, 'worlds', 'wA', 'orgMembers', 'om2'), row))
+  await assertFails(updateDoc(doc(p4, 'worlds', 'wA', 'orgMembers', 'om2'), { role: 'Взлом' }))
+  await assertFails(deleteDoc(doc(p4, 'worlds', 'wA', 'orgMembers', 'om2')))
+  await assertFails(setDoc(doc(p4, 'worlds', 'wA', 'orgMembers', 'omBad'), { ...row, id: 'omBad', createdBy: 'p4', updatedBy: 'p4' }))
+  await assertSucceeds(updateDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om2'), { role: 'Рыцарь' }))
+  await assertSucceeds(deleteDoc(doc(p3, 'worlds', 'wA', 'orgMembers', 'om2')))
+})
+
 await env.cleanup()
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

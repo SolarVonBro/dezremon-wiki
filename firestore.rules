@@ -44,8 +44,13 @@ service cloud.firestore {
     function canEditEntityData(ent) {
       return ent.createdBy == uid() || uid() in ent.get('editorUids', []);
     }
+    function playerEditsEntity(w, e) {
+      return e is string && e != ''
+        && exists(/databases/$(database)/documents/worlds/$(w)/entities/$(e))
+        && canEditEntityData(entityNow(w, e));
+    }
     function canEditEntity(w, e) {
-      return isMaster(w) || (isMember(w) && exists(/databases/$(database)/documents/worlds/$(w)/entities/$(e)) && canEditEntityData(entityNow(w, e)));
+      return isMaster(w) || (isMember(w) && playerEditsEntity(w, e));
     }
 
     function inviteOk(w, code, role) {
@@ -269,9 +274,10 @@ service cloud.firestore {
           return coll in ['posts', 'relations', 'orgMembers', 'inventory', 'entityAbilities', 'questElements', 'reminders',
                           'timelineEras', 'timelineElements', 'mapLayers', 'mapGroups', 'mapMarkers', 'messages'];
         }
-        function parentOf(d) { return d.get(parentField(), ''); }
         function parentEditable(d) {
-          return parentOf(d) is string && parentOf(d) != '' && canEditEntity(w, parentOf(d));
+          let p = d.get(parentField(), '');
+          return playerEditsEntity(w, p)
+            || (coll == 'orgMembers' && playerEditsEntity(w, d.get('characterId', '')));
         }
         // players may add their own posts (world setting), messages, and dates on calendars
         function openForPlayers() {
@@ -287,9 +293,15 @@ service cloud.firestore {
         ));
         allow update: if isChild() && (isMaster(w) || (
           isMember(w) && request.resource.data.createdBy == resource.data.createdBy && visOk(w)
+          && (coll != 'orgMembers' || (
+            request.resource.data.organisationId == resource.data.organisationId
+            && request.resource.data.characterId == resource.data.characterId
+          ))
           && (resource.data.createdBy == uid() || parentEditable(resource.data))
         ));
-        allow delete: if isChild() && (isMaster(w) || (isMember(w) && resource.data.createdBy == uid()));
+        allow delete: if isChild() && (isMaster(w) || (
+          isMember(w) && (resource.data.createdBy == uid() || (coll == 'orgMembers' && parentEditable(resource.data)))
+        ));
       }
     }
 

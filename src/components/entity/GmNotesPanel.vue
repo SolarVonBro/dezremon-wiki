@@ -20,7 +20,7 @@ async function save() {
 </script>
 
 <template>
-  <div v-if="world.isMaster && (editing || notes)" class="card card-pad gm-notes">
+  <div v-if="(world.isMaster && editing) || (world.canReadSecrets && notes)" class="card card-pad gm-notes">
     <div class="section-title row"><Icon name="lock" :size="12" /> <span class="grow">Заметки мастера</span><Icon v-if="saving" name="refresh-cw" :size="12" class="spin" /></div>
     <textarea v-if="editing" id="gm-notes" v-model="draft" class="input" rows="4" placeholder="Видят только мастера: планы, тайны, скрытые имена…" @blur="save" />
     <div v-else class="gm-text">{{ notes }}</div>

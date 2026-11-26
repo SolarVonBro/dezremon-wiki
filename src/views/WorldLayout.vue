@@ -30,7 +30,19 @@ const session = useSession()
 const sidebarOpen = ref(false)
 const online = ref(navigator.onLine)
 
-watch(() => route.params.wid as string, (wid) => { if (wid) void world.open(wid) }, { immediate: true })
+let activeWid: string | null = null
+watch(() => [route.params.wid as string, route.query.admin as string | undefined] as const, ([wid, qAdmin]) => {
+  if (!wid) return
+  if (activeWid && activeWid !== wid) world.clearAdminMode(activeWid)
+  activeWid = wid
+  if (qAdmin === 'view' || qAdmin === 'edit' || qAdmin === 'member') {
+    void world.setAdminMode(qAdmin === 'member' ? null : qAdmin, wid)
+    const nextQuery = { ...route.query }
+    delete nextQuery.admin
+    void router.replace({ query: nextQuery })
+  }
+  void world.open(wid)
+}, { immediate: true })
 // the world's own theme replaces the reader's on its pages only; until the world document arrives, the theme it had
 // last time (so a themed world does not flash in the reader's theme on every visit)
 watch([() => route.params.wid as string, () => world.status, () => world.world?.settings?.theme], ([wid, status]) => {
@@ -44,8 +56,8 @@ watch([() => route.params.wid as string, () => world.status, () => world.world?.
 watch(() => route.fullPath, () => { sidebarOpen.value = false })
 
 // campaigns of this world (all for its masters, one's own for players): sidebar, character groups, member cards…
-watch(() => [world.wid, world.uid, world.role, world.status] as const, ([w, u, r, st]) => {
-  if (st === 'ready' && w && u && world.member) followWorldCampaigns(w, u, isMasterRole(r))
+watch(() => [world.wid, world.uid, world.role, world.status, world.adminView] as const, ([w, u, r, st, av]) => {
+  if (st === 'ready' && w && u && (world.member || av)) followWorldCampaigns(w, u, isMasterRole(r))
   else if (st !== 'loading') followWorldCampaigns(null, null, false)
 }, { immediate: true })
 onBeforeUnmount(() => followWorldCampaigns(null, null, false))
@@ -68,7 +80,13 @@ const counts = computed(() => {
 // through a player's eyes; hidden only if characters are switched off and there are none
 const showChars = computed(() => !!world.member && !world.preview?.guest && (world.enabledTypes('character') || world.viewCharacters.length > 0))
 const canAddChar = computed(() => world.enabledTypes('character') && world.canCreate('character'))
-const roleLabel = computed(() => (world.adminView ? 'Администратор сервиса' : ({ owner: 'Владелец', master: 'Мастер', player: 'Игрок' } as Record<string, string>)[world.role ?? ''] ?? 'Гость'))
+const roleLabel = computed(() => {
+  if (world.adminReadOnly) return 'Админ · просмотр'
+  if (world.adminEdit) return 'Админ · правка'
+  return ({ owner: 'Владелец', master: 'Мастер', player: 'Игрок' } as Record<string, string>)[world.role ?? ''] ?? 'Гость'
+})
+const memberRoleLabel = computed(() => ({ owner: 'владелец', master: 'мастер', player: 'игрок' } as Record<string, string>)[world.member?.role ?? ''] ?? 'участник')
+const nativeMaster = computed(() => !!world.member && isMasterRole(world.member.role))
 
 const saveState = computed(() => {
   if (!online.value) return { cls: 'offline', text: 'Нет сети — изменения сохранятся позже', icon: 'wifi-off' }
@@ -84,7 +102,7 @@ function onKey(e: KeyboardEvent) {
     e.preventDefault()
     document.querySelector<HTMLInputElement>('.sb-search input')?.focus()
   }
-  if (!typing && e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && world.isMember) {
+  if (!typing && e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && world.isMember && !world.preview && !world.adminReadOnly) {
     e.preventDefault()
     createRequest.value = { type: null }
   }
@@ -102,6 +120,7 @@ onMounted(() => {
   window.addEventListener('offline', setOnline)
 })
 onBeforeUnmount(() => {
+  if (activeWid) world.clearAdminMode(activeWid)
   setWorldTheme(null)
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('online', setOnline)
@@ -162,7 +181,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
         </span>
       </RouterLink>
       <div class="sb-search"><QuickSearch /></div>
-      <div v-if="world.isMember && !world.preview" class="sb-section" style="padding-top: 0">
+      <div v-if="world.isMember && !world.preview && !world.adminReadOnly" class="sb-section" style="padding-top: 0">
         <button class="btn btn-primary" style="width: 100%" title="Создать статью (N)" @click="createRequest = { type: null }"><Icon name="plus" :size="16" /> Создать</button>
         <div v-if="autoTag" class="sb-autotag" title="Этот тег игры добавляется ко всем новым статьям (кроме тегов). Выбор — над списком статей любого раздела.">
           <span class="tag-chip" :style="{ '--tag-color': autoTag.fields?.colour }">{{ autoTag.name }}</span>
@@ -204,9 +223,15 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
     <div class="main">
       <BanBanner />
       <JoinBanner v-if="world.status === 'ready' && !world.isMember && world.wid" :wid="world.wid" />
-      <div v-if="world.adminView && world.status === 'ready'" class="preview-banner admin-banner">
-        <Icon name="shield-check" :size="16" />
-        <span class="grow">Вы в этом мире как <b>администратор сервиса</b> (не участник): видно и доступно всё, как мастеру. Действуйте аккуратно.</span>
+      <div v-if="world.adminView && world.status === 'ready'" class="preview-banner admin-banner" :class="{ 'admin-banner-edit': world.adminEdit }">
+        <Icon :name="world.adminReadOnly ? 'eye' : 'shield-check'" :size="16" />
+        <span class="grow">
+          <template v-if="world.adminReadOnly">Вы в режиме <b>администратора сервиса (только просмотр)</b>: видны все статьи и секреты, редактирование отключено.</template>
+          <template v-else>Вы в режиме <b>администратора сервиса (редактирование)</b>: доступны все статьи, секреты и настройки. Действуйте аккуратно.</template>
+        </span>
+        <button v-if="world.adminReadOnly && !nativeMaster" class="btn btn-sm" @click="world.setAdminMode('edit')"><Icon name="pencil" :size="14" /> Редактирование</button>
+        <button v-else-if="world.adminEdit" class="btn btn-sm" @click="world.setAdminMode('view')"><Icon name="eye" :size="14" /> Только просмотр</button>
+        <button v-if="world.member" class="btn btn-sm btn-ghost" @click="world.setAdminMode(null)"><Icon name="user" :size="14" /> Как {{ memberRoleLabel }}</button>
       </div>
       <div v-if="world.preview" class="preview-banner">
         <Icon name="eye" :size="16" />

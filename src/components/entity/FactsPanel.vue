@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useWorld } from '@/stores/world'
+import { useRows } from '@/composables/useRows'
 import { typeDef, allTypes, type FieldDef } from '@/model/entityTypes'
 import Icon from '@/components/common/Icon.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import CharTypeSwitch from './CharTypeSwitch.vue'
 import { CHAR_TYPE_KIND, charTypeOfKind, type CharType } from '@/data/charType'
-import type { Entity } from '@/model/types'
+import type { Entity, OrgMembership } from '@/model/types'
 
 const props = defineProps<{ entity: Entity; editing: boolean }>()
 const world = useWorld()
@@ -60,6 +61,37 @@ function removeFromList(key: string, id: string) {
 function pairs(key: string): Array<{ name: string; value: string }> { return props.entity.fields?.[key] ?? [] }
 function setPairs(key: string, list: Array<{ name: string; value: string }>) { setField(key, list) }
 
+// character memberships in organisations (same `orgMembers` rows as the organisation's «Участники» tab)
+const orgRows = useRows<OrgMembership>('orgMembers', 'characterId', () => (props.entity.type === 'character' ? props.entity.id : null))
+const visibleOrgRows = computed(() => orgRows.value.filter((r) => !!world.get(r.organisationId)))
+const orgIds = computed(() => orgRows.value.map((r) => r.organisationId))
+const orgRoles = ref<Record<string, string>>({})
+watch(orgRows, (rows) => {
+  const editingId = (document.activeElement as HTMLElement | null)?.dataset?.orgRoleId
+  const next: Record<string, string> = {}
+  for (const r of rows) next[r.id] = r.id === editingId ? (orgRoles.value[r.id] ?? r.role) : r.role
+  orgRoles.value = next
+}, { immediate: true })
+async function addOrg(id: string | null) {
+  if (!id || orgIds.value.includes(id)) return
+  // players cannot create brand-new public rows even when editing a public character
+  const vis = !world.isMaster && props.entity.visibility === 'public' ? 'members' : props.entity.visibility
+  await world.saveRow('orgMembers', {
+    organisationId: id, characterId: props.entity.id, role: '', status: 'active', isPinned: false,
+    order: orgRows.value.length, visibility: vis, allowedUids: props.entity.allowedUids ?? [],
+  })
+}
+function saveOrgRole(r: OrgMembership) {
+  const next = (orgRoles.value[r.id] ?? '').trim()
+  if (next !== r.role) void world.saveRow('orgMembers', { id: r.id, role: next })
+}
+function setOrgStatus(r: OrgMembership, status: OrgMembership['status']) {
+  if (status !== r.status) void world.saveRow('orgMembers', { id: r.id, status })
+}
+function removeOrg(r: OrgMembership) {
+  void world.deleteRow('orgMembers', r.id)
+}
+
 const shown = computed(() => def.value.fields.filter((f) => {
   const v = props.entity.fields?.[f.key]
   if (f.kind === 'pairs') return false
@@ -69,7 +101,7 @@ const shown = computed(() => def.value.fields.filter((f) => {
   return v !== undefined && v !== null && v !== ''
 }))
 const pairFields = computed(() => def.value.fields.filter((f) => f.kind === 'pairs' && (props.editing || pairs(f.key).length)))
-const hasAnything = computed(() => props.editing || shown.value.length || props.entity.kind || props.entity.parentId || pairFields.value.length)
+const hasAnything = computed(() => props.editing || shown.value.length || visibleOrgRows.value.length || props.entity.kind || props.entity.parentId || pairFields.value.length)
 const pickTypes = (f: FieldDef) => f.target ?? allTypes().map((t) => t.key)
 const PAIR_PRIVATE_HINT = 'Для скрытых от игроков деталей используйте приватные атрибуты или секретные блоки.'
 </script>
@@ -88,6 +120,16 @@ const PAIR_PRIVATE_HINT = 'Для скрытых от игроков детал�
           <template v-else-if="f.kind === 'bool'">да</template>
           <template v-else-if="f.kind === 'color'"><span class="swatch-sm" :style="{ background: entity.fields[f.key] }" /> {{ entity.fields[f.key] }}</template>
           <template v-else>{{ entity.fields[f.key] }}</template>
+        </dd>
+      </template>
+      <template v-if="entity.type === 'character' && visibleOrgRows.length">
+        <dt>Организации</dt>
+        <dd class="org-dd">
+          <div v-for="r in visibleOrgRows" :key="r.id" class="org-view-row">
+            <EntityLink :id="r.organisationId" />
+            <span v-if="r.role" class="muted small"> — {{ r.role }}</span>
+            <span v-if="r.status === 'inactive'" class="faint small"> (бывший)</span>
+          </div>
         </dd>
       </template>
     </dl>
@@ -112,6 +154,24 @@ const PAIR_PRIVATE_HINT = 'Для скрытых от игроков детал�
           <EntityPicker :model-value="null" :types="pickTypes(f)" placeholder="Добавить…" :exclude="entity.fields[f.key] ?? []" @update:model-value="(v) => addToList(f.key, v)" />
         </div>
       </template>
+      <div v-if="entity.type === 'character' && (world.enabledTypes('organisation') || visibleOrgRows.length)" class="field">
+        <span>Организации</span>
+        <div v-if="visibleOrgRows.length" class="stack-sm">
+          <div v-for="r in visibleOrgRows" :key="r.id" class="org-edit-row">
+            <div class="row gap-sm">
+              <EntityLink :id="r.organisationId" :icon="false" class="grow ellipsis" />
+              <select class="input input-sm org-status" :value="r.status" title="Статус участия" @change="setOrgStatus(r, ($event.target as HTMLSelectElement).value as OrgMembership['status'])">
+                <option value="active">активен</option>
+                <option value="inactive">бывший</option>
+                <option value="unknown">неизвестно</option>
+              </select>
+              <button type="button" class="icon-btn" style="width: 22px; height: 22px" title="Убрать организацию" @click="removeOrg(r)"><Icon name="x" :size="13" /></button>
+            </div>
+            <input v-model="orgRoles[r.id]" :data-org-role-id="r.id" class="input input-sm" placeholder="Роль / должность…" @blur="saveOrgRole(r)" @keydown.enter="($event.target as HTMLInputElement).blur()" />
+          </div>
+        </div>
+        <EntityPicker :model-value="null" :types="['organisation']" placeholder="Добавить организацию…" :exclude="orgIds" @update:model-value="addOrg" />
+      </div>
       <div v-if="entity.type === 'attribute_template'" class="field"><span>Автоматически добавлять к новым статьям типа</span>
         <select class="input input-sm" :value="entity.fields.autoType ?? ''" @change="setField('autoType', ($event.target as HTMLSelectElement).value || null)">
           <option value="">— не добавлять —</option><option v-for="t in allTypes()" :key="t.key" :value="t.key">{{ t.label }}</option>
@@ -143,4 +203,8 @@ const PAIR_PRIVATE_HINT = 'Для скрытых от игроков детал�
 
 <style scoped>
 .swatch-sm { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: middle; }
+.org-dd { display: flex; flex-direction: column; gap: 3px; }
+.org-view-row { line-height: 1.35; }
+.org-edit-row { display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.org-status { width: auto; flex-shrink: 0; padding: 2px 6px; font-size: 12px; }
 </style>

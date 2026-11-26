@@ -108,7 +108,7 @@ async function remove() {
           <span v-if="entity.visibility !== 'members'" class="badge" :class="{ 'badge-secret': entity.visibility === 'master' || entity.visibility === 'custom', 'badge-public': entity.visibility === 'public' }">
             <Icon :name="entity.visibility === 'public' ? 'globe' : 'lock'" :size="11" /> {{ VISIBILITY_SHORT[entity.visibility] }}
           </span>
-          <span v-if="entity.hasSecrets && world.isMaster" class="badge badge-secret" title="В статье есть секреты мастера"><Icon name="eye-off" :size="11" /> секреты</span>
+          <span v-if="entity.hasSecrets && world.canReadSecrets" class="badge badge-secret" title="В статье есть секреты мастера"><Icon name="eye-off" :size="11" /> секреты</span>
           <span v-if="entity.isTemplate" class="badge">шаблон</span>
           <span v-for="s in status" :key="s.text" class="badge" :class="s.cls">{{ s.text }}</span>
         </div>
@@ -125,7 +125,7 @@ async function remove() {
         <button v-if="canEdit" class="btn" :class="{ 'btn-primary': editing }" :title="editing ? 'Готово (выйти из редактирования)' : 'Редактировать (E)'" @click="emit('toggle-edit')">
           <Icon :name="editing ? 'check' : 'pencil'" :size="16" /> {{ editing ? 'Готово' : 'Редактировать' }}
         </button>
-        <button v-if="world.isMember" class="icon-btn" :class="{ on: isFav }" :title="isFav ? 'Убрать из избранного' : 'В избранное'" @click="world.toggleFavorite(entity.id)"><Icon name="star" /></button>
+        <button v-if="world.member && !world.preview && !world.adminReadOnly" class="icon-btn" :class="{ on: isFav }" :title="isFav ? 'Убрать из избранного' : 'В избранное'" @click="world.toggleFavorite(entity.id)"><Icon name="star" /></button>
         <Dropdown placement="bottom-end">
           <template #trigger><button class="icon-btn" title="Ещё"><Icon name="more-horizontal" /></button></template>
           <div class="menu">

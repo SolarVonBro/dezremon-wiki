@@ -8,7 +8,7 @@ const props = defineProps<{ entity: Entity }>()
 const world = useWorld()
 const pinned = computed<Array<Attribute & { secret?: boolean }>>(() => {
   const pub = props.entity.attributes.filter((a) => a.isPinned && a.kind !== 'section')
-  const priv = world.isMaster ? (world.secretsState[props.entity.id]?.attributes ?? []).filter((a) => a.isPinned).map((a) => ({ ...a, secret: true })) : []
+  const priv = world.canReadSecrets ? (world.secretsState[props.entity.id]?.attributes ?? []).filter((a) => a.isPinned).map((a) => ({ ...a, secret: true })) : []
   return [...pub, ...priv]
 })
 function show(a: Attribute) {

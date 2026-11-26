@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSession, type ThemeMode } from '@/stores/session'
 import { useWorld } from '@/stores/world'
+import { isServiceAdmin } from '@/data/admin'
+import { isMasterRole } from '@/data/access'
 import { activeWorldTheme } from '@/themes/apply'
 import { designById } from '@/themes/designs'
 import Icon from '@/components/common/Icon.vue'
@@ -19,6 +22,7 @@ const THEMES: Array<{ v: ThemeMode; label: string; icon: string }> = [
   { v: 'dark', label: 'Тёмная', icon: 'moon' },
   { v: 'light', label: 'Светлая', icon: 'sun' },
 ]
+const canSwitchAdmin = computed(() => !!world.wid && world.status === 'ready' && isServiceAdmin(session.user?.uid) && !world.adminView && !!world.member && !isMasterRole(world.member.role))
 async function logout() { await session.signOut(); world.close(); void router.push('/') }
 </script>
 
@@ -38,6 +42,12 @@ async function logout() { await session.signOut(); world.close(); void router.pu
         <div class="menu-label">{{ session.displayName() }}</div>
         <RouterLink class="menu-item" :to="{ name: 'user', params: { uid: session.user.uid } }"><Icon name="user" :size="15" /> Личный кабинет</RouterLink>
         <RouterLink class="menu-item" :to="{ name: 'user', params: { uid: session.user.uid }, query: { tab: 'security' } }"><Icon name="key-round" :size="15" /> Вход и безопасность</RouterLink>
+        <div class="menu-sep" />
+      </template>
+      <template v-if="canSwitchAdmin">
+        <div class="menu-label">Администратор сервиса</div>
+        <button class="menu-item" @click="world.setAdminMode('view')"><Icon name="eye" :size="15" /> Просмотр (админ)</button>
+        <button class="menu-item" @click="world.setAdminMode('edit')"><Icon name="pencil" :size="15" /> Редактирование (админ)</button>
         <div class="menu-sep" />
       </template>
       <div class="menu-label">Тема оформления</div>

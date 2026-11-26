@@ -81,13 +81,13 @@ let expectedRev = -1
 async function loadText(force = false) {
   const e = raw.value
   if (!e) return
-  if (!force && loadedFor.value === `${e.id}:${e.bodyRev}:${world.isMaster}`) return
+  if (!force && loadedFor.value === `${e.id}:${e.bodyRev}:${world.canReadSecrets}`) return
   loadingText.value = true
   try {
     html.value = await world.loadText(e.id)
     lastSavedHtml = html.value
     expectedRev = e.bodyRev
-    loadedFor.value = `${e.id}:${e.bodyRev}:${world.isMaster}`
+    loadedFor.value = `${e.id}:${e.bodyRev}:${world.canReadSecrets}`
   } catch (err: any) {
     toast.error('Не удалось загрузить текст: ' + (err?.message ?? err))
   } finally { loadingText.value = false }
@@ -105,7 +105,7 @@ const autosave = useAutosave(async () => {
   expectedRev = (e.bodyRev ?? 0) + 1
   await world.saveText(e.id, next)
   lastSavedHtml = next
-  loadedFor.value = `${e.id}:${expectedRev}:${world.isMaster}`
+  loadedFor.value = `${e.id}:${expectedRev}:${world.canReadSecrets}`
   void cache.deleteDraft(draftKey.value)
 })
 
@@ -116,7 +116,8 @@ function onDirty() {
   draftTimer = setTimeout(() => { const h = editorRef.value?.getHTML(); if (h) void cache.putDraft(draftKey.value, h) }, 500)
 }
 
-watch(() => [raw.value?.id, raw.value?.bodyRev], async (_n, old) => {
+watch(() => [raw.value?.id, raw.value?.bodyRev, world.canReadSecrets], async (_n, old) => {
+  if (old && old[2] && !world.canReadSecrets) { html.value = ''; lastSavedHtml = ''; loadedFor.value = null }
   const e = raw.value
   if (!e) return
   // Someone else saved while we are editing: do not clobber, tell the user.

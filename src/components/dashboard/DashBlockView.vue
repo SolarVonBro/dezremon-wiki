@@ -32,7 +32,7 @@ const showTitle = computed(() => !b.value.hideTitle && b.value.type !== 'hero')
 // ---------- the "article" block in full-text mode loads the article body ----------
 const fullHtml = ref('')
 const fullLoading = ref(false)
-watch(() => [b.value.type, b.value.view, b.value.entityId, world.get(b.value.entityId ?? null)?.bodyRev] as const, async ([type, view, id]) => {
+watch(() => [b.value.type, b.value.view, b.value.entityId, world.get(b.value.entityId ?? null)?.bodyRev, world.canReadSecrets] as const, async ([type, view, id]) => {
   fullHtml.value = ''
   if (type !== 'entity' || view !== 'full' || !id || !world.get(id)) return
   fullLoading.value = true

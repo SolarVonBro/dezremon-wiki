@@ -139,7 +139,10 @@ async function publishAll(to: 'public' | 'members') {
 
 <template>
   <Teleport defer to="#crumbs"><span style="color: var(--text)">Настройки мира</span></Teleport>
-  <div v-if="!world.isMaster" class="content empty">Настройки доступны только мастерам.</div>
+  <div v-if="!world.isMaster" class="content empty">
+    <template v-if="world.adminReadOnly">Настройки доступны в режиме редактирования администратора.</template>
+    <template v-else>Настройки доступны только мастерам.</template>
+  </div>
   <div v-else class="content content-narrow">
     <div class="page-head"><Icon name="settings" :size="28" /><h1>Настройки мира</h1></div>
     <div class="tabs">
@@ -187,7 +190,7 @@ async function publishAll(to: 'public' | 'members') {
           </select>
         </label>
       </section>
-      <section class="card card-pad stack danger-zone">
+      <section v-if="world.isOwner || world.member" class="card card-pad stack danger-zone">
         <h3 class="panel-title" style="margin: 0"><Icon name="triangle-alert" /> Опасная зона</h3>
         <template v-if="world.isOwner">
           <p class="muted small" style="margin: 0">Передать мир другому участнику можно в «Участники и права» → карточка участника → «Передать владение».</p>
