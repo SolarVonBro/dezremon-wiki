@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Pf2eLang, Pf2eMeta, Pf2eSpellIndex } from '@/model/pf2e'
 import { ensureSpellDescriptions, getSpellDesc } from '@/data/pf2eCatalog'
-import { formatActionSymbol, formatArea, RARITY_LABEL, renderPf2eHtml, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { formatActionSymbol, formatArea, pf2eIconUrl, RARITY_LABEL, renderPf2eHtml, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
 import { PF2E_TRADITIONS } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
 
@@ -10,6 +10,7 @@ const props = defineProps<{
   spell: Pf2eSpellIndex
   meta: Pf2eMeta | null
   lang: Pf2eLang
+  standalone?: boolean
 }>()
 
 // Each card has its own local language toggle synced initially with global lang
@@ -83,11 +84,14 @@ const traditionBadges = computed(() =>
 const traitBadges = computed(() =>
   props.spell.traits.map((t) => ({ slug: t, label: props.meta?.traits?.[t]?.[cardLang.value] ?? t })),
 )
+const iconSrc = computed(() => pf2eIconUrl(props.spell.img))
+const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(props.spell.id)}`)
 </script>
 
 <template>
   <article class="pf-card">
     <header class="pfc-head">
+      <img v-if="iconSrc" :src="iconSrc" :alt="title" class="pfc-icon" loading="lazy" decoding="async" />
       <div class="grow" style="min-width: 0">
         <div class="row gap-sm wrap" style="align-items: baseline">
           <h3 class="pfc-title">{{ title }}</h3>
@@ -103,6 +107,16 @@ const traitBadges = computed(() =>
           <button type="button" :class="{ on: cardLang === 'ru' }" @click="cardLang = 'ru'">RU</button>
           <button type="button" :class="{ on: cardLang === 'en' }" @click="cardLang = 'en'">EN</button>
         </div>
+        <a
+          v-if="!standalone"
+          :href="standaloneHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="icon-btn"
+          :title="cardLang === 'ru' ? 'Открыть заклинание на отдельной странице' : 'Open spell in new tab'"
+        >
+          <Icon name="external-link" :size="15" />
+        </a>
       </div>
     </header>
 
@@ -200,6 +214,10 @@ const traitBadges = computed(() =>
 <style scoped>
 .pf-card { display: flex; flex-direction: column; gap: 12px; }
 .pfc-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+.pfc-icon {
+  width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  border: 1px solid var(--border-strong); background: var(--surface-2); box-shadow: 0 2px 6px rgba(0,0,0,.18);
+}
 .pfc-title { font-family: var(--font-head); font-size: 26px; font-weight: 700; margin: 0; line-height: 1.15; }
 .pf-act-big { font-size: 19px; color: var(--accent); letter-spacing: -1px; font-weight: 700; }
 .rank-pill { padding: 3px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px; white-space: nowrap; }
@@ -238,7 +256,13 @@ const traitBadges = computed(() =>
 .pf-prose :deep(.pf-inline-dmg) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 .pf-prose :deep(.pf-inline-check) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--info) 15%, transparent); border: 1px solid color-mix(in srgb, var(--info) 35%, transparent); }
 .pf-prose :deep(.pf-inline-tpl) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--warning) 15%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); }
-.pf-prose :deep(.pf-inline-ref) { font-family: var(--font-ui); font-size: .92em; font-weight: 600; color: var(--link); text-decoration: underline dotted; }
+.pf-prose :deep(.pf-inline-ref) { font-family: var(--font-ui); font-size: .92em; font-weight: 600; color: var(--text); text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
+.pf-prose :deep(.pf-uuid-link) {
+  font-family: var(--font-ui); font-size: .93em; font-weight: 600; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px; border-radius: 3px; padding: 0 2px; transition: background .12s;
+}
+.pf-prose :deep(.pf-uuid-link::after) { content: ' ↗'; font-size: .78em; opacity: .72; }
+.pf-prose :deep(.pf-uuid-link:hover) { background: var(--accent-soft); }
 .pf-prose :deep(.pf-inline-trait) { font-family: var(--font-ui); font-size: .82em; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); }
 .pf-prose :deep(.pf-inline-roll) { font-family: var(--font-mono); font-size: .88em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
 

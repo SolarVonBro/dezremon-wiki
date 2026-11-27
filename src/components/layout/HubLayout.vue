@@ -13,7 +13,7 @@ const route = useRoute()
     <AppBar />
     <BanBanner />
     <RouterView v-slot="{ Component }">
-      <component :is="Component" :key="String(route.name) + (route.params.cid ?? route.params.rid ?? '')" />
+      <component :is="Component" :key="String(route.name) + (route.params.cid ?? route.params.rid ?? route.params.id ?? '')" />
     </RouterView>
   </div>
 </template>

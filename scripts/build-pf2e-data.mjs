@@ -1,27 +1,31 @@
 #!/usr/bin/env node
-// Compiles official Pathfinder 2e (Remaster) spells and equipment from foundryvtt/pf2e packs
-// + community Russian translations (pf2r / pf2e-ru-translation) + scripts/pf2e-ru-overlay.json
-// into compact static JSON files in public/data/pf2e/.
+// Compiles official Pathfinder 2e (Remaster, through Nov 2026: Impossible Magic, Dark Archive Rem., Feybound)
+// spells & equipment from foundryvtt/pf2e packs + community Russian translations (pf2r) + scripts/pf2e-ru-overlay.json
+// into compact static JSON files in public/data/pf2e/ AND bundles all referenced Foundry icons into public/icons/pf2e/.
 //
 // Usage:
-//   node scripts/build-pf2e-data.mjs <pf2e-src-dir> <pf2r-dir>
+//   node scripts/build-pf2e-data.mjs <pf2e-src-dir> <pf2r-dir> [foundry-core-icons-dir]
 import fs from 'node:fs'
 import path from 'node:path'
 
 const pf2eSrc = process.argv[2]
 const pf2rDir = process.argv[3]
+const coreIconsDir = process.argv[4] || ''
 if (!pf2eSrc || !pf2rDir) {
-  console.error('Usage: node scripts/build-pf2e-data.mjs <pf2e-src-dir> <pf2r-dir>')
+  console.error('Usage: node scripts/build-pf2e-data.mjs <pf2e-src-dir> <pf2r-dir> [foundry-core-icons-dir]')
   process.exit(1)
 }
 
 const repoRoot = process.cwd()
 const overlayPath = path.join(repoRoot, 'scripts', 'pf2e-ru-overlay.json')
 const outDir = path.join(repoRoot, 'public', 'data', 'pf2e')
+const iconsOutDir = path.join(repoRoot, 'public', 'icons', 'pf2e')
 fs.mkdirSync(outDir, { recursive: true })
+fs.mkdirSync(iconsOutDir, { recursive: true })
 
 function walk(dir) {
   let out = []
+  if (!fs.existsSync(dir)) return out
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) out = out.concat(walk(p))
@@ -42,46 +46,6 @@ function deepMerge(a, b) {
   return out
 }
 
-const enLang = deepMerge(
-  JSON.parse(fs.readFileSync(path.join(pf2eSrc, 'static/lang/en.json'), 'utf8')),
-  JSON.parse(fs.readFileSync(path.join(pf2eSrc, 'static/lang/re-en.json'), 'utf8')),
-)
-const ruLang = deepMerge(
-  JSON.parse(fs.readFileSync(path.join(pf2rDir, 'pf2e.json'), 'utf8')),
-  JSON.parse(fs.readFileSync(path.join(pf2rDir, 're-pf2e.json'), 'utf8')),
-)
-
-const ruSpells = JSON.parse(fs.readFileSync(path.join(pf2rDir, 'pf2e.spells-srd.json'), 'utf8')).entries || {}
-const ruEquip = JSON.parse(fs.readFileSync(path.join(pf2rDir, 'pf2e.equipment-srd.json'), 'utf8')).entries || {}
-const ruClassFeaturesPath = path.join(pf2rDir, 'pf2e.classfeatures.json')
-const ruClassFeatures = fs.existsSync(ruClassFeaturesPath) ? (JSON.parse(fs.readFileSync(ruClassFeaturesPath, 'utf8')).entries || {}) : {}
-const overlay = fs.existsSync(overlayPath) ? JSON.parse(fs.readFileSync(overlayPath, 'utf8')) : { spells: {}, equipment: {} }
-
-// Index class-features by _id and name for @Embed[Compendium.pf2e.classfeatures.Item.<id|name> ...] inlining
-const cfByKey = new Map()
-const cfDir = path.join(pf2eSrc, 'packs/pf2e/class-features')
-if (fs.existsSync(cfDir)) {
-  for (const f of walk(cfDir)) {
-    const j = JSON.parse(fs.readFileSync(f, 'utf8'))
-    const enDesc = (j.system?.description?.value || '').trim()
-    const r = ruClassFeatures[j.name] || {}
-    const ruDesc = (r.description || '').trim()
-    const rec = { en: enDesc, ru: ruDesc || enDesc }
-    if (j._id) cfByKey.set(j._id, rec)
-    if (j.name) cfByKey.set(j.name, rec)
-  }
-}
-
-function inlineEmbeds(html, lang) {
-  if (!html || !html.includes('@Embed[')) return html
-  return html.replace(/<p>\s*@Embed\[Compendium\.pf2e\.classfeatures\.Item\.([^\s\]]+)[^\]]*\]\s*<\/p>|@Embed\[Compendium\.pf2e\.classfeatures\.Item\.([^\s\]]+)[^\]]*\]/gi, (m, k1, k2) => {
-    const key = k1 || k2
-    const rec = cfByKey.get(key)
-    if (!rec) return m
-    return lang === 'ru' ? rec.ru : rec.en
-  })
-}
-
 const hasCyr = (s) => typeof s === 'string' && /[а-яёА-ЯЁ]/.test(s)
 function isRuText(s) {
   if (typeof s !== 'string' || !s.trim()) return false
@@ -94,7 +58,570 @@ const toPascal = (s) => String(s || '').split('-').map((p) => (p ? p[0].toUpperC
 const titleCase = (s) => String(s || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
-// Extra manual RU labels for edge-case traits/usages/materials/categories missing in pf2r
+const enLang = deepMerge(
+  JSON.parse(fs.readFileSync(path.join(pf2eSrc, 'static/lang/en.json'), 'utf8')),
+  JSON.parse(fs.readFileSync(path.join(pf2eSrc, 'static/lang/re-en.json'), 'utf8')),
+)
+const ruLang = deepMerge(
+  JSON.parse(fs.readFileSync(path.join(pf2rDir, 'pf2e.json'), 'utf8')),
+  JSON.parse(fs.readFileSync(path.join(pf2rDir, 're-pf2e.json'), 'utf8')),
+)
+
+function loadPf2r(filename) {
+  const p = path.join(pf2rDir, filename)
+  if (!fs.existsSync(p)) return {}
+  return JSON.parse(fs.readFileSync(p, 'utf8')).entries || {}
+}
+
+const ruSpells = loadPf2r('pf2e.spells-srd.json')
+const ruEquip = loadPf2r('pf2e.equipment-srd.json')
+const ruClassFeatures = loadPf2r('pf2e.classfeatures.json')
+const overlay = fs.existsSync(overlayPath) ? JSON.parse(fs.readFileSync(overlayPath, 'utf8')) : { spells: {}, equipment: {} }
+
+// ==================== 0. Index ALL compendiums for @UUID & @Embed resolution ====================
+// Maps packId (as used in Compendium.pf2e.<packId>) -> { dir, pf2rFile }
+const PACK_SOURCES = [
+  ['spells-srd', 'spells', 'pf2e.spells-srd.json'],
+  ['equipment-srd', 'equipment', 'pf2e.equipment-srd.json'],
+  ['actionspf2e', 'actions', 'pf2e.actionspf2e.json'],
+  ['conditionitems', 'conditions', 'pf2e.conditionitems.json'],
+  ['feats-srd', 'feats', 'pf2e.feats-srd.json'],
+  ['classfeatures', 'class-features', 'pf2e.classfeatures.json'],
+  ['ancestryfeatures', 'ancestry-features', 'pf2e.ancestryfeatures.json'],
+  ['deities', 'deities', 'pf2e.deities.json'],
+  ['heritages', 'heritages', 'pf2e.heritages.json'],
+  ['familiar-abilities', 'familiar-abilities', 'pf2e.familiar-abilities.json'],
+  ['hazards', 'hazards', 'pf2e.hazards.json'],
+  ['vehicles', 'vehicles', 'pf2e.vehicles.json'],
+  ['rollable-tables', 'rollable-tables', 'pf2e.rollable-tables.json'],
+  ['spell-effects', 'spell-effects', 'pf2e.spell-effects.json'],
+  ['equipment-effects', 'equipment-effects', 'pf2e.equipment-effects.json'],
+  ['feat-effects', 'feat-effects', 'pf2e.feat-effects.json'],
+  ['other-effects', 'other-effects', 'pf2e.other-effects.json'],
+  ['bestiary-ability-glossary-srd', 'bestiary-ability-glossary-srd', 'pf2e.bestiary-ability-glossary-srd.json'],
+  ['bestiary-family-ability-glossary', 'bestiary-family-ability-glossary', null],
+  ['bestiary-effects', 'bestiary-effects', null],
+  ['action-macros', 'action-macros', null],
+  ['pathfinder-monster-core', 'pathfinder-monster-core', 'pf2e.pathfinder-monster-core.json'],
+  ['pathfinder-monster-core-2', 'pathfinder-monster-core-2', 'pf2e.pathfinder-monster-core-2.json'],
+  ['pathfinder-bestiary', 'pathfinder-bestiary', null],
+  ['pathfinder-bestiary-2', 'pathfinder-bestiary-2', null],
+  ['pathfinder-bestiary-3', 'pathfinder-bestiary-3', null],
+  ['book-of-the-dead-bestiary', 'book-of-the-dead-bestiary', null],
+  ['howl-of-the-wild-bestiary', 'howl-of-the-wild-bestiary', null],
+  ['rage-of-elements-bestiary', 'rage-of-elements-bestiary', null],
+  ['lost-omens-bestiary', 'lost-omens-bestiary', null],
+  ['kingmaker-bestiary', 'kingmaker-bestiary', null],
+  ['night-of-the-gray-death-bestiary', 'night-of-the-gray-death-bestiary', null],
+  ['pathfinder-npc-core', 'pathfinder-npc-core', null],
+  ['wardens-of-wildwood-bestiary', 'wardens-of-wildwood-bestiary', null],
+  ['age-of-ashes-bestiary', 'age-of-ashes-bestiary', null],
+]
+
+// packIndex: Map<packId, Map<idOrNameOrSlug, { id, en, ru }>>
+const packIndex = new Map()
+const globalById = new Map()
+const spellLookup = new Map() // id | en | lower(en) | slug -> { id, en, ru }
+const itemLookup = new Map()  // id | en | lower(en) | slug -> { id, en, ru }
+
+// Legacy pre-Remaster spell/item name aliases for older pf2r @UUID links
+const SPELL_ALIASES = {
+  'magic-missile': 'force-barrage',
+  'true-strike': 'sure-strike',
+  'dimension-door': 'translocate',
+  'feather-fall': 'gentle-landing',
+  'glitterdust': 'revealing-light',
+  'mage-armor': 'mystic-armor',
+  'mage-hand': 'telekinetic-hand',
+  'produce-flame': 'ignition',
+  'ray-of-frost': 'frostbite',
+  'dancing-lights': 'light',
+  'neutralize-poison': 'cleanse-affliction',
+  'remove-disease': 'cleanse-affliction',
+  'remove-curse': 'cleanse-affliction',
+  'remove-fear': 'clear-mind',
+  'remove-paralysis': 'sure-footing',
+  'restoration': 'sound-body',
+  'restore-senses': 'sound-body',
+  'freedom-of-movement': 'unfettered-movement',
+  'crushing-despair': 'wave-of-despair',
+  'hideous-laughter': 'laughing-fit',
+  'comprehend-language': 'translate',
+  'tongues': 'truespeech',
+  'true-seeing': 'truesight',
+  'see-invisibility': 'see-the-unseen',
+  'entangle': 'entangling-flora',
+  'barkskin': 'oaken-resilience',
+  'stone-skin': 'mountain-resilience',
+  'stoneskin': 'mountain-resilience',
+  'pass-without-trace': 'vanishing-tracks',
+  'obscuring-mist': 'mist',
+  'solid-fog': 'stagnate-time',
+  'cloudkill': 'toxic-cloud',
+  'flaming-sphere': 'floating-flame',
+  'burning-hands': 'breathe-fire',
+  'chill-touch': 'void-warp',
+  'disrupt-undead': 'vitality-lash',
+  'positive-luminance': 'vital-beacon',
+  'calm-emotions': 'calm',
+  'charm': 'charm',
+  'command': 'command',
+  'enfeeble': 'enfeeble',
+  'fear': 'fear',
+  'globe-of-invulnerability': 'dispelling-globe',
+  'longstrider': 'tailwind',
+  'magic-weapon': 'runic-weapon',
+  'magic-fang': 'runic-body',
+  'nondetection': 'veil-of-privacy',
+  'plane-shift': 'interplanar-teleport',
+  'prying-eye': 'scouting-eye',
+  'scorching-ray': 'blazing-bolt',
+  'shapechange': 'avatar',
+  'shield-other': 'share-life',
+  'spiritual-weapon': 'spiritual-armament',
+  'tree-stride': 'nature-s-pathway',
+  'unseen-servant': 'phantasmal-minion',
+  'vampiric-touch': 'vampiric-feast',
+  'wall-of-thorns': 'wall-of-shrubs',
+  'animate-dead': 'summon-undead',
+  'gentle-repose': 'peaceful-rest',
+  'ghoul-touch': 'ghoulish-cravings',
+  'locate': 'locate',
+  'detect-alignment': 'detect-magic',
+  'protection': 'protection',
+  'detect-poison': 'detect-poison',
+  'purify-food-and-drink': 'clean-cuisine',
+  'know-direction': 'know-the-way',
+  'color-spray': 'dizzying-colors',
+  'grease': 'grease',
+  'gust-of-wind': 'gust-of-wind',
+  'shocking-grasp': 'thunderstrike',
+  'spider-climb': 'gecko-grip',
+  'touch-of-idiocy': 'stupefy',
+  'vampiric-exanguination': 'vampiric-exsanguination',
+  'gaseous-form': 'vapor-form',
+  'flesh-to-stone': 'petrify',
+  'baleful-polymorph': 'cursed-metamorphosis',
+  'maze': 'quandary',
+  'mind-blank': 'hidden-mind',
+  'power-word-blind': 'blindness',
+  'power-word-stun': 'stun',
+  'wail-of-the-banshee': 'wails-of-the-damned',
+  'wish': 'wish',
+}
+
+// Manual fallbacks for 2 legacy upstream UUIDs (pf2e-ru private journal & legacy Bestiary 1 Horse)
+const MANUAL_UUID_LABELS = {
+  Vu0ZL4Lp4mxLAZHJ: { en: 'Special Materials', ru: 'Особые материалы' },
+  In2nNwo3JL1RXQhj: { en: 'Riding Horse', ru: 'Верховая лошадь' },
+}
+
+// Explicit high-quality icon overrides for 4 Foundry v14 core folders absent in older local Foundry installs
+const MANUAL_CORE_ICON_MAP = {
+  'environment/cosmos/planet-moon-blue.webp': { src: 'core', rel: 'commodities/currency/coin-engraved-moon-silver.webp' },
+  'environment/cosmos/astronomy-planetary-orbits.webp': { src: 'core', rel: 'skills/trades/academics-astronomy-navigation-blue.webp' },
+  'environment/vehicles/boat-fishing-masted.webp': { src: 'core', rel: 'environment/settlement/ship.webp' },
+  'tools/medical/toolkit-surgical-pink.webp': { src: 'pf2e', rel: 'equipment/adventuring-gear/healers-tools.webp' },
+}
+
+// Also index full descriptions of actions, feats, spells, equipment, class-features, journals for @Embed[...] inlining
+const embedDescByPackId = new Map() // `${packId}:${idOrName}` -> { en, ru }
+const embedDescById = new Map() // id -> { en, ru }
+
+for (const [packId, dirName, pf2rFile] of PACK_SOURCES) {
+  const dirPath = path.join(pf2eSrc, 'packs/pf2e', dirName)
+  if (!fs.existsSync(dirPath)) continue
+  const ruDict = pf2rFile ? loadPf2r(pf2rFile) : {}
+  const map = new Map()
+  packIndex.set(packId, map)
+  for (const f of walk(dirPath)) {
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (!j.name) continue
+    const ov = packId === 'spells-srd' ? overlay.spells?.[j.name] : packId === 'equipment-srd' ? overlay.equipment?.[j.name] : null
+    const rb = ruDict[j.name] || {}
+    const ruName = (hasCyr(ov?.name) ? ov.name : hasCyr(rb.name) ? rb.name : j.name).trim()
+    const rec = { id: j._id, en: j.name, ru: ruName }
+    if (j._id) {
+      map.set(j._id, rec)
+      globalById.set(j._id, { packId, ...rec })
+    }
+    map.set(j.name, rec)
+    map.set(j.name.toLowerCase(), rec)
+    const sl = j.system?.slug || slugify(j.name)
+    if (sl) map.set(sl, rec)
+
+    if (['classfeatures', 'actionspf2e', 'feats-srd', 'equipment-srd', 'spells-srd', 'bestiary-ability-glossary-srd'].includes(packId)) {
+      const enD = (j.system?.description?.value || '').trim()
+      const ruD = (isRuText(ov?.description) ? ov.description : isRuText(rb.description) ? rb.description : '').trim()
+      if (enD) {
+        const dRec = { en: enD, ru: ruD || enD }
+        if (j._id) {
+          embedDescByPackId.set(`${packId}:${j._id}`, dRec)
+          embedDescById.set(j._id, dRec)
+        }
+        embedDescByPackId.set(`${packId}:${j.name}`, dRec)
+      }
+    }
+
+    if (packId === 'spells-srd' && j.type === 'spell') {
+      if (j._id) spellLookup.set(j._id, rec)
+      spellLookup.set(j.name, rec)
+      spellLookup.set(j.name.toLowerCase(), rec)
+      spellLookup.set(slugify(j.name), rec)
+      if (sl) spellLookup.set(sl, rec)
+    } else if (packId === 'equipment-srd' && j.type) {
+      if (j._id) itemLookup.set(j._id, rec)
+      itemLookup.set(j.name, rec)
+      itemLookup.set(j.name.toLowerCase(), rec)
+      itemLookup.set(slugify(j.name), rec)
+      if (sl) itemLookup.set(sl, rec)
+    }
+  }
+}
+
+// Index journals and journal pages (EN + RU)
+const journalPageIndex = new Map() // pageId | journalId.pageId | pageName -> { en, ru }
+const journalPageContent = new Map() // pageId -> { en, ru }
+const ruJournals = loadPf2r('pf2e.journals.json')
+for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/journals'))) {
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+  const rj = ruJournals[j.name] || {}
+  const jRu = hasCyr(rj.name) ? rj.name : j.name
+  if (j._id) journalPageIndex.set(j._id, { en: j.name, ru: jRu })
+  journalPageIndex.set(j.name, { en: j.name, ru: jRu })
+  for (const p of j.pages || []) {
+    const rp = rj.pages?.[p.name] || {}
+    const pRu = hasCyr(rp.name) ? rp.name : p.name
+    const rec = { en: p.name, ru: pRu }
+    if (p._id) {
+      journalPageIndex.set(p._id, rec)
+      if (j._id) journalPageIndex.set(`${j._id}.${p._id}`, rec)
+      const enHtml = (p.text?.content || '').trim()
+      const ruHtml = (rp.text || '').trim()
+      if (enHtml) journalPageContent.set(p._id, { en: enHtml, ru: isRuText(ruHtml) ? ruHtml : enHtml })
+    }
+    journalPageIndex.set(p.name, rec)
+  }
+}
+
+function inlineEmbeds(html, lang) {
+  if (!html || !html.includes('@Embed[')) return html
+  let out = html
+  for (let pass = 0; pass < 4 && out.includes('@Embed['); pass++) {
+    const next = out.replace(/<p>\s*@Embed\[([^\]]+)\]\s*<\/p>|@Embed\[([^\]]+)\]/gi, (m, i1, i2) => {
+      const inner = (i1 || i2 || '').trim()
+      const uuidPart = inner.split(/\s+/)[0]
+      const parts = uuidPart.split('.')
+      const packId = parts[0] === 'Compendium' ? parts[2] : ''
+      const tail = parts[parts.length - 1] || ''
+      if (packId === 'journals') {
+        const jp = journalPageContent.get(tail)
+        if (jp) return lang === 'ru' ? jp.ru : jp.en
+        const jMeta = journalPageIndex.get(tail)
+        if (jMeta) return `<p><em>${lang === 'ru' ? jMeta.ru : jMeta.en}</em></p>`
+      }
+      const rec = embedDescByPackId.get(`${packId}:${tail}`) || embedDescById.get(tail)
+      if (rec) return lang === 'ru' ? rec.ru : rec.en
+      const itemRec = packIndex.get(packId)?.get(tail) || globalById.get(tail)
+      if (itemRec) return `@Ref{${lang === 'ru' ? itemRec.ru : itemRec.en}}`
+      return ''
+    })
+    if (next === out) break
+    out = next
+  }
+  return out
+}
+
+// Resolve all @UUID[...] references cleanly into @SpellLink[id]{label}, @ItemLink[id]{label}, @Ref{label}
+// and remove Foundry-only drag-effect paragraphs.
+const EFFECT_PACKS = new Set([
+  'spell-effects',
+  'equipment-effects',
+  'feat-effects',
+  'other-effects',
+  'bestiary-effects',
+  'action-macros',
+])
+
+const uuidStats = {
+  strippedEffects: 0,
+  spellLinks: 0,
+  itemLinks: 0,
+  refs: 0,
+  unresolvedBare: [],
+}
+
+function findInSpellLookup(ref) {
+  if (!ref) return null
+  let hit = spellLookup.get(ref) || spellLookup.get(ref.toLowerCase()) || spellLookup.get(slugify(ref))
+  if (!hit) {
+    const alias = SPELL_ALIASES[slugify(ref)]
+    if (alias) hit = spellLookup.get(alias)
+  }
+  return hit || null
+}
+
+function findInItemLookup(ref) {
+  if (!ref) return null
+  return itemLookup.get(ref) || itemLookup.get(ref.toLowerCase()) || itemLookup.get(slugify(ref)) || null
+}
+
+function resolveUuids(html, lang, ctxName) {
+  if (!html) return ''
+  let out = html
+
+  // Fix occasional upstream double-wrapped @UUID[@UUID[...
+  out = out.replace(/@UUID\[@UUID\[/g, '@UUID[')
+
+  // 1. Strip standalone Foundry VTT drag-to-token effect paragraphs (like Shield's Spell Effect pills)
+  out = out.replace(
+    /<p>\s*(?:<(?:em|strong|b|i)>\s*)*@UUID\[Compendium\.pf2e\.(?:spell-effects|equipment-effects|feat-effects|other-effects|bestiary-effects|action-macros)\.[^\]]+\](?:\{[^}]*\})?(?:\s*<\/(?:em|strong|b|i)>)*\s*<\/p>/gi,
+    () => {
+      uuidStats.strippedEffects++
+      return ''
+    },
+  )
+
+  // 2. Replace all remaining @UUID[target]{optLabel}
+  out = out.replace(/@UUID\[([^\]]+)\](?:\{([^}]*)\})?/g, (match, rawTarget, rawLabel) => {
+    const target = String(rawTarget || '').trim()
+    const explicitLabel = (rawLabel || '').trim()
+    const parts = target.split('.')
+    // Standard format: Compendium.<ns>.<packId>.<docType>.<idOrName>(.JournalEntryPage.<pageId>)?
+    const ns = parts[0] === 'Compendium' ? parts[1] : ''
+    const packId = parts[0] === 'Compendium' ? parts[2] : ''
+    const tail = parts[parts.length - 1] || ''
+
+    // Spell links -> clickable @SpellLink[id]{label}
+    if (packId === 'spells-srd') {
+      const hit = findInSpellLookup(tail) || (explicitLabel ? findInSpellLookup(explicitLabel) : null)
+      if (hit) {
+        const lbl = explicitLabel || (lang === 'ru' ? hit.ru : hit.en)
+        uuidStats.spellLinks++
+        return `@SpellLink[${hit.id}]{${lbl}}`
+      }
+      if (explicitLabel) {
+        uuidStats.refs++
+        return `@Ref{${explicitLabel}}`
+      }
+    }
+
+    // Equipment links -> clickable @ItemLink[id]{label}
+    if (packId === 'equipment-srd') {
+      const hit = findInItemLookup(tail) || (explicitLabel ? findInItemLookup(explicitLabel) : null)
+      if (hit) {
+        const lbl = explicitLabel || (lang === 'ru' ? hit.ru : hit.en)
+        uuidStats.itemLinks++
+        return `@ItemLink[${hit.id}]{${lbl}}`
+      }
+      if (explicitLabel) {
+        uuidStats.refs++
+        return `@Ref{${explicitLabel}}`
+      }
+    }
+
+    // Journal links
+    if (packId === 'journals' || ns === 'pf2e-ru') {
+      if (explicitLabel) {
+        uuidStats.refs++
+        return `@Ref{${explicitLabel}}`
+      }
+      const pageHit = journalPageIndex.get(tail) || (parts.length >= 6 ? journalPageIndex.get(`${parts[4]}.${parts[6]}`) : null)
+      if (pageHit) {
+        uuidStats.refs++
+        return `@Ref{${lang === 'ru' ? pageHit.ru : pageHit.en}}`
+      }
+    }
+
+    // Any other indexed PF2e pack (conditions, actions, feats, deities, bestiaries, inline effects, etc.)
+    const pMap = packIndex.get(packId)
+    let rec = pMap?.get(tail) || pMap?.get(tail.toLowerCase()) || pMap?.get(slugify(tail))
+    if (!rec && tail === 'Flat-Footed') rec = packIndex.get('conditionitems')?.get('off-guard')
+    if (!rec) rec = globalById.get(tail)
+
+    if (rec) {
+      // If an inline ref happens to point to a spell or equipment via globalById
+      if (rec.packId === 'spells-srd') {
+        uuidStats.spellLinks++
+        return `@SpellLink[${rec.id}]{${explicitLabel || (lang === 'ru' ? rec.ru : rec.en)}}`
+      }
+      if (rec.packId === 'equipment-srd') {
+        uuidStats.itemLinks++
+        return `@ItemLink[${rec.id}]{${explicitLabel || (lang === 'ru' ? rec.ru : rec.en)}}`
+      }
+      let name = explicitLabel || (lang === 'ru' ? rec.ru : rec.en)
+      if (!explicitLabel && EFFECT_PACKS.has(packId)) {
+        name = name.replace(/^(?:Spell Effect|Effect|Эффект заклинания|Эффект):\s*/i, '')
+      }
+      uuidStats.refs++
+      return `@Ref{${name}}`
+    }
+
+    // Fallback: manual override for legacy/private upstream UUIDs
+    if (MANUAL_UUID_LABELS[tail]) {
+      uuidStats.refs++
+      return `@Ref{${lang === 'ru' ? MANUAL_UUID_LABELS[tail].ru : MANUAL_UUID_LABELS[tail].en}}`
+    }
+
+    // Fallback: if we have an explicit label, always keep it
+    if (explicitLabel) {
+      uuidStats.refs++
+      return `@Ref{${explicitLabel}}`
+    }
+
+    // If tail is a human-readable name (not a 16-char Foundry ID), keep it nicely
+    if (tail && !/^[A-Za-z0-9]{16}$/.test(tail)) {
+      const slug = slugify(tail)
+      const condHit = CONDITIONS_MAP[slug === 'flat-footed' ? 'off-guard' : slug]
+      uuidStats.refs++
+      return `@Ref{${condHit ? (lang === 'ru' ? condHit[1] : condHit[0]) : tail}}`
+    }
+
+    uuidStats.unresolvedBare.push({ ctxName, lang, target })
+    return ''
+  })
+
+  // Clean up empty paragraphs or trailing <hr /> left behind by stripped effect pills
+  out = out.replace(/<p>\s*<\/p>/g, '').replace(/(?:<hr\s*\/?>\s*)+$/i, '').trim()
+  return out
+}
+
+// ==================== 0.5 Icon Bundler (Foundry PF2e system + Foundry Core icons) ====================
+const sysIconsSrc = path.join(pf2eSrc, 'static/icons')
+const copiedIcons = new Map() // rawImg -> relative out path (e.g. "pf2e/spells/..." or "core/magic/...")
+const coreFolderCache = new Map() // dirPath -> string[] of filenames
+const fallbackIconLog = []
+let copiedBytes = 0
+
+function listWebpInDir(dirPath) {
+  if (coreFolderCache.has(dirPath)) return coreFolderCache.get(dirPath)
+  let files = []
+  if (fs.existsSync(dirPath)) {
+    files = fs.readdirSync(dirPath).filter((f) => /\.(?:webp|png|svg)$/i.test(f))
+  }
+  coreFolderCache.set(dirPath, files)
+  return files
+}
+
+function findClosestCoreIcon(relPath) {
+  if (!coreIconsDir) return null
+  const dirRel = path.dirname(relPath)
+  const targetBase = path.basename(relPath, path.extname(relPath)).toLowerCase()
+  const targetTokens = new Set(targetBase.split(/[-_]+/).filter(Boolean))
+
+  // Search target folder first, then parent folder's subdirectories
+  const candidates = []
+  const directDir = path.join(coreIconsDir, dirRel)
+  for (const f of listWebpInDir(directDir)) {
+    candidates.push({ rel: path.posix.join(dirRel.replace(/\\/g, '/'), f), base: path.basename(f, path.extname(f)).toLowerCase() })
+  }
+  if (!candidates.length) {
+    const parentRel = path.dirname(dirRel)
+    const parentDir = path.join(coreIconsDir, parentRel)
+    if (fs.existsSync(parentDir)) {
+      for (const e of fs.readdirSync(parentDir, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue
+        for (const f of listWebpInDir(path.join(parentDir, e.name))) {
+          candidates.push({
+            rel: path.posix.join(parentRel.replace(/\\/g, '/'), e.name, f),
+            base: path.basename(f, path.extname(f)).toLowerCase(),
+          })
+        }
+      }
+    }
+  }
+  if (!candidates.length) return null
+
+  let best = candidates[0]
+  let bestScore = -1
+  for (const c of candidates) {
+    const tokens = c.base.split(/[-_]+/).filter(Boolean)
+    let score = 0
+    for (let i = 0; i < tokens.length; i++) {
+      if (targetTokens.has(tokens[i])) score += i === 0 ? 5 : 2
+    }
+    if (tokens[0] && targetBase.startsWith(tokens[0])) score += 3
+    if (score > bestScore) {
+      bestScore = score
+      best = c
+    }
+  }
+  return best.rel
+}
+
+function copyIconFile(srcFull, relOut) {
+  const destFull = path.join(iconsOutDir, relOut)
+  if (!fs.existsSync(destFull)) {
+    fs.mkdirSync(path.dirname(destFull), { recursive: true })
+    fs.copyFileSync(srcFull, destFull)
+    copiedBytes += fs.statSync(srcFull).size
+  }
+  return relOut.replace(/\\/g, '/')
+}
+
+function resolveAndCopyIcon(rawImg, fallbackType = 'equipment') {
+  const key = String(rawImg || '').trim()
+  if (copiedIcons.has(key)) return copiedIcons.get(key)
+
+  let outRel = ''
+  if (key.startsWith('systems/pf2e/icons/')) {
+    const rel = decodeURIComponent(key.slice('systems/pf2e/icons/'.length))
+    const srcFull = path.join(sysIconsSrc, rel)
+    if (fs.existsSync(srcFull)) {
+      outRel = copyIconFile(srcFull, path.posix.join('pf2e', rel.replace(/\\/g, '/')))
+    }
+  } else if (key.startsWith('icons/') && coreIconsDir) {
+    const rel = decodeURIComponent(key.slice('icons/'.length))
+    const override = MANUAL_CORE_ICON_MAP[rel]
+    if (override) {
+      const srcBase = override.src === 'pf2e' ? sysIconsSrc : coreIconsDir
+      const srcFull = path.join(srcBase, override.rel)
+      if (fs.existsSync(srcFull)) {
+        outRel = copyIconFile(srcFull, path.posix.join(override.src, override.rel.replace(/\\/g, '/')))
+        fallbackIconLog.push(`${key} -> ${override.src}/${override.rel}`)
+      }
+    }
+    if (!outRel) {
+      const srcFull = path.join(coreIconsDir, rel)
+      if (fs.existsSync(srcFull)) {
+        outRel = copyIconFile(srcFull, path.posix.join('core', rel.replace(/\\/g, '/')))
+      } else {
+        const closest = findClosestCoreIcon(rel)
+        if (closest) {
+          const closeFull = path.join(coreIconsDir, closest)
+          outRel = copyIconFile(closeFull, path.posix.join('core', closest.replace(/\\/g, '/')))
+          fallbackIconLog.push(`${key} -> core/${closest}`)
+        }
+      }
+    }
+  }
+
+  // Final guaranteed fallback: official PF2e default icon for item/spell type
+  if (!outRel) {
+    const defMap = {
+      spell: 'default-icons/spell.svg',
+      weapon: 'default-icons/weapon.svg',
+      armor: 'default-icons/armor.svg',
+      shield: 'default-icons/shield.svg',
+      consumable: 'default-icons/consumable.svg',
+      backpack: 'default-icons/backpack.svg',
+      ammo: 'default-icons/ammo.svg',
+      treasure: 'default-icons/treasure.svg',
+      kit: 'default-icons/kit.svg',
+    }
+    const defRel = defMap[fallbackType] || 'default-icons/equipment.svg'
+    const defSrc = path.join(sysIconsSrc, defRel)
+    if (fs.existsSync(defSrc)) {
+      outRel = copyIconFile(defSrc, path.posix.join('pf2e', defRel))
+      fallbackIconLog.push(`${key || '(empty)'} -> pf2e/${defRel}`)
+    }
+  }
+
+  copiedIcons.set(key, outRel)
+  return outRel
+}
+
+// ==================== Static Dictionaries & Helpers ====================
 const EXTRA_TRAITS_RU = {
   chaotic: 'Хаотичный',
   evil: 'Злой',
@@ -222,7 +749,6 @@ const MATERIALS_RU = {
   throneglass: ['Throneglass', 'Тронное стекло'],
 }
 
-// Helper to translate common EN range/duration/time values when pf2r didn't override them
 function translateRangeFallback(v) {
   if (!v) return ''
   const s = v.trim()
@@ -231,13 +757,12 @@ function translateRangeFallback(v) {
   if (/^interplanar$/i.test(s)) return 'межпланарная'
   if (/^unlimited$/i.test(s)) return 'неограниченная'
   if (/^varies$/i.test(s)) return 'вар.'
-  let out = s
+  return s
     .replace(/\b(\d+)\s*feet\b/gi, '$1 футов')
     .replace(/\b(\d+)\s*foot\b/gi, '$1 фут')
     .replace(/\b(\d+)\s*miles?\b/gi, '$1 миль')
     .replace(/\btouch\b/gi, 'касание')
     .replace(/\bsee text\b/gi, 'см. текст')
-  return out
 }
 
 function translateDurationFallback(v) {
@@ -319,9 +844,11 @@ function parseDurationBucket(raw) {
 function extractConditions(enDesc) {
   const found = new Set()
   const s = String(enDesc || '')
-  // Match @UUID[Compendium.pf2e.conditionitems.Item.<Name>] and @Condition[<slug>]
+  const condMap = packIndex.get('conditionitems')
   for (const m of s.matchAll(/@UUID\[Compendium\.pf2e\.conditionitems\.Item\.([^\]]+)\]/gi)) {
-    let slug = m[1].toLowerCase().trim().replace(/\s+/g, '-')
+    const ref = m[1].trim()
+    const resolved = condMap?.get(ref)?.en || ref
+    let slug = resolved.toLowerCase().trim().replace(/\s+/g, '-')
     if (slug === 'flat-footed') slug = 'off-guard'
     if (CONDITIONS_MAP[slug]) found.add(slug)
   }
@@ -376,7 +903,6 @@ function formatPriceText(val, per) {
 function extractActivations(enDesc) {
   const s = String(enDesc || '')
   const acts = new Set()
-  // Look for Activate— or Activate @Glyph[...] or [one-action] etc.
   const hasAct = /\bActivate\b|@Glyph\[|action-glyph/i.test(s)
   if (!hasAct) return { hasActivation: false, actActions: [] }
   for (const m of s.matchAll(/<span class="action-glyph">([^<]+)<\/span>|@Glyph\[([^\]]+)\]/gi)) {
@@ -392,7 +918,7 @@ function extractActivations(enDesc) {
 }
 
 // 1. Build Deity -> Spell UUID/Name map
-const deitySpellMap = new Map() // spell slug/name/id -> Set<deityName>
+const deitySpellMap = new Map()
 const allDeities = new Set()
 for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/deities'))) {
   const j = JSON.parse(fs.readFileSync(f, 'utf8'))
@@ -402,7 +928,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/deities'))) {
   let grantedAny = false
   for (const uuid of Object.values(spellsObj)) {
     if (typeof uuid !== 'string') continue
-    const ref = uuid.split('.').pop() // item ID or name
+    const ref = uuid.split('.').pop()
     if (!ref) continue
     grantedAny = true
     if (!deitySpellMap.has(ref)) deitySpellMap.set(ref, new Set())
@@ -438,9 +964,11 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   const rBase = ruSpells[j.name] || {}
   const rOv = overlay.spells?.[j.name] || {}
   const ruName = (hasCyr(rOv.name) ? rOv.name : hasCyr(rBase.name) ? rBase.name : j.name).trim()
-  const enDesc = (s.description?.value || '').trim()
-  const ruDescRaw = isRuText(rOv.description) ? rOv.description : isRuText(rBase.description) ? rBase.description : ''
-  if (!hasCyr(ruName) || (enDesc && !isRuText(ruDescRaw))) {
+  const rawEnDesc = inlineEmbeds((s.description?.value || '').trim(), 'en')
+  const rawRuCandidate = inlineEmbeds((rOv.description || '').trim(), 'ru')
+  const rawRuBase = inlineEmbeds((rBase.description || '').trim(), 'ru')
+  const ruDescRaw = isRuText(rawRuCandidate) ? rawRuCandidate : isRuText(rawRuBase) ? rawRuBase : ''
+  if (!hasCyr(ruName) || (rawEnDesc && !isRuText(ruDescRaw))) {
     missingRuSpells.push(j.name)
   }
 
@@ -458,13 +986,11 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   const reqRaw = String(s.requirements || '').trim()
   const reqRu = (rOv.requirements || rBase.requirements || reqRaw).trim()
 
-  // Defense
   const hasAttack = traits.includes('attack') || s.defense?.passive?.statistic === 'ac'
   const saveStat = s.defense?.save?.statistic || null
   const basicSave = Boolean(s.defense?.save?.basic)
   const defenseKind = hasAttack && saveStat ? 'both' : hasAttack ? 'attack' : saveStat ? 'save' : 'none'
 
-  // Damage & healing
   const dmgTypes = new Set()
   let hasPersistent = false
   let hasHealing = traits.includes('healing')
@@ -474,10 +1000,8 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
     if (d.category === 'persistent') hasPersistent = true
     if (d.kinds && Array.isArray(d.kinds) && d.kinds.includes('healing')) hasHealing = true
   }
-  // Also catch persistent damage in description if structured field missed it
-  if (!hasPersistent && /persistent/i.test(enDesc) && /@Damage\[[^\]]*persistent/i.test(enDesc)) hasPersistent = true
+  if (!hasPersistent && /persistent/i.test(rawEnDesc) && /@Damage\[[^\]]*persistent/i.test(rawEnDesc)) hasPersistent = true
 
-  // Heightening
   let heightenType = 'none'
   let heightenStep = null
   let heightenLevels = []
@@ -487,17 +1011,16 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   } else if (s.heightening?.type === 'fixed' && s.heightening.levels) {
     heightenType = 'fixed'
     heightenLevels = Object.keys(s.heightening.levels).map(Number).filter(Number.isFinite).sort((a, b) => a - b)
-  } else if (/Heightened\s*\(\+(\d+)\)/i.test(enDesc)) {
+  } else if (/Heightened\s*\(\+(\d+)\)/i.test(rawEnDesc)) {
     heightenType = 'interval'
-    heightenStep = Number(/Heightened\s*\(\+(\d+)\)/i.exec(enDesc)[1]) || 1
-  } else if (/Heightened\s*\(\d+(?:st|nd|rd|th)\)/i.test(enDesc)) {
+    heightenStep = Number(/Heightened\s*\(\+(\d+)\)/i.exec(rawEnDesc)[1]) || 1
+  } else if (/Heightened\s*\(\d+(?:st|nd|rd|th)\)/i.test(rawEnDesc)) {
     heightenType = 'fixed'
     const lvls = new Set()
-    for (const m of enDesc.matchAll(/Heightened\s*\((\d+)(?:st|nd|rd|th)\)/gi)) lvls.add(Number(m[1]))
+    for (const m of rawEnDesc.matchAll(/Heightened\s*\((\d+)(?:st|nd|rd|th)\)/gi)) lvls.add(Number(m[1]))
     heightenLevels = [...lvls].sort((a, b) => a - b)
   }
 
-  // Deities granting this spell
   const deities = new Set([
     ...(deitySpellMap.get(j._id) || []),
     ...(deitySpellMap.get(j.name) || []),
@@ -506,12 +1029,18 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   const pub = String(s.publication?.title || '').trim()
   if (pub) spellPubs.add(pub)
 
+  const conditions = extractConditions(rawEnDesc)
+  const enDesc = resolveUuids(rawEnDesc, 'en', `spell:${j.name}`)
+  const ruDesc = resolveUuids(ruDescRaw || rawEnDesc, 'ru', `spell:${j.name}`)
+  const img = resolveAndCopyIcon(j.img, 'spell')
+
   const id = j._id
   spellsIndex.push({
     id,
     slug: slugify(j.name),
     en: j.name,
     ru: ruName,
+    img,
     rank,
     baseRank,
     cat,
@@ -539,7 +1068,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
     damageTypes: [...dmgTypes].sort(),
     hasPersistent,
     hasHealing,
-    conditions: extractConditions(enDesc),
+    conditions,
     heightenType,
     heightenStep,
     heightenLevels,
@@ -549,7 +1078,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
     hasReq: Boolean(reqRaw),
     req: reqRaw,
     reqRu,
-    counteract: Boolean(s.counteraction) || /\bcounteract\b/i.test(enDesc),
+    counteract: Boolean(s.counteraction) || /\bcounteract\b/i.test(rawEnDesc),
     ritual: s.ritual
       ? {
           primaryCheck: s.ritual.primary?.check || '',
@@ -563,7 +1092,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   })
 
   spellsDescEn[id] = enDesc
-  spellsDescRu[id] = ruDescRaw || enDesc
+  spellsDescRu[id] = ruDesc
 }
 
 spellsIndex.sort((a, b) => a.rank - b.rank || a.ru.localeCompare(b.ru, 'ru'))
@@ -586,11 +1115,11 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/equipment'))) {
   const rBase = ruEquip[j.name] || {}
   const rOv = overlay.equipment?.[j.name] || {}
   const ruName = (hasCyr(rOv.name) ? rOv.name : hasCyr(rBase.name) ? rBase.name : j.name).trim()
-  const enDesc = inlineEmbeds((s.description?.value || '').trim(), 'en')
+  const rawEnDesc = inlineEmbeds((s.description?.value || '').trim(), 'en')
   const ruDescCandidate = inlineEmbeds((rOv.description || '').trim(), 'ru')
   const ruBaseCandidate = inlineEmbeds((rBase.description || '').trim(), 'ru')
   const ruDescRaw = isRuText(ruDescCandidate) ? ruDescCandidate : isRuText(ruBaseCandidate) ? ruBaseCandidate : ''
-  if (!hasCyr(ruName) || (enDesc && !isRuText(ruDescRaw))) {
+  if (!hasCyr(ruName) || (rawEnDesc && !isRuText(ruDescRaw))) {
     missingRuItems.push(j.name)
   }
 
@@ -598,7 +1127,6 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/equipment'))) {
   const priceCp = priceToCp(s.price?.value)
   const priceText = formatPriceText(s.price?.value, pricePer)
 
-  // Bulk
   const bulkWorn = Number(s.bulk?.value) || 0
   const bulkHeld = s.bulk?.heldOrStowed != null ? Number(s.bulk.heldOrStowed) : bulkWorn
   let bulkPer = 1
@@ -621,11 +1149,15 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/equipment'))) {
   const isThrown = isWeapon && traits.some((t) => t === 'thrown' || t.startsWith('thrown-'))
   const isRanged = isWeapon && (wRange != null && wRange > 0)
 
-  const { hasActivation, actActions } = extractActivations(enDesc)
+  const { hasActivation, actActions } = extractActivations(rawEnDesc)
   const isRune = usage.startsWith('etched-onto') || /\brune\b/i.test(j.name)
 
   const pub = String(s.publication?.title || '').trim()
   if (pub) itemPubs.add(pub)
+
+  const enDesc = resolveUuids(rawEnDesc, 'en', `item:${j.name}`)
+  const ruDesc = resolveUuids(ruDescRaw || rawEnDesc, 'ru', `item:${j.name}`)
+  const img = resolveAndCopyIcon(j.img, j.type)
 
   const id = j._id
   itemsIndex.push({
@@ -633,6 +1165,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/equipment'))) {
     slug: slugify(j.name),
     en: j.name,
     ru: ruName,
+    img,
     type: j.type,
     level: Number(s.level?.value) || 0,
     rarity: s.traits?.rarity || 'common',
@@ -686,7 +1219,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/equipment'))) {
   })
 
   itemsDescEn[id] = enDesc
-  itemsDescRu[id] = ruDescRaw || enDesc
+  itemsDescRu[id] = ruDesc
 }
 
 itemsIndex.sort((a, b) => a.level - b.level || a.ru.localeCompare(b.ru, 'ru'))
@@ -702,7 +1235,6 @@ for (const t of [...allTraitsUsed].sort()) {
 
 const usagesDict = {}
 for (const u of [...usagesUsed].sort()) {
-  const k = 'Item.Physical.Usage.' + u
   const enVal = enLang.PF2E?.Item?.Physical?.Usage?.[u] || titleCase(u)
   const ruVal = ruLang.PF2E?.Item?.Physical?.Usage?.[u] || enVal
   usagesDict[u] = { en: enVal, ru: ruVal }
@@ -711,7 +1243,7 @@ for (const u of [...usagesUsed].sort()) {
 const mapPairs = (obj) => Object.fromEntries(Object.entries(obj).map(([k, [en, ru]]) => [k, { en, ru }]))
 
 const meta = {
-  version: 'pf2e-8.7.1',
+  version: 'pf2e-v14-2026-11',
   builtAt: new Date().toISOString(),
   spellCount: spellsIndex.length,
   itemCount: itemsIndex.length,
@@ -743,8 +1275,33 @@ writeJson('items-index.json', itemsIndex)
 writeJson('items-desc-en.json', itemsDescEn)
 writeJson('items-desc-ru.json', itemsDescRu)
 
+// Prune any orphan icon files in public/icons/pf2e/ no longer referenced by spells or items
+const usedIconSet = new Set([...spellsIndex.map((s) => s.img), ...itemsIndex.map((i) => i.img)].filter(Boolean))
+let pruned = 0
+function pruneIcons(dir) {
+  if (!fs.existsSync(dir)) return
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) {
+      pruneIcons(p)
+      if (fs.readdirSync(p).length === 0) fs.rmdirSync(p)
+    } else {
+      const rel = path.relative(iconsOutDir, p).replace(/\\/g, '/')
+      if (!usedIconSet.has(rel)) {
+        fs.unlinkSync(p)
+        pruned++
+      }
+    }
+  }
+}
+pruneIcons(iconsOutDir)
+
 console.log('\n=== SUMMARY ===')
 console.log(`Spells: ${spellsIndex.length} (missing RU: ${missingRuSpells.length})`)
 console.log(`Items:  ${itemsIndex.length} (missing RU: ${missingRuItems.length})`)
+console.log(`UUIDs:  strippedEffects=${uuidStats.strippedEffects}, spellLinks=${uuidStats.spellLinks}, itemLinks=${uuidStats.itemLinks}, refs=${uuidStats.refs}, unresolvedBare=${uuidStats.unresolvedBare.length}`)
+if (uuidStats.unresolvedBare.length) console.log('Unresolved bare UUIDs:', uuidStats.unresolvedBare.slice(0, 20))
+console.log(`Icons:  unique=${usedIconSet.size}, prunedOrphans=${pruned}, fallbacks=${fallbackIconLog.length}`)
+if (fallbackIconLog.length) console.log('Fallback icons:', fallbackIconLog.slice(0, 15))
 if (missingRuSpells.length) console.log('Missing RU spells:', missingRuSpells.slice(0, 20))
 if (missingRuItems.length) console.log('Missing RU items:', missingRuItems.slice(0, 20))

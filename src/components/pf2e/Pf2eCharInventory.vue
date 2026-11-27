@@ -5,7 +5,7 @@ import type {
 } from '@/model/pf2e'
 import { ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { computeCharacterBulk, formatLight, formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
-import { ITEM_TYPE_LABEL } from '@/data/pf2eFormat'
+import { ITEM_TYPE_LABEL, pf2eIconUrl } from '@/data/pf2eFormat'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -78,6 +78,16 @@ function itemLevelOf(row: Pf2eInventoryItem): number {
   if (row.levelOverride != null) return row.levelOverride
   const cat = row.itemId ? catalog.itemsById.value.get(row.itemId) : undefined
   return cat?.level ?? 0
+}
+
+function itemImg(row: Pf2eInventoryItem): string {
+  const cat = row.itemId ? catalog.itemsById.value.get(row.itemId) : undefined
+  return pf2eIconUrl(cat?.img)
+}
+
+function containerImg(c: Pf2eContainer): string {
+  const cat = c.itemId ? catalog.itemsById.value.get(c.itemId) : undefined
+  return pf2eIconUrl(cat?.img)
 }
 
 function passesFilter(row: Pf2eInventoryItem): boolean {
@@ -637,7 +647,8 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
               <button type="button" title="Выше" @click="moveItemOrder(row, -1)"><Icon name="chevron-up" :size="12" /></button>
               <button type="button" title="Ниже" @click="moveItemOrder(row, 1)"><Icon name="chevron-down" :size="12" /></button>
             </div>
-            <Icon :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
+            <img v-if="itemImg(row)" :src="itemImg(row)" alt="" class="pf-inv-ic" loading="lazy" decoding="async" />
+            <Icon v-else :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
             <button
               type="button"
               class="inv-main grow"
@@ -690,7 +701,8 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
           <button type="button" class="icon-btn" style="width: 24px; height: 24px" @click="toggleContainerCollapse(c)">
             <Icon :name="c.collapsed ? 'chevron-right' : 'chevron-down'" :size="15" />
           </button>
-          <Icon name="backpack" :size="17" :style="{ color: c.extradimensional ? 'var(--secret)' : 'var(--accent)' }" />
+          <img v-if="containerImg(c)" :src="containerImg(c)" alt="" class="pf-inv-ic" loading="lazy" decoding="async" />
+          <Icon v-else name="backpack" :size="17" :style="{ color: c.extradimensional ? 'var(--secret)' : 'var(--accent)' }" />
           <div class="grow" style="min-width: 140px">
             <div class="row gap-sm wrap">
               <b>{{ c.name }}</b>
@@ -733,7 +745,8 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
                 <button type="button" title="Выше" @click="moveItemOrder(row, -1)"><Icon name="chevron-up" :size="12" /></button>
                 <button type="button" title="Ниже" @click="moveItemOrder(row, 1)"><Icon name="chevron-down" :size="12" /></button>
               </div>
-              <Icon :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
+              <img v-if="itemImg(row)" :src="itemImg(row)" alt="" class="pf-inv-ic" loading="lazy" decoding="async" />
+            <Icon v-else :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
               <button
                 type="button"
                 class="inv-main grow"
@@ -792,7 +805,8 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
         </header>
         <div class="inv-rows">
           <div v-for="row in looseDroppedItems" :key="row.id" class="inv-row">
-            <Icon :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
+            <img v-if="itemImg(row)" :src="itemImg(row)" alt="" class="pf-inv-ic" loading="lazy" decoding="async" />
+            <Icon v-else :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
             <button
               type="button"
               class="inv-main grow"
@@ -835,7 +849,8 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
               <button type="button" title="Выше" @click="moveItemOrder(row, -1)"><Icon name="chevron-up" :size="12" /></button>
               <button type="button" title="Ниже" @click="moveItemOrder(row, 1)"><Icon name="chevron-down" :size="12" /></button>
             </div>
-            <Icon :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
+            <img v-if="itemImg(row)" :src="itemImg(row)" alt="" class="pf-inv-ic" loading="lazy" decoding="async" />
+            <Icon v-else :name="ITEM_TYPE_LABEL[itemTypeOf(row)]?.icon ?? 'package'" :size="15" class="faint" />
             <button
               type="button"
               class="inv-main grow"
@@ -1063,6 +1078,7 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
 .inv-row:last-child { border-bottom: 0; }
 .inv-row:hover { background: var(--surface-2); }
 .inv-row.dropped { opacity: .68; }
+.pf-inv-ic { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 .inv-main { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; min-width: 140px; }
 .inv-main:not(:disabled):hover b { color: var(--accent); }
 .inv-main:disabled { cursor: default; }

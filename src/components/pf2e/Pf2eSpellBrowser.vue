@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Pf2eAreaType, Pf2eLang, Pf2eRarity, Pf2eSaveType, Pf2eSpellCategory, Pf2eSpellIndex, Pf2eTradition } from '@/model/pf2e'
 import { ensurePf2eSpells, ensureSpellDescriptions, usePf2eCatalog } from '@/data/pf2eCatalog'
-import { formatActionSymbol, formatArea, RARITY_LABEL, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { formatActionSymbol, formatArea, pf2eIconUrl, RARITY_LABEL, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
 import { PF2E_TRADITIONS } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -796,6 +796,8 @@ function saveShort(s: Pf2eSpellIndex): string {
               {{ s.cat === 'cantrip' ? 'З' : s.cat === 'focus' ? `Ф${s.baseRank}` : s.cat === 'ritual' ? `Р${s.baseRank}` : s.rank }}
             </span>
 
+            <img v-if="s.img" :src="pf2eIconUrl(s.img)" alt="" class="pf-row-ic" loading="lazy" decoding="async" />
+
             <div class="pf-rname grow">
               <div class="row gap-sm" style="align-items: baseline">
                 <b class="ellipsis">{{ lang === 'ru' ? s.ru : s.en }}</b>
@@ -919,6 +921,7 @@ function saveShort(s: Pf2eSpellIndex): string {
 .pf-rk.cat-cantrip { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--info); }
 .pf-rk.cat-focus { background: color-mix(in srgb, var(--secret) 20%, transparent); color: var(--secret); }
 .pf-rk.cat-ritual { background: color-mix(in srgb, var(--warning) 20%, transparent); color: var(--warning); }
+.pf-row-ic { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 
 .pf-rname { min-width: 0; }
 .pf-ract { font-size: 13px; color: var(--accent); font-weight: 700; white-space: nowrap; flex-shrink: 0; }

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import {
-  doc, setDoc, getDoc, updateDoc, writeBatch, collection, query, where, getDocs, collectionGroup, deleteDoc,
+  doc, setDoc, getDoc, updateDoc, writeBatch, collection, query, where, getDocs, collectionGroup, deleteDoc, onSnapshot,
 } from 'firebase/firestore'
 
 const env = await initializeTestEnvironment({
@@ -591,21 +591,44 @@ await t('player editing own character can also update/remove an orgMembers row c
 })
 
 console.log('user tools (statSets & pf2eCharacters)')
-await t('user manages own statSets and pf2eCharacters; others cannot read or write; admin can read/delete', async () => {
+await t('user manages own statSets and pf2eCharacters (get, list, onSnapshot, write); others cannot; admin can read/delete', async () => {
   const sDoc = doc(player, 'users', 'player', 'statSets', 's1')
   const cDoc = doc(player, 'users', 'player', 'pf2eCharacters', 'c1')
+  const cColl = collection(player, 'users', 'player', 'pf2eCharacters')
+  const sColl = collection(player, 'users', 'player', 'statSets')
+  // Empty collection list works before any docs exist
+  await assertSucceeds(getDocs(cColl))
+  await assertSucceeds(getDocs(sColl))
   await assertSucceeds(setDoc(sDoc, { id: 's1', created: now, updated: now, data: { name: 'Броски' } }))
   await assertSucceeds(updateDoc(sDoc, { updated: now + 1 }))
   await assertSucceeds(getDoc(sDoc))
+  await assertSucceeds(getDocs(sColl))
   await assertSucceeds(setDoc(cDoc, { id: 'c1', name: 'Лиара', level: 5, createdAt: now, updatedAt: now }))
   await assertSucceeds(updateDoc(cDoc, { level: 6 }))
   await assertSucceeds(getDoc(cDoc))
+  const listSnap = await assertSucceeds(getDocs(cColl))
+  if (listSnap.size !== 1) throw new Error('expected 1 char, got ' + listSnap.size)
+  // Live onSnapshot listener works
+  await new Promise((res, rej) => {
+    const unsub = onSnapshot(cColl, (snap) => { unsub(); if (snap.size === 1) res(); else rej(new Error('bad size')) }, (err) => { unsub(); rej(err) })
+  })
+  // Admin listing & creating own characters works
+  const adminUid = 'TRLvfuNmFtR9TByopvMl8yIG1jG2'
+  await assertSucceeds(getDocs(collection(admin, 'users', adminUid, 'pf2eCharacters')))
+  await assertSucceeds(setDoc(doc(admin, 'users', adminUid, 'pf2eCharacters', 'ac1'), { id: 'ac1', name: 'AdminChar', level: 1, createdAt: now, updatedAt: now }))
+  await assertSucceeds(getDocs(collection(admin, 'users', adminUid, 'pf2eCharacters')))
+  await assertSucceeds(deleteDoc(doc(admin, 'users', adminUid, 'pf2eCharacters', 'ac1')))
+  // Others cannot read/list/write
   await assertFails(getDoc(doc(stranger, 'users', 'player', 'statSets', 's1')))
+  await assertFails(getDocs(collection(stranger, 'users', 'player', 'statSets')))
   await assertFails(setDoc(doc(stranger, 'users', 'player', 'statSets', 's2'), { id: 's2' }))
   await assertFails(getDoc(doc(stranger, 'users', 'player', 'pf2eCharacters', 'c1')))
+  await assertFails(getDocs(collection(stranger, 'users', 'player', 'pf2eCharacters')))
   await assertFails(updateDoc(doc(stranger, 'users', 'player', 'pf2eCharacters', 'c1'), { name: 'Hack' }))
   await assertFails(getDoc(doc(guest, 'users', 'player', 'pf2eCharacters', 'c1')))
+  // Admin reads/deletes player's character
   await assertSucceeds(getDoc(doc(admin, 'users', 'player', 'pf2eCharacters', 'c1')))
+  await assertSucceeds(getDocs(collection(admin, 'users', 'player', 'pf2eCharacters')))
   await assertSucceeds(deleteDoc(sDoc))
   await assertSucceeds(deleteDoc(cDoc))
 })

@@ -18,6 +18,7 @@ export interface Pf2eSpellIndex {
   slug: string
   en: string
   ru: string
+  img: string
   rank: number // 0 = cantrip, 1..10 = spell rank
   baseRank: number // original Foundry rank (1..10 even for cantrips)
   cat: Pf2eSpellCategory
@@ -71,6 +72,7 @@ export interface Pf2eItemIndex {
   slug: string
   en: string
   ru: string
+  img: string
   type: Pf2eItemType
   level: number
   rarity: Pf2eRarity

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Pf2eAttribute, Pf2eItemIndex, Pf2eItemType, Pf2eRarity } from '@/model/pf2e'
 import { ensureItemDescriptions, ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
-import { ITEM_TYPE_LABEL, RARITY_LABEL } from '@/data/pf2eFormat'
+import { ITEM_TYPE_LABEL, pf2eIconUrl, RARITY_LABEL } from '@/data/pf2eFormat'
 import { formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
 import { PF2E_ATTRIBUTES } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
@@ -765,7 +765,8 @@ function openItem(it: Pf2eItemIndex) {
             @click="openItem(it)"
           >
             <span class="pf-lvl" :title="lang === 'ru' ? `Уровень ${it.level}` : `Level ${it.level}`">{{ it.level }}</span>
-            <Icon :name="ITEM_TYPE_LABEL[it.type]?.icon ?? 'package'" :size="15" class="faint" />
+            <img v-if="it.img" :src="pf2eIconUrl(it.img)" alt="" class="pf-row-ic" loading="lazy" decoding="async" />
+            <Icon v-else :name="ITEM_TYPE_LABEL[it.type]?.icon ?? 'package'" :size="15" class="faint" />
 
             <div class="pf-rname grow">
               <div class="row gap-sm" style="align-items: baseline">
@@ -888,6 +889,7 @@ function openItem(it: Pf2eItemIndex) {
   width: 28px; height: 26px; border-radius: 6px; flex-shrink: 0; font-size: 12px; font-weight: 700; font-family: var(--font-mono);
   display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--text);
 }
+.pf-row-ic { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 .pf-rname { min-width: 0; }
 .rar-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .rar-dot.rd-uncommon { background: #c2640c; }

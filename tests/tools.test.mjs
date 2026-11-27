@@ -243,13 +243,57 @@ test('Spell attack, DC, proficiency (Untrained = 0 no level!), auto-heighten, an
 
   const wiz = PF2E_CLASS_PRESETS.find((p) => p.id === 'wizard')
   assert.deepEqual(wiz.slotsForLevel(5), { 1: 4, 2: 4, 3: 3 })
+  assert.deepEqual(wiz.slotsForLevel(20), { 1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4, 10: 1 })
+  assert.equal(wiz.proficiencyForLevel(19), 4)
+
+  // Impossible Magic (2026): Magus & Summoner keep ALL lower-rank slots (1-9) and scale Expert 9 / Master 17
   const magus = PF2E_CLASS_PRESETS.find((p) => p.id === 'magus')
-  assert.deepEqual(magus.slotsForLevel(7), { 3: 2, 4: 2 })
+  assert.deepEqual(magus.slotsForLevel(1), { 1: 1 })
+  assert.deepEqual(magus.slotsForLevel(7), { 1: 2, 2: 2, 3: 2, 4: 1 })
+  assert.deepEqual(magus.slotsForLevel(20), { 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 2 })
+  assert.equal(magus.proficiencyForLevel(8), 1)
+  assert.equal(magus.proficiencyForLevel(9), 2)
+  assert.equal(magus.proficiencyForLevel(17), 3)
+  assert.equal(magus.proficiencyForLevel(20), 3)
+
+  const summoner = PF2E_CLASS_PRESETS.find((p) => p.id === 'summoner')
+  assert.deepEqual(summoner.slotsForLevel(8), { 1: 2, 2: 2, 3: 2, 4: 2 })
+  assert.equal(summoner.proficiencyForLevel(17), 3)
+
+  // Necromancer (Impossible Magic 2026) & Psychic (Dark Archive Remastered 2026)
+  const necro = PF2E_CLASS_PRESETS.find((p) => p.id === 'necromancer')
+  assert.deepEqual(necro.slotsForLevel(19), { 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 2, 10: 1 })
+  assert.equal(necro.proficiencyForLevel(19), 4)
+  const psychic = PF2E_CLASS_PRESETS.find((p) => p.id === 'psychic')
+  assert.equal(psychic.slotsForLevel(19)[10], 1)
+  assert.equal(psychic.slotsForLevel(20)[10], 2)
+
+  // Animist dual slots (War of Immortals)
+  const animPrep = PF2E_CLASS_PRESETS.find((p) => p.id === 'animist-prep')
+  const animApp = PF2E_CLASS_PRESETS.find((p) => p.id === 'animist-apparition')
+  assert.equal(animPrep.slotsForLevel(19)[10], undefined)
+  assert.deepEqual(animApp.slotsForLevel(10), { 1: 2, 2: 2, 3: 2, 4: 1, 5: 1 })
+  assert.deepEqual(animApp.slotsForLevel(19), { 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 1, 10: 1 })
+
+  // Cleric Warpriest, Divine Font & Archetype Breadth
+  const warpriest = PF2E_CLASS_PRESETS.find((p) => p.id === 'cleric-warpriest')
+  assert.equal(warpriest.proficiencyForLevel(10), 1)
+  assert.equal(warpriest.proficiencyForLevel(11), 2)
+  assert.equal(warpriest.proficiencyForLevel(19), 3)
+  const font = PF2E_CLASS_PRESETS.find((p) => p.id === 'cleric-font')
+  assert.deepEqual(font.slotsForLevel(1), { 1: 4 })
+  assert.deepEqual(font.slotsForLevel(5), { 3: 5 })
+  assert.deepEqual(font.slotsForLevel(15), { 8: 6 })
+  const archB = PF2E_CLASS_PRESETS.find((p) => p.id === 'archetype-prep-breadth')
+  assert.deepEqual(archB.slotsForLevel(12), { 1: 2, 2: 2, 3: 1, 4: 1 })
+  assert.equal(archB.proficiencyForLevel(12), 2)
+  assert.equal(archB.proficiencyForLevel(18), 3)
 })
 
-console.log('\n4. Static PF2e Dataset Integrity (public/data/pf2e/)')
-test('All 2,036 spells and 6,004 items exist with 100% RU + EN names & descriptions and full meta dictionaries', () => {
+console.log('\n4. Static PF2e Dataset Integrity (public/data/pf2e/ & public/icons/pf2e/)')
+test('All spells & items exist with 100% RU+EN, Feybound+Impossible Magic, clean UUID cross-links, and Foundry icons', () => {
   const dir = path.join(process.cwd(), 'public/data/pf2e')
+  const iconsDir = path.join(process.cwd(), 'public/icons/pf2e')
   const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'))
   const spells = JSON.parse(fs.readFileSync(path.join(dir, 'spells-index.json'), 'utf8'))
   const items = JSON.parse(fs.readFileSync(path.join(dir, 'items-index.json'), 'utf8'))
@@ -263,6 +307,12 @@ test('All 2,036 spells and 6,004 items exist with 100% RU + EN names & descripti
   assert.ok(spells.length >= 2000, 'Expected >= 2000 spells')
   assert.ok(items.length >= 6000, 'Expected >= 6000 items')
 
+  // Verify Nov 2026 Pathfinder Feybound & Impossible Magic content is included
+  assert.ok(spells.filter((s) => s.pub === 'Pathfinder Feybound').length >= 18, 'Expected >= 18 Feybound spells')
+  assert.ok(items.filter((i) => i.pub === 'Pathfinder Feybound').length >= 45, 'Expected >= 45 Feybound items')
+  assert.ok(spells.filter((s) => s.pub === 'Pathfinder Impossible Magic').length >= 300, 'Expected >= 300 Impossible Magic spells')
+  assert.ok(items.filter((i) => i.pub === 'Pathfinder Impossible Magic').length >= 300, 'Expected >= 300 Impossible Magic items')
+
   const hasCyr = (s) => typeof s === 'string' && /[а-яёА-ЯЁ]/.test(s)
   const badSpells = spells.filter((s) => !hasCyr(s.ru) || (sEn[s.id]?.trim() && !hasCyr(sRu[s.id])))
   assert.equal(badSpells.length, 0, `Spells missing RU: ${badSpells.map((s) => s.en).slice(0, 5)}`)
@@ -273,6 +323,51 @@ test('All 2,036 spells and 6,004 items exist with 100% RU + EN names & descripti
   // Verify every trait on every spell & item is in meta.traits with RU label
   for (const s of spells) for (const t of s.traits) assert.ok(hasCyr(meta.traits[t]?.ru), `Missing RU trait: ${t}`)
   for (const it of items) for (const t of it.traits) assert.ok(hasCyr(meta.traits[t]?.ru), `Missing RU trait: ${t}`)
+
+  // Verify ZERO raw @UUID[...] remain and all @SpellLink/@ItemLink point to valid IDs
+  const spellIdSet = new Set(spells.map((s) => s.id))
+  const itemIdSet = new Set(items.map((i) => i.id))
+  let spellLinksCount = 0
+  let itemLinksCount = 0
+  for (const [label, dict] of [['sEn', sEn], ['sRu', sRu], ['iEn', iEn], ['iRu', iRu]]) {
+    for (const [id, text] of Object.entries(dict)) {
+      assert.ok(!/@UUID\[/i.test(text), `Raw @UUID remained in ${label}:${id}`)
+      assert.ok(!/@Embed\[/i.test(text), `Raw @Embed remained in ${label}:${id}`)
+      for (const m of text.matchAll(/@SpellLink\[([^\]]+)\]\{[^}]+\}/g)) {
+        assert.ok(spellIdSet.has(m[1]), `Broken @SpellLink[${m[1]}] in ${label}:${id}`)
+        spellLinksCount++
+      }
+      for (const m of text.matchAll(/@ItemLink\[([^\]]+)\]\{[^}]+\}/g)) {
+        assert.ok(itemIdSet.has(m[1]), `Broken @ItemLink[${m[1]}] in ${label}:${id}`)
+        itemLinksCount++
+      }
+    }
+  }
+  assert.ok(spellLinksCount > 5000, `Expected > 5000 resolved spell cross-links, got ${spellLinksCount}`)
+  assert.ok(itemLinksCount > 500, `Expected > 500 resolved item cross-links, got ${itemLinksCount}`)
+
+  // Explicitly verify Shield (Щит) has no raw Foundry effect IDs
+  const shield = spells.find((s) => s.en === 'Shield')
+  assert.ok(shield, 'Shield spell must exist')
+  assert.ok(!sRu[shield.id].includes('Jemq5UknGdMO7b73'), 'Shield RU must not contain Jemq5UknGdMO7b73')
+  assert.ok(!sRu[shield.id].includes('QF6RDlCoTvkVHRo4'), 'Shield RU must not contain QF6RDlCoTvkVHRo4')
+
+  // Verify every spell and item has a valid icon file on disk under public/icons/pf2e/
+  const checkedImgs = new Set()
+  for (const s of spells) {
+    assert.ok(s.img, `Spell missing img: ${s.en}`)
+    if (!checkedImgs.has(s.img)) {
+      assert.ok(fs.existsSync(path.join(iconsDir, s.img)), `Missing spell icon file: ${s.img}`)
+      checkedImgs.add(s.img)
+    }
+  }
+  for (const it of items) {
+    assert.ok(it.img, `Item missing img: ${it.en}`)
+    if (!checkedImgs.has(it.img)) {
+      assert.ok(fs.existsSync(path.join(iconsDir, it.img)), `Missing item icon file: ${it.img}`)
+      checkedImgs.add(it.img)
+    }
+  }
 })
 
 console.log(`\n${passed} passed, ${failed} failed`)

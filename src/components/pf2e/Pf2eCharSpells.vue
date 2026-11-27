@@ -9,7 +9,7 @@ import {
   autoRank, computeSpellStats, fullCasterProficiency, PF2E_ATTRIBUTES, PF2E_CASTING_TYPES,
   PF2E_CLASS_PRESETS, PF2E_PROFICIENCIES, PF2E_TRADITIONS,
 } from '@/data/pf2eSpellcasting'
-import { formatActionSymbol, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { formatActionSymbol, pf2eIconUrl, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -117,7 +117,8 @@ function applyClassPreset(presetId: string) {
   entryModal.value.keyAttr = p.keyAttr
   if (!entryModal.value.name.trim()) entryModal.value.name = p.ru.split(' (')[0]
   entryModal.value.slotsMax = p.slotsForLevel(props.character.level)
-  entryModal.value.proficiency = fullCasterProficiency(props.character.level)
+  entryModal.value.proficiency = p.proficiencyForLevel(props.character.level)
+  if (!entryModal.value.notes.trim() && p.note) entryModal.value.notes = p.note
 }
 
 function saveEntryModal() {
@@ -347,6 +348,11 @@ function spellSecondary(row: Pf2eSpellEntryItem): string {
   return lang.value === 'ru' ? cat.en : cat.ru
 }
 
+function spellImg(row: Pf2eSpellEntryItem): string {
+  const cat = row.spellId ? catalog.spellsById.value.get(row.spellId) : undefined
+  return pf2eIconUrl(cat?.img)
+}
+
 // Group active entry's spells by rank (including ranks that have slots > 0)
 const rankGroups = computed(() => {
   const l = activeList.value
@@ -550,6 +556,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
         <div v-if="!g.items.length" class="faint small" style="padding: 10px 14px">Пусто</div>
         <div v-else class="sp-rows">
           <div v-for="row in g.items" :key="row.id" class="sp-row">
+            <img v-if="spellImg(row)" :src="spellImg(row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
             <button
               type="button"
               class="sp-main grow"
@@ -816,6 +823,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 .sp-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .sp-row:last-child { border-bottom: 0; }
 .sp-row:hover { background: var(--surface-2); }
+.pf-sp-ic { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 .sp-main { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; min-width: 0; }
 .sp-main:not(:disabled):hover b { color: var(--accent); }
 .sp-main:disabled { cursor: default; }

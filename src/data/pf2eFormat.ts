@@ -64,6 +64,11 @@ export const SPELL_CAT_LABEL: Record<string, { ru: string; en: string }> = {
   impossible: { ru: 'Особое', en: 'Impossible' },
 }
 
+export function pf2eIconUrl(img?: string | null): string {
+  if (!img) return ''
+  return `${import.meta.env.BASE_URL}icons/pf2e/${img}`
+}
+
 /** Render PF2e action symbol (◆, ◆◆, ◆◆◆, ◇, ↺) or readable time text. */
 export function formatActionSymbol(raw: string, lang: Pf2eLang = 'ru', ruFallback?: string): { glyph: string | null; text: string } {
   const s = String(raw || '').trim().toLowerCase()
@@ -127,11 +132,23 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
     return `<span class="pf-inline-ref">${esc(base)}</span>`
   })
 
-  // @UUID[...]{Label}
+  // Pre-resolved spell & item cross-links (open standalone page in new tab!)
+  html = html.replace(/@SpellLink\[([^\]]+)\]\{([^}]+)\}/g, (_, id, label) => {
+    const title = lang === 'ru' ? 'Открыть заклинание в новой вкладке' : 'Open spell in new tab'
+    return `<a href="#/tools/pf2e/spell/${encodeURIComponent(id)}" target="_blank" rel="noopener noreferrer" class="pf-uuid-link pf-spell-link" title="${title}">${esc(label)}</a>`
+  })
+  html = html.replace(/@ItemLink\[([^\]]+)\]\{([^}]+)\}/g, (_, id, label) => {
+    const title = lang === 'ru' ? 'Открыть предмет в новой вкладке' : 'Open item in new tab'
+    return `<a href="#/tools/pf2e/item/${encodeURIComponent(id)}" target="_blank" rel="noopener noreferrer" class="pf-uuid-link pf-item-link" title="${title}">${esc(label)}</a>`
+  })
+  html = html.replace(/@Ref\{([^}]+)\}/g, (_, label) => `<span class="pf-inline-ref">${esc(label)}</span>`)
+
+  // Fallback for any raw @UUID[...]{Label}
   html = html.replace(/@UUID\[([^\]]+)\](?:\{([^}]+)\})?/gi, (_, target, label) => {
     let text = label
     if (!text) {
       const tail = target.split('.').pop() || target
+      if (/^[A-Za-z0-9]{16}$/.test(tail)) return ''
       const slug = tail.toLowerCase().replace(/\s+/g, '-')
       text = meta?.conditions?.[slug]?.[lang] || tail
     }
@@ -210,8 +227,11 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
   // @Counteract / @Embed / @Table / @Localize
   html = html.replace(/@Counteract\[([^\]]*)\](?:\{([^}]+)\})?/gi, (_, _i, label) =>
     `<span class="pf-inline-check">${esc(label || (lang === 'ru' ? 'Противодействие' : 'Counteract'))}</span>`)
-  html = html.replace(/@(?:Embed|Table|Localize)\[([^\]]*)\](?:\{([^}]+)\})?/gi, (_, inner, label) =>
-    esc(label || inner.split('.').pop() || ''))
+  html = html.replace(/@(?:Embed|Table|Localize)\[([^\]]*)\](?:\{([^}]+)\})?/gi, (_, inner, label) => {
+    if (label) return esc(label)
+    const tail = (inner.split('.').pop() || '').trim()
+    return /^[A-Za-z0-9]{16}(?:\s|$)/.test(tail) ? '' : esc(tail)
+  })
 
   // Inline actions [[/act grapple ...]]{label}
   html = html.replace(/\[\[\/act\s+([^\]]+)\]\](?:\{([^}]+)\})?/gi, (_, expr, label) => {
@@ -226,7 +246,7 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
   })
 
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'blockquote', 'sup', 'sub', 'code'],
-    ALLOWED_ATTR: ['class', 'title', 'colspan', 'rowspan'],
+    ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'blockquote', 'sup', 'sub', 'code'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title', 'colspan', 'rowspan'],
   })
 }
