@@ -11,7 +11,8 @@
     "emulators": "firebase emulators:start --only firestore,auth --project demo-dezremon",
     "dev:emu": "vite --mode emulator",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
-    "test:rules": "node tests/rules.test.mjs"
+    "test:rules": "node tests/rules.test.mjs",
+    "test:tools": "node tests/tools.test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.12",

@@ -16,12 +16,13 @@ const route = useRoute()
 const router = useRouter()
 const session = useSession()
 
-type Section = 'worlds' | 'campaigns' | 'rooms' | 'admin'
+type Section = 'worlds' | 'campaigns' | 'rooms' | 'tools' | 'admin'
 const section = computed<Section | null>(() => {
   const n = String(route.name ?? '')
   if (props.inWorld || n === 'worlds') return 'worlds'
   if (n === 'campaigns' || n === 'campaign' || n === 'campaignJoin') return 'campaigns'
   if (n === 'rooms' || n === 'room') return 'rooms'
+  if (n === 'tools' || n.startsWith('tool')) return 'tools'
   if (n === 'admin') return 'admin'
   return null
 })
@@ -29,6 +30,7 @@ const sections = computed(() => [
   { key: 'worlds', label: 'Миры', icon: 'globe', to: { name: 'worlds' } },
   { key: 'campaigns', label: 'Игры', icon: 'swords', to: { name: 'campaigns' } },
   ...(router.hasRoute('rooms') ? [{ key: 'rooms', label: 'Комнаты', icon: 'headphones', to: { name: 'rooms' } }] : []),
+  { key: 'tools', label: 'Инструменты', icon: 'wrench', to: { name: 'tools' } },
   ...(isServiceAdmin(session.user?.uid) ? [{ key: 'admin', label: 'Админка', icon: 'shield-check', to: { name: 'admin' } }] : []),
 ])
 </script>

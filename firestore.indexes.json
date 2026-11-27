@@ -1131,6 +1131,54 @@
       "fieldPath": "updatedBy",
       "ttl": false,
       "indexes": []
+    },
+    {
+      "collectionGroup": "statSets",
+      "fieldPath": "data",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "portrait",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "portraitSource",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "description",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "spellLists",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "inventory",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "containers",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "pf2eCharacters",
+      "fieldPath": "coins",
+      "ttl": false,
+      "indexes": []
     }
   ]
 }

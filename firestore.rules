@@ -62,6 +62,18 @@ service cloud.firestore {
       allow read: if signedIn() && (uid() == u || isAdmin());
       allow create, update: if signedIn() && uid() == u;
       allow delete: if signedIn() && (uid() == u || isAdmin());
+
+      match /statSets/{id} {
+        allow read: if signedIn() && (uid() == u || isAdmin());
+        allow create, update: if signedIn() && uid() == u && !serviceBanned();
+        allow delete: if signedIn() && (uid() == u || isAdmin());
+      }
+
+      match /pf2eCharacters/{id} {
+        allow read: if signedIn() && (uid() == u || isAdmin());
+        allow create, update: if signedIn() && uid() == u && !serviceBanned();
+        allow delete: if signedIn() && (uid() == u || isAdmin());
+      }
     }
 
     // Public card of an account (PublicProfile in src/model/types.ts): name, photo, since — never the e-mail.

@@ -29,6 +29,10 @@ export const router = createRouter({
         { path: 'cjoin/:cid/:code', name: 'campaignJoin', component: () => import('@/views/CampaignJoinView.vue') },
         { path: 'rooms', name: 'rooms', component: () => import('@/views/RoomsView.vue') },
         { path: 'r/:rid', name: 'room', component: () => import('@/views/RoomView.vue') },
+        { path: 'tools', name: 'tools', component: () => import('@/views/ToolsView.vue') },
+        { path: 'tools/stats', name: 'toolStats', component: () => import('@/views/ToolsStatsView.vue') },
+        { path: 'tools/pf2e/:tab?', name: 'toolPf2e', component: () => import('@/views/ToolsPf2eView.vue') },
+        { path: 'tools/pf2e/c/:cid', name: 'toolPf2eChar', component: () => import('@/views/ToolsPf2eCharView.vue') },
         { path: 'admin/:tab?', name: 'admin', component: () => import('@/views/AdminView.vue') },
         // a user's page (from comments, character pages): the public card and what the viewer shares with them
         { path: 'u/:uid', name: 'user', component: () => import('@/views/UserView.vue') },
