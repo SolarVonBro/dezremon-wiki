@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { updatePf2eCharacter, watchPf2eCharacters } from '@/data/pf2eCharacters'
+import { usePf2eWorkspace } from '@/data/pf2eWorkspace'
 import { copyText } from '@/data/statCalc'
 import { errorText, randomId } from '@/data/util'
 import type { Pf2eCharacter } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eItemCard from '@/components/pf2e/Pf2eItemCard.vue'
 import { toast } from '@/components/common/toast'
 
@@ -16,6 +18,7 @@ const session = useSession()
 const route = useRoute()
 const router = useRouter()
 const catalog = usePf2eCatalog()
+const ws = usePf2eWorkspace()
 
 const id = computed(() => String(route.params.id ?? ''))
 const item = computed(() => catalog.itemsById.value.get(id.value) ?? null)
@@ -40,6 +43,8 @@ watch([item, catalog.lang], ([it, l]) => {
   if (it) document.title = `${l === 'ru' ? it.ru : it.en} — PF2e | Вики сеттинга`
 }, { immediate: true })
 
+const activeChar = computed(() => chars.value.find((c) => c.id === ws.activeCharId.value) ?? null)
+
 const addOpen = ref(false)
 const asContainer = ref(false)
 const pickCharId = ref('')
@@ -49,8 +54,11 @@ const pickedChar = computed(() => chars.value.find((c) => c.id === pickCharId.va
 function openAdd() {
   if (!item.value) return
   if (!chars.value.length) { toast.info('Сначала создайте персонажа PF2e'); return }
-  pickCharId.value = chars.value[0].id
-  pickContainerId.value = ''
+  const defChar = activeChar.value ?? chars.value[0]
+  pickCharId.value = defChar.id
+  pickContainerId.value = (ws.targetContainerId.value && defChar.containers.some((c) => c.id === ws.targetContainerId.value))
+    ? ws.targetContainerId.value
+    : ''
   asContainer.value = item.value.type === 'backpack'
   addOpen.value = true
 }
@@ -102,6 +110,7 @@ async function confirmAdd() {
       await updatePf2eCharacter(uid, c.id, { inventory: inv })
       toast.success(`Предмет добавлен персонажу ${c.name}`)
     }
+    ws.setActivePf2eChar(c.id)
     addOpen.value = false
   } catch (e) { toast.error(errorText(e)) }
 }
@@ -113,12 +122,12 @@ async function copyLink() {
 
 <template>
   <div class="page">
-    <div class="crumbs-row row gap-sm wrap">
-      <RouterLink :to="{ name: 'tools' }" class="back-link">Инструменты</RouterLink>
-      <span class="faint">/</span>
-      <RouterLink :to="{ name: 'toolPf2e' }" class="back-link">Pathfinder 2e</RouterLink>
-      <span class="faint">/</span>
-      <RouterLink :to="{ name: 'toolPf2e', params: { tab: 'items' } }" class="back-link">Предметы</RouterLink>
+    <Pf2eTopNav active="items" :chars="chars" />
+
+    <div class="sub-row">
+      <RouterLink :to="{ name: 'toolPf2e', params: { tab: 'items' } }" class="back-link">
+        <Icon name="arrow-left" :size="14" /> К библиотеке предметов
+      </RouterLink>
     </div>
 
     <div v-if="!ready || catalog.loadingItems.value" class="card empty">
@@ -129,10 +138,12 @@ async function copyLink() {
       <RouterLink class="btn btn-primary" :to="{ name: 'toolPf2e', params: { tab: 'items' } }">К библиотеке предметов</RouterLink>
     </div>
     <section v-else class="card card-pad">
-      <Pf2eItemCard :item="item" :meta="catalog.meta.value" :lang="catalog.lang.value" standalone>
+      <Pf2eItemCard :item="item" :meta="catalog.meta.value" :lang="catalog.lang.value" :actor-level="activeChar?.level" :str-mod="activeChar?.strMod" standalone>
         <template #actions>
           <button type="button" class="btn btn-sm" @click="copyLink"><Icon name="link" :size="14" /> Ссылка</button>
-          <button v-if="chars.length" type="button" class="btn btn-sm btn-primary" @click="openAdd"><Icon name="plus" :size="14" /> Персонажу…</button>
+          <button v-if="chars.length" type="button" class="btn btn-sm btn-primary" @click="openAdd">
+            <Icon name="plus" :size="14" /> {{ activeChar ? `Персонажу «${activeChar.name}»…` : 'Персонажу…' }}
+          </button>
         </template>
       </Pf2eItemCard>
     </section>
@@ -166,9 +177,9 @@ async function copyLink() {
 </template>
 
 <style scoped>
-.page { max-width: 920px; margin: 0 auto; padding: 18px 24px 60px; }
-.crumbs-row { margin-bottom: 12px; font-size: 13.5px; }
-.back-link { color: var(--text-muted); }
+.page { max-width: 1020px; margin: 0 auto; padding: 16px 24px 60px; }
+.sub-row { margin-bottom: 10px; }
+.back-link { display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; color: var(--text-muted); }
 .back-link:hover { color: var(--accent); text-decoration: none; }
 @media (max-width: 720px) { .page { padding: 14px 12px 50px; } }
 </style>

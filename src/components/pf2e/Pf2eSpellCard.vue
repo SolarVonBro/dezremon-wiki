@@ -3,35 +3,89 @@ import { computed, ref, watch } from 'vue'
 import type { Pf2eLang, Pf2eMeta, Pf2eSpellIndex } from '@/model/pf2e'
 import { ensureSpellDescriptions, getSpellDesc } from '@/data/pf2eCatalog'
 import { formatActionSymbol, formatArea, pf2eIconUrl, RARITY_LABEL, renderPf2eHtml, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { compilePf2eFormula, executePf2eRoll, type Pf2eFormulaContext, type Pf2eRollResult } from '@/data/pf2eRoll'
 import { PF2E_TRADITIONS } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
+import Pf2eRollPanel from './Pf2eRollPanel.vue'
 
 const props = defineProps<{
   spell: Pf2eSpellIndex
   meta: Pf2eMeta | null
   lang: Pf2eLang
   standalone?: boolean
+  initialRank?: number
+  actorLevel?: number
 }>()
 
 // Each card has its own local language toggle synced initially with global lang
 const cardLang = ref<Pf2eLang>(props.lang)
 watch(() => props.lang, (l) => { cardLang.value = l })
 
-const descHtml = ref('')
+const minRank = computed(() => Math.max(1, props.spell.baseRank || 1))
+const castRank = ref<number>(Math.max(minRank.value, props.initialRank || minRank.value))
+watch([() => props.spell.id, () => props.initialRank], () => {
+  castRank.value = Math.max(minRank.value, props.initialRank || minRank.value)
+  activeRoll.value = null
+  rollHistory.value = []
+})
+
+const rawDesc = ref('')
 const loadingDesc = ref(false)
 
 async function loadDesc() {
   loadingDesc.value = true
   try {
     await ensureSpellDescriptions(cardLang.value)
-    const raw = getSpellDesc(props.spell.id, cardLang.value)
-    descHtml.value = renderPf2eHtml(raw, cardLang.value, props.meta)
+    rawDesc.value = getSpellDesc(props.spell.id, cardLang.value)
   } finally {
     loadingDesc.value = false
   }
 }
 
 watch([() => props.spell.id, cardLang], () => { void loadDesc() }, { immediate: true })
+
+const formulaCtx = computed<Pf2eFormulaContext>(() => ({
+  rank: castRank.value,
+  baseRank: minRank.value,
+  level: castRank.value,
+  actorLevel: props.actorLevel ?? Math.max(1, castRank.value * 2 - 1),
+}))
+
+const hasDynamicScaling = computed(() =>
+  props.spell.heightenType !== 'none'
+  || props.spell.cat === 'cantrip'
+  || props.spell.cat === 'focus'
+  || /@item\.(rank|level)|@actor\.level/i.test(rawDesc.value),
+)
+
+const descHtml = computed(() => renderPf2eHtml(rawDesc.value, cardLang.value, props.meta, formulaCtx.value))
+
+// Interactive dice rolling inside card prose
+const activeRoll = ref<Pf2eRollResult | null>(null)
+const rollHistory = ref<Pf2eRollResult[]>([])
+
+function runRoll(spec: string, note?: string) {
+  const compiled = compilePf2eFormula(spec, formulaCtx.value)
+  if (!compiled || !compiled.hasDice) return
+  if (note && !compiled.note) compiled.note = note
+  const res = executePf2eRoll(compiled)
+  activeRoll.value = res
+  rollHistory.value = [res, ...rollHistory.value].slice(0, 6)
+}
+
+function onProseClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('button.pf-roll-btn')
+  if (!btn) return
+  const spec = btn.dataset.rollSpec
+  if (!spec) return
+  e.preventDefault()
+  runRoll(spec, btn.dataset.rollNote)
+}
+
+function rerollActive() {
+  if (!activeRoll.value) return
+  runRoll(activeRoll.value.formula.raw, activeRoll.value.formula.note)
+}
 
 const title = computed(() => (cardLang.value === 'ru' ? props.spell.ru : props.spell.en))
 const subTitle = computed(() => (cardLang.value === 'ru' ? props.spell.en : props.spell.ru))
@@ -190,9 +244,38 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
       </template>
     </dl>
 
+    <!-- Cast Rank scaler for heightened formulas -->
+    <div v-if="hasDynamicScaling" class="cast-rank-bar">
+      <span class="small muted">{{ cardLang === 'ru' ? 'Круг для формул:' : 'Cast rank:' }}</span>
+      <div class="cr-pills">
+        <button
+          v-for="r in Array.from({ length: 11 - minRank }, (_, i) => minRank + i)"
+          :key="r"
+          type="button"
+          class="cr-pill"
+          :class="{ on: castRank === r }"
+          @click="castRank = r"
+        >
+          {{ r }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Interactive Dice Roll Panel -->
+    <Pf2eRollPanel
+      v-if="activeRoll"
+      :result="activeRoll"
+      :history="rollHistory"
+      :lang="cardLang"
+      :meta="meta"
+      @reroll="rerollActive"
+      @close="activeRoll = null"
+      @select="activeRoll = $event"
+    />
+
     <div class="pfc-body">
       <div v-if="loadingDesc" class="empty" style="padding: 16px"><Icon name="refresh-cw" class="spin" :size="18" /></div>
-      <div v-else class="pf-prose" v-html="descHtml" />
+      <div v-else class="pf-prose" v-html="descHtml" @click="onProseClick" />
     </div>
 
     <details v-if="spell.deities.length" class="pfc-deities">
@@ -244,7 +327,20 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
   background: color-mix(in srgb, var(--tcol) 18%, transparent); border: 1px solid color-mix(in srgb, var(--tcol) 48%, transparent);
 }
 
-.pfc-body { font-family: var(--font-text); font-size: 15px; line-height: 1.6; }
+.cast-rank-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
+}
+.cr-pills { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+.cr-pill {
+  min-width: 26px; height: 24px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: background .1s, border-color .1s;
+}
+.cr-pill:hover { border-color: var(--accent); color: var(--text); }
+.cr-pill.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+.pfc-body { font-family: var(--font-text); font-size: 15px; line-height: 1.65; }
 .pf-prose :deep(p) { margin: 0 0 10px; }
 .pf-prose :deep(p:last-child) { margin-bottom: 0; }
 .pf-prose :deep(hr) { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
@@ -253,7 +349,7 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
 .pf-prose :deep(th), .pf-prose :deep(td) { padding: 5px 8px; border: 1px solid var(--border); text-align: left; }
 .pf-prose :deep(th) { background: var(--surface-2); }
 .pf-prose :deep(.pf-act) { font-family: var(--font-ui); color: var(--accent); font-weight: 700; letter-spacing: -1px; padding: 0 2px; }
-.pf-prose :deep(.pf-inline-dmg) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+.pf-prose :deep(.pf-inline-dmg) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--danger) 14%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent); color: var(--text); }
 .pf-prose :deep(.pf-inline-check) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--info) 15%, transparent); border: 1px solid color-mix(in srgb, var(--info) 35%, transparent); }
 .pf-prose :deep(.pf-inline-tpl) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--warning) 15%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); }
 .pf-prose :deep(.pf-inline-ref) { font-family: var(--font-ui); font-size: .92em; font-weight: 600; color: var(--text); text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
@@ -264,7 +360,15 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
 .pf-prose :deep(.pf-uuid-link::after) { content: ' ↗'; font-size: .78em; opacity: .72; }
 .pf-prose :deep(.pf-uuid-link:hover) { background: var(--accent-soft); }
 .pf-prose :deep(.pf-inline-trait) { font-family: var(--font-ui); font-size: .82em; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); }
-.pf-prose :deep(.pf-inline-roll) { font-family: var(--font-mono); font-size: .88em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.pf-prose :deep(.pf-inline-roll) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text); }
+.pf-prose :deep(.pf-roll-btn) {
+  display: inline-flex; align-items: baseline; gap: 4px; cursor: pointer; vertical-align: baseline;
+  line-height: 1.35; transition: transform .08s, border-color .12s, background .12s;
+}
+.pf-prose :deep(.pf-roll-btn:hover) { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+.pf-prose :deep(.pf-roll-btn:active) { transform: translateY(0); }
+.pf-prose :deep(.pf-roll-ic) { font-size: .9em; }
+.pf-prose :deep(.pf-roll-avg) { font-size: .86em; font-weight: 500; color: var(--text-muted); }
 
 .pfc-deities { font-size: 13px; padding-top: 6px; border-top: 1px solid var(--border); }
 .pfc-deities summary { cursor: pointer; color: var(--accent); font-weight: 500; }

@@ -15,10 +15,12 @@ const props = withDefaults(defineProps<{
   pickMode?: boolean
   initialType?: Pf2eItemType | ''
   pickLabel?: string
+  ownedCounts?: Record<string, number>
 }>(), {
   pickMode: false,
   initialType: '',
   pickLabel: 'Добавить в инвентарь',
+  ownedCounts: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -35,6 +37,9 @@ onMounted(() => { void ensurePf2eItems() })
 const q = ref('')
 const searchInDesc = ref(false)
 const types = ref<Pf2eItemType[]>(props.initialType ? [props.initialType] : [])
+watch(() => props.initialType, (t) => {
+  types.value = t ? [t] : []
+})
 const lvlMin = ref<string>('')
 const lvlMax = ref<string>('')
 const priceMinGp = ref<string>('')
@@ -773,6 +778,9 @@ function openItem(it: Pf2eItemIndex) {
                 <b class="ellipsis">{{ lang === 'ru' ? it.ru : it.en }}</b>
                 <span v-if="it.rarity !== 'common'" class="rar-dot" :class="'rd-' + it.rarity" :title="RARITY_LABEL[it.rarity][lang]" />
                 <span v-if="it.extradimensional" class="badge badge-secret hide-sm" style="font-size: 10.5px">экстрапр.</span>
+                <span v-if="ownedCounts[it.id]" class="badge badge-public" style="font-size: 10.5px" :title="lang === 'ru' ? 'Уже в инвентаре персонажа' : 'Already in inventory'">
+                  ✓<template v-if="ownedCounts[it.id] > 1"> ×{{ ownedCounts[it.id] }}</template>
+                </span>
               </div>
               <div class="faint small ellipsis">
                 {{ lang === 'ru' ? it.en : it.ru }}

@@ -1,23 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type {
   Pf2eCarryType, Pf2eCharacter, Pf2eCoins, Pf2eContainer, Pf2eInventoryItem, Pf2eItemIndex, Pf2eItemType,
 } from '@/model/pf2e'
 import { ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { computeCharacterBulk, formatLight, formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
 import { ITEM_TYPE_LABEL, pf2eIconUrl } from '@/data/pf2eFormat'
+import { setItemPickTarget } from '@/data/pf2eWorkspace'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
-import Pf2eItemBrowser from './Pf2eItemBrowser.vue'
 import Pf2eItemCard from './Pf2eItemCard.vue'
-import { toast } from '@/components/common/toast'
 
 const props = defineProps<{ character: Pf2eCharacter }>()
 const emit = defineEmits<{
   patch: [p: Partial<Omit<Pf2eCharacter, 'id' | 'createdAt'>>]
 }>()
 
+const router = useRouter()
 const catalog = usePf2eCatalog()
 const lang = catalog.lang
 const setLang = catalog.setLang
@@ -249,61 +250,25 @@ function deleteContainer(c: Pf2eContainer) {
   emit('patch', { containers, inventory, coins })
 }
 
-// ==================== Modals: Library Picker, Add/Edit Container, Add/Edit Item ====================
-const pickerOpen = ref(false)
-const pickerTargetContainer = ref<string>('')
-const pickerTargetGroup = ref<string>('')
-const pickerInitialType = ref<Pf2eItemType | ''>('')
-
+// ==================== Full-Page Item Library Navigation ====================
 function openItemPicker(containerId = '', initType: Pf2eItemType | '' = '') {
-  pickerTargetContainer.value = containerId
-  pickerInitialType.value = initType
-  pickerOpen.value = true
+  setItemPickTarget(props.character.id, containerId)
+  void router.push({
+    name: 'toolPf2e',
+    params: { tab: 'items' },
+    query: {
+      for: props.character.id,
+      ...(containerId ? { container: containerId } : {}),
+      ...(initType ? { type: initType } : {}),
+    },
+  })
 }
 
-function onPickCatalogItem(it: Pf2eItemIndex, asContainer = false) {
-  if (asContainer) {
-    const newC: Pf2eContainer = {
-      id: randomId(10),
-      itemId: it.id,
-      name: lang.value === 'ru' ? it.ru : it.en,
-      carryType: it.usage.startsWith('worn') ? 'worn' : 'held',
-      parentContainerId: null,
-      bulk: it.bulk,
-      bulkHeld: it.bulkHeld,
-      capacity: it.capacity,
-      ignored: it.ignored,
-      extradimensional: it.extradimensional,
-      invested: false,
-      priceCp: it.priceCp,
-      notes: '',
-      order: props.character.containers.length,
-    }
-    saveContainers([...props.character.containers, newC])
-    toast.success(`Контейнер добавлен: ${newC.name}`)
-    return
-  }
-
-  const cid = pickerTargetContainer.value || null
-  const carryType: Pf2eCarryType = cid
-    ? 'stowed'
-    : it.usageGroup === 'worn' || it.usageGroup === 'worn-slot' || it.type === 'armor'
-      ? 'worn'
-      : 'held'
-  const newRow: Pf2eInventoryItem = {
-    id: randomId(10),
-    itemId: it.id,
-    name: '',
-    quantity: it.bulkPer > 1 && it.bulkPer < 1000 ? it.bulkPer : 1,
-    carryType,
-    containerId: cid,
-    group: pickerTargetGroup.value.trim(),
-    invested: false,
-    notes: '',
-    order: props.character.inventory.length,
-  }
-  saveInv([...props.character.inventory, newRow])
-  toast.success(`Добавлено: ${lang.value === 'ru' ? it.ru : it.en}`)
+function itemLibraryHref(containerId = ''): string {
+  const params = new URLSearchParams()
+  params.set('for', props.character.id)
+  if (containerId) params.set('container', containerId)
+  return `#/tools/pf2e/items?${params.toString()}`
 }
 
 // Container Presets & Modal
@@ -553,6 +518,9 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
         <button type="button" class="btn btn-sm btn-primary" @click="openItemPicker('', '')">
           <Icon name="book-open" :size="14" /> Из библиотеки
         </button>
+        <a :href="itemLibraryHref('')" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть библиотеку предметов в новой вкладке">
+          <Icon name="external-link" :size="15" />
+        </a>
         <button type="button" class="btn btn-sm" @click="openNewContainer">
           <Icon name="backpack" :size="14" /> Контейнер
         </button>
@@ -898,24 +866,6 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
     </template>
 
     <!-- ==================== MODALS ==================== -->
-    <!-- Library Item Picker -->
-    <Modal v-if="pickerOpen" title="Добавить предметы из библиотеки PF2e" width="1160px" @close="pickerOpen = false">
-      <div class="row gap wrap" style="margin-bottom: 10px">
-        <label class="row gap-sm small">
-          <span class="muted">Куда класть:</span>
-          <select v-model="pickerTargetContainer" class="input input-sm" style="width: auto">
-            <option value="">На себе / в руках (вне контейнера)</option>
-            <option v-for="c in sortedContainers" :key="c.id" :value="c.id">В контейнер: {{ c.name }}</option>
-          </select>
-        </label>
-        <label class="row gap-sm small">
-          <span class="muted">Группа:</span>
-          <input v-model="pickerTargetGroup" type="text" list="pf-inv-groups" class="input input-sm" style="width: 170px" placeholder="Необязательно…" />
-        </label>
-      </div>
-      <Pf2eItemBrowser pick-mode :initial-type="pickerInitialType" @pick="onPickCatalogItem" />
-    </Modal>
-
     <!-- Container Modal -->
     <Modal v-if="containerModal" :title="containerModal.id ? 'Настройки контейнера' : 'Новый контейнер'" width="580px" @close="containerModal = null">
       <form class="stack" @submit.prevent="saveContainerModal">
@@ -1034,7 +984,7 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
 
     <!-- View Item Card Modal -->
     <Modal v-if="viewingItem" width="760px" @close="viewingItem = null">
-      <Pf2eItemCard :item="viewingItem" :meta="catalog.meta.value" :lang="lang" />
+      <Pf2eItemCard :item="viewingItem" :meta="catalog.meta.value" :lang="lang" :actor-level="character.level" :str-mod="character.strMod" />
     </Modal>
   </div>
 </template>

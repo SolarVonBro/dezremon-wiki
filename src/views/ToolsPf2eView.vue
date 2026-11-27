@@ -8,13 +8,15 @@ import {
 } from '@/data/pf2eCharacters'
 import { ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { computeCharacterBulk, formatLight } from '@/data/pf2eBulk'
+import { usePf2eWorkspace } from '@/data/pf2eWorkspace'
 import { fileToSource, renderAvatar } from '@/data/avatar'
 import { errorText, plural, randomId, relativeTime } from '@/data/util'
 import type { ImageCrop } from '@/data/crop'
-import type { Pf2eCharacter, Pf2eItemIndex, Pf2eSpellIndex } from '@/model/pf2e'
+import type { Pf2eCharacter, Pf2eItemIndex, Pf2eItemType, Pf2eSpellCategory, Pf2eSpellIndex, Pf2eTradition } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
 import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eSpellBrowser from '@/components/pf2e/Pf2eSpellBrowser.vue'
 import Pf2eItemBrowser from '@/components/pf2e/Pf2eItemBrowser.vue'
 import { toast } from '@/components/common/toast'
@@ -23,6 +25,7 @@ const session = useSession()
 const route = useRoute()
 const router = useRouter()
 const catalog = usePf2eCatalog()
+const ws = usePf2eWorkspace()
 
 type Tab = 'chars' | 'spells' | 'items'
 const tab = computed<Tab>(() => {
@@ -31,9 +34,6 @@ const tab = computed<Tab>(() => {
   if (t === 'items') return 'items'
   return 'chars'
 })
-function setTab(t: Tab) {
-  void router.replace({ name: 'toolPf2e', params: { tab: t === 'chars' ? undefined : t } })
-}
 
 const chars = ref<Pf2eCharacter[]>([])
 const loading = ref(true)
@@ -51,11 +51,201 @@ watch(() => [session.ready, session.user?.uid] as const, ([ready, u]) => {
       chars.value = rows
       loading.value = false
       if (rows.some((c) => c.inventory.length > 0)) void ensurePf2eItems()
+      // Keep activeCharId valid
+      if (ws.activeCharId.value && !rows.some((c) => c.id === ws.activeCharId.value)) {
+        ws.setActivePf2eChar('')
+      }
     },
     (e) => { loading.value = false; toast.error('Не удалось загрузить персонажей: ' + errorText(e)) },
   )
 }, { immediate: true })
 onBeforeUnmount(() => stopChars?.())
+
+// Sync URL query params (?for=<cid>&list=<listId>&rank=<n>&container=<id>&type=<itemType>) into workspace
+const filterByListTradition = ref(true)
+const initialItemType = ref<Pf2eItemType | ''>('')
+
+watch(() => route.query, (q) => {
+  const forCid = typeof q.for === 'string' ? q.for : ''
+  if (forCid) ws.setActivePf2eChar(forCid)
+  if (typeof q.list === 'string') ws.targetListId.value = q.list
+  if (typeof q.rank === 'string' && q.rank !== '' && Number.isFinite(Number(q.rank))) {
+    ws.targetRank.value = Number(q.rank)
+  } else if (forCid && tab.value === 'spells' && !('rank' in q)) {
+    ws.targetRank.value = null
+  }
+  if (typeof q.container === 'string') ws.targetContainerId.value = q.container
+  const qType = typeof q.type === 'string' ? q.type : ''
+  initialItemType.value = (['weapon', 'armor', 'shield', 'equipment', 'consumable', 'backpack', 'ammo', 'treasure', 'kit'].includes(qType) ? qType : '') as Pf2eItemType | ''
+}, { immediate: true })
+
+const activeChar = computed(() => chars.value.find((c) => c.id === ws.activeCharId.value) ?? null)
+
+// Ensure targetListId & targetContainerId stay valid for activeChar
+watch([activeChar, () => activeChar.value?.spellLists.length], ([c]) => {
+  if (!c) return
+  if (ws.targetListId.value && !c.spellLists.some((l) => l.id === ws.targetListId.value)) {
+    ws.targetListId.value = c.spellLists[0]?.id ?? ''
+  } else if (!ws.targetListId.value && c.spellLists.length) {
+    ws.targetListId.value = c.spellLists[0].id
+  }
+  if (ws.targetContainerId.value && !c.containers.some((ct) => ct.id === ws.targetContainerId.value)) {
+    ws.targetContainerId.value = ''
+  }
+}, { immediate: true })
+
+const activeSpellList = computed(() =>
+  activeChar.value?.spellLists.find((l) => l.id === ws.targetListId.value)
+  ?? activeChar.value?.spellLists[0]
+  ?? null,
+)
+
+const browserTradition = computed<Pf2eTradition | ''>(() =>
+  filterByListTradition.value && activeSpellList.value?.tradition ? activeSpellList.value.tradition : '',
+)
+const browserSpellCat = computed<Pf2eSpellCategory | ''>(() => {
+  if (!filterByListTradition.value || !activeSpellList.value) return ''
+  if (activeSpellList.value.castingType === 'focus') return 'focus'
+  if (activeSpellList.value.castingType === 'ritual') return 'ritual'
+  return ''
+})
+
+// Owned counts for live "✓" badges in the full-page libraries!
+const ownedSpellCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {}
+  const c = activeChar.value
+  if (!c) return counts
+  const list = activeSpellList.value
+  const srcLists = list ? [list] : c.spellLists
+  for (const l of srcLists) {
+    for (const row of l.spells) {
+      if (row.spellId) counts[row.spellId] = (counts[row.spellId] ?? 0) + 1
+    }
+  }
+  return counts
+})
+
+const ownedItemCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {}
+  const c = activeChar.value
+  if (!c) return counts
+  for (const row of c.inventory) {
+    if (row.itemId) counts[row.itemId] = (counts[row.itemId] ?? 0) + (row.quantity || 1)
+  }
+  for (const ct of c.containers) {
+    if (ct.itemId) counts[ct.itemId] = (counts[ct.itemId] ?? 0) + 1
+  }
+  return counts
+})
+
+const activeCharGroups = computed(() => {
+  const c = activeChar.value
+  if (!c) return []
+  const s = new Set<string>(c.customGroups ?? [])
+  for (const r of c.inventory) if (r.group.trim()) s.add(r.group.trim())
+  return [...s].sort((a, b) => a.localeCompare(b, 'ru'))
+})
+
+const activeCharBulk = computed(() => (activeChar.value ? computeCharacterBulk(activeChar.value, catalog.itemsById.value) : null))
+
+// 1-click instant Add Spell to active character!
+async function quickAddSpell(sp: Pf2eSpellIndex) {
+  const uid = session.user?.uid
+  const c = activeChar.value
+  if (!uid || !c) return
+  const lists = c.spellLists.map((l) => ({ ...l, spells: [...l.spells] }))
+  let target = lists.find((l) => l.id === ws.targetListId.value) ?? lists[0]
+  if (!target) {
+    target = {
+      id: randomId(10),
+      name: sp.cat === 'focus' ? 'Фокусные заклинания' : sp.cat === 'ritual' ? 'Ритуалы' : 'Основной список',
+      castingType: sp.cat === 'focus' ? 'focus' : sp.cat === 'ritual' ? 'ritual' : 'prepared',
+      tradition: sp.traditions[0] ?? 'arcane',
+      keyAttr: 'int',
+      keyMod: 4,
+      proficiency: 1,
+      bonusAttack: 0,
+      bonusDc: 0,
+      slotsMax: { 1: 2 },
+      slotsUsed: {},
+      focusMax: sp.cat === 'focus' ? 1 : undefined,
+      focusCurrent: sp.cat === 'focus' ? 1 : undefined,
+      spells: [],
+    }
+    lists.push(target)
+    ws.targetListId.value = target.id
+  }
+  const rank = ws.targetRank.value != null
+    ? ws.targetRank.value
+    : sp.cat === 'cantrip' ? 0 : sp.baseRank
+  target.spells.push({
+    id: randomId(10),
+    spellId: sp.id,
+    rank,
+    preparedCount: target.castingType === 'prepared' && rank > 0 ? 1 : undefined,
+    expendedCount: 0,
+    usesMax: target.castingType === 'innate' && rank > 0 ? 1 : undefined,
+    usesLeft: target.castingType === 'innate' && rank > 0 ? 1 : undefined,
+    atWill: target.castingType === 'innate' && rank === 0,
+  })
+  try {
+    await updatePf2eCharacter(uid, c.id, { spellLists: lists })
+    toast.success(`+ ${catalog.lang.value === 'ru' ? sp.ru : sp.en} → ${c.name} (${rank === 0 ? 'заговор' : `${rank} круг`})`)
+  } catch (e) { toast.error(errorText(e)) }
+}
+
+// 1-click instant Add Item / Container to active character!
+async function quickAddItem(item: Pf2eItemIndex, asContainer = false) {
+  const uid = session.user?.uid
+  const c = activeChar.value
+  if (!uid || !c) return
+  try {
+    if (asContainer) {
+      const containers = [
+        ...c.containers,
+        {
+          id: randomId(10),
+          itemId: item.id,
+          name: catalog.lang.value === 'ru' ? item.ru : item.en,
+          carryType: (item.usage.startsWith('worn') ? 'worn' : 'held') as 'worn' | 'held',
+          parentContainerId: null,
+          bulk: item.bulk,
+          bulkHeld: item.bulkHeld,
+          capacity: item.capacity,
+          ignored: item.ignored,
+          extradimensional: item.extradimensional,
+          invested: false,
+          priceCp: item.priceCp,
+          notes: '',
+          order: c.containers.length,
+        },
+      ]
+      await updatePf2eCharacter(uid, c.id, { containers })
+      toast.success(`+ Контейнер «${catalog.lang.value === 'ru' ? item.ru : item.en}» → ${c.name}`)
+    } else {
+      const cid = ws.targetContainerId.value || null
+      const carryType = (cid ? 'stowed' : item.usageGroup === 'worn' || item.usageGroup === 'worn-slot' || item.type === 'armor' ? 'worn' : 'held') as 'worn' | 'held' | 'stowed'
+      const inv = [
+        ...c.inventory,
+        {
+          id: randomId(10),
+          itemId: item.id,
+          name: '',
+          quantity: item.bulkPer > 1 && item.bulkPer < 1000 ? item.bulkPer : 1,
+          carryType,
+          containerId: cid,
+          group: ws.targetGroup.value.trim(),
+          invested: false,
+          notes: '',
+          order: c.inventory.length,
+        },
+      ]
+      await updatePf2eCharacter(uid, c.id, { inventory: inv })
+      const cName = cid ? c.containers.find((x) => x.id === cid)?.name : ''
+      toast.success(`+ ${catalog.lang.value === 'ru' ? item.ru : item.en} → ${c.name}${cName ? ` (${cName})` : ''}`)
+    }
+  } catch (e) { toast.error(errorText(e)) }
+}
 
 // Create character modal
 const creating = ref(false)
@@ -102,6 +292,7 @@ async function submitCreate() {
       portraitSource: form.value.portraitSource,
       portraitCrop: form.value.portraitCrop,
     })
+    ws.setActivePf2eChar(cid)
     creating.value = false
     void router.push({ name: 'toolPf2eChar', params: { cid } })
   } catch (e) { toast.error('Не удалось создать персонажа: ' + errorText(e)) }
@@ -113,6 +304,7 @@ async function removeChar(c: Pf2eCharacter) {
   if (!confirm(`Удалить персонажа «${c.name}» со всеми его списками заклинаний и инвентарём?`)) return
   try {
     await deletePf2eCharacter(session.user.uid, c.id)
+    if (ws.activeCharId.value === c.id) ws.setActivePf2eChar('')
     toast.success('Персонаж удалён')
   } catch (e) { toast.error('Не удалось удалить: ' + errorText(e)) }
 }
@@ -132,137 +324,6 @@ async function onImport(e: Event) {
   }
 }
 
-// Quick add from standalone library tabs to a character
-const addSpellTarget = ref<Pf2eSpellIndex | null>(null)
-const addItemTarget = ref<{ item: Pf2eItemIndex; asContainer: boolean } | null>(null)
-const pickCharId = ref('')
-const pickListId = ref('')
-const pickRank = ref(1)
-const pickContainerId = ref('')
-
-const pickedChar = computed(() => chars.value.find((c) => c.id === pickCharId.value) ?? null)
-
-function startAddSpell(sp: Pf2eSpellIndex) {
-  if (!chars.value.length) {
-    toast.info('Сначала создайте персонажа во вкладке «Персонажи»')
-    return
-  }
-  addSpellTarget.value = sp
-  pickCharId.value = chars.value[0].id
-  pickListId.value = chars.value[0].spellLists[0]?.id ?? ''
-  pickRank.value = sp.cat === 'cantrip' ? 0 : sp.baseRank
-}
-
-watch(pickCharId, () => {
-  const c = pickedChar.value
-  if (!c) return
-  if (addSpellTarget.value) pickListId.value = c.spellLists[0]?.id ?? ''
-  if (addItemTarget.value) pickContainerId.value = ''
-})
-
-async function confirmAddSpell() {
-  const uid = session.user?.uid
-  const c = pickedChar.value
-  const sp = addSpellTarget.value
-  if (!uid || !c || !sp) return
-  const lists = c.spellLists.map((l) => ({ ...l, spells: [...l.spells] }))
-  let target = lists.find((l) => l.id === pickListId.value)
-  if (!target) {
-    // Auto-create a spell list if the character has none yet
-    target = {
-      id: randomId(10),
-      name: sp.cat === 'focus' ? 'Фокусные заклинания' : sp.cat === 'ritual' ? 'Ритуалы' : 'Основной список',
-      castingType: sp.cat === 'focus' ? 'focus' : sp.cat === 'ritual' ? 'ritual' : 'prepared',
-      tradition: sp.traditions[0] ?? 'arcane',
-      keyAttr: 'int',
-      keyMod: 4,
-      proficiency: 1,
-      bonusAttack: 0,
-      bonusDc: 0,
-      slotsMax: { 1: 2 },
-      slotsUsed: {},
-      focusMax: sp.cat === 'focus' ? 1 : undefined,
-      focusCurrent: sp.cat === 'focus' ? 1 : undefined,
-      spells: [],
-    }
-    lists.push(target)
-  }
-  target.spells.push({
-    id: randomId(10),
-    spellId: sp.id,
-    rank: pickRank.value,
-    preparedCount: target.castingType === 'prepared' ? 1 : undefined,
-    expendedCount: 0,
-    usesMax: target.castingType === 'innate' ? 1 : undefined,
-    usesLeft: target.castingType === 'innate' ? 1 : undefined,
-  })
-  try {
-    await updatePf2eCharacter(uid, c.id, { spellLists: lists })
-    toast.success(`«${catalog.lang.value === 'ru' ? sp.ru : sp.en}» добавлено персонажу ${c.name}`)
-    addSpellTarget.value = null
-  } catch (e) { toast.error(errorText(e)) }
-}
-
-function startAddItem(item: Pf2eItemIndex, asContainer = false) {
-  if (!chars.value.length) {
-    toast.info('Сначала создайте персонажа во вкладке «Персонажи»')
-    return
-  }
-  addItemTarget.value = { item, asContainer }
-  pickCharId.value = chars.value[0].id
-  pickContainerId.value = ''
-}
-
-async function confirmAddItem() {
-  const uid = session.user?.uid
-  const c = pickedChar.value
-  const req = addItemTarget.value
-  if (!uid || !c || !req) return
-  try {
-    if (req.asContainer) {
-      const containers = [
-        ...c.containers,
-        {
-          id: randomId(10),
-          itemId: req.item.id,
-          name: catalog.lang.value === 'ru' ? req.item.ru : req.item.en,
-          carryType: (req.item.usage.startsWith('worn') ? 'worn' : 'held') as 'worn' | 'held',
-          parentContainerId: null,
-          bulk: req.item.bulk,
-          bulkHeld: req.item.bulkHeld,
-          capacity: req.item.capacity,
-          ignored: req.item.ignored,
-          extradimensional: req.item.extradimensional,
-          invested: false,
-          priceCp: req.item.priceCp,
-          order: c.containers.length,
-        },
-      ]
-      await updatePf2eCharacter(uid, c.id, { containers })
-      toast.success(`Контейнер «${req.item.ru}» добавлен персонажу ${c.name}`)
-    } else {
-      const inv = [
-        ...c.inventory,
-        {
-          id: randomId(10),
-          itemId: req.item.id,
-          name: '',
-          quantity: req.item.bulkPer > 1 && req.item.bulkPer < 1000 ? req.item.bulkPer : 1,
-          carryType: (pickContainerId.value ? 'stowed' : req.item.usageGroup === 'worn' || req.item.usageGroup === 'worn-slot' ? 'worn' : 'held') as 'worn' | 'held' | 'stowed',
-          containerId: pickContainerId.value || null,
-          group: '',
-          invested: false,
-          notes: '',
-          order: c.inventory.length,
-        },
-      ]
-      await updatePf2eCharacter(uid, c.id, { inventory: inv })
-      toast.success(`«${catalog.lang.value === 'ru' ? req.item.ru : req.item.en}» добавлено персонажу ${c.name}`)
-    }
-    addItemTarget.value = null
-  } catch (e) { toast.error(errorText(e)) }
-}
-
 function charBulkText(c: Pf2eCharacter): string {
   const b = computeCharacterBulk(c, catalog.itemsById.value)
   return `${formatLight(b.totalLight)} / ${b.encumberedAt} (${b.maxBulk})`
@@ -274,36 +335,23 @@ function charSpellsCount(c: Pf2eCharacter): number {
 
 <template>
   <div class="page">
-    <div class="crumbs-row">
-      <RouterLink :to="{ name: 'tools' }" class="back-link"><Icon name="arrow-left" :size="15" /> Инструменты</RouterLink>
-    </div>
-
-    <div class="row gap wrap" style="margin-bottom: 12px">
-      <div class="grow">
-        <h1 style="margin: 0">Pathfinder 2e</h1>
-        <p class="muted small" style="margin: 2px 0 0">Персонажи, списки заклинаний, инвентарь с контейнерами и полные актуальные библиотеки RU / EN</p>
-      </div>
-      <button v-if="tab === 'chars'" type="button" class="btn btn-primary" @click="openCreate">
-        <Icon name="plus" :size="16" /> Новый персонаж
-      </button>
-    </div>
-
-    <div class="tabs">
-      <button type="button" class="tab" :class="{ on: tab === 'chars' }" @click="setTab('chars')">
-        <Icon name="users" :size="16" /> Персонажи <span class="count">{{ chars.length }}</span>
-      </button>
-      <button type="button" class="tab" :class="{ on: tab === 'spells' }" @click="setTab('spells')">
-        <Icon name="sparkles" :size="16" /> Заклинания
-        <span v-if="catalog.meta.value" class="count">{{ catalog.meta.value.spellCount }}</span>
-      </button>
-      <button type="button" class="tab" :class="{ on: tab === 'items' }" @click="setTab('items')">
-        <Icon name="backpack" :size="16" /> Предметы
-        <span v-if="catalog.meta.value" class="count">{{ catalog.meta.value.itemCount }}</span>
-      </button>
-    </div>
+    <Pf2eTopNav :active="tab" :chars="chars">
+      <template #right>
+        <button v-if="tab === 'chars'" type="button" class="btn btn-sm btn-primary" @click="openCreate">
+          <Icon name="plus" :size="15" /> Новый персонаж
+        </button>
+      </template>
+    </Pf2eTopNav>
 
     <!-- TAB: CHARACTERS -->
     <template v-if="tab === 'chars'">
+      <div class="row gap wrap" style="margin-bottom: 14px">
+        <div class="grow">
+          <h1 style="margin: 0; font-size: 28px">Персонажи Pathfinder 2e</h1>
+          <p class="muted small" style="margin: 2px 0 0">Наборы заклинаний и инвентарь с точным подсчётом массы и контейнеров</p>
+        </div>
+      </div>
+
       <div v-if="loading" class="empty"><Icon name="refresh-cw" class="spin" :size="24" /></div>
       <div v-else-if="!chars.length" class="card empty">
         <Icon name="user-round" :size="36" />
@@ -316,7 +364,7 @@ function charSpellsCount(c: Pf2eCharacter): number {
 
       <template v-else>
         <div class="char-grid">
-          <div v-for="c in chars" :key="c.id" class="char-card">
+          <div v-for="c in chars" :key="c.id" class="char-card" :class="{ active: ws.activeCharId.value === c.id }">
             <RouterLink class="cc-main" :to="{ name: 'toolPf2eChar', params: { cid: c.id } }">
               <div class="cc-ava">
                 <img v-if="c.portrait" :src="c.portrait" alt="" />
@@ -354,21 +402,107 @@ function charSpellsCount(c: Pf2eCharacter): number {
       <input ref="importInput" type="file" accept=".json,application/json" hidden @change="onImport" />
     </template>
 
-    <!-- TAB: SPELLS LIBRARY -->
-    <Pf2eSpellBrowser
-      v-else-if="tab === 'spells'"
-      :pick-mode="chars.length > 0"
-      pick-label="Добавить персонажу…"
-      @pick="startAddSpell"
-    />
+    <!-- TAB: SPELLS LIBRARY (full-page with seamless 1-click target character bar) -->
+    <template v-else-if="tab === 'spells'">
+      <div v-if="activeChar" class="pick-ctx-bar">
+        <RouterLink
+          :to="{ name: 'toolPf2eChar', params: { cid: activeChar.id }, query: { tab: 'spells' } }"
+          class="btn btn-sm btn-primary"
+        >
+          <Icon name="arrow-left" :size="14" /> К «{{ activeChar.name }}»
+        </RouterLink>
 
-    <!-- TAB: ITEMS LIBRARY -->
-    <Pf2eItemBrowser
-      v-else
-      :pick-mode="chars.length > 0"
-      pick-label="Добавить персонажу…"
-      @pick="startAddItem"
-    />
+        <div class="row gap-sm wrap grow">
+          <label class="row gap-sm small">
+            <span class="muted">Список:</span>
+            <select v-model="ws.targetListId.value" class="input input-sm" style="width: auto; max-width: 220px">
+              <option v-if="!activeChar.spellLists.length" value="">— создастся автоматически —</option>
+              <option v-for="l in activeChar.spellLists" :key="l.id" :value="l.id">{{ l.name }} ({{ l.spells.length }})</option>
+            </select>
+          </label>
+
+          <label class="row gap-sm small">
+            <span class="muted">Круг:</span>
+            <select v-model="ws.targetRank.value" class="input input-sm" style="width: auto">
+              <option :value="null">Базовый круг</option>
+              <option :value="0">Заговор (0)</option>
+              <option v-for="r in 10" :key="r" :value="r">Круг {{ r }}</option>
+            </select>
+          </label>
+
+          <label v-if="activeSpellList?.tradition || activeSpellList?.castingType === 'focus' || activeSpellList?.castingType === 'ritual'" class="check small nowrap">
+            <input v-model="filterByListTradition" type="checkbox" /> Фильтр по списку
+          </label>
+        </div>
+
+        <button type="button" class="icon-btn" title="Отключить режим добавления персонажу" @click="ws.setActivePf2eChar('')">
+          <Icon name="x" :size="15" />
+        </button>
+      </div>
+
+      <Pf2eSpellBrowser
+        :pick-mode="Boolean(activeChar)"
+        :initial-tradition="browserTradition"
+        :initial-cat="browserSpellCat"
+        :owned-counts="ownedSpellCounts"
+        :pick-label="activeChar ? `Добавить «${activeChar.name}»` : 'Добавить'"
+        @pick="quickAddSpell"
+      />
+    </template>
+
+    <!-- TAB: ITEMS LIBRARY (full-page with seamless 1-click target character bar) -->
+    <template v-else>
+      <div v-if="activeChar" class="pick-ctx-bar">
+        <RouterLink
+          :to="{ name: 'toolPf2eChar', params: { cid: activeChar.id }, query: { tab: 'inventory' } }"
+          class="btn btn-sm btn-primary"
+        >
+          <Icon name="arrow-left" :size="14" /> К «{{ activeChar.name }}»
+        </RouterLink>
+
+        <div class="row gap-sm wrap grow">
+          <label class="row gap-sm small">
+            <span class="muted">Куда класть:</span>
+            <select v-model="ws.targetContainerId.value" class="input input-sm" style="width: auto; max-width: 230px">
+              <option value="">На себе / в руках</option>
+              <option v-for="ct in activeChar.containers" :key="ct.id" :value="ct.id">В контейнер: {{ ct.name }}</option>
+            </select>
+          </label>
+
+          <label class="row gap-sm small">
+            <span class="muted">Группа:</span>
+            <input
+              v-model="ws.targetGroup.value"
+              type="text"
+              list="pf-lib-groups"
+              class="input input-sm"
+              style="width: 145px"
+              placeholder="Необязательно…"
+            />
+          </label>
+
+          <span v-if="activeCharBulk" class="badge" :class="activeCharBulk.status === 'overloaded' ? 'badge-dead' : activeCharBulk.status === 'encumbered' ? 'badge-warn' : ''">
+            <Icon name="weight" :size="12" /> {{ formatLight(activeCharBulk.totalLight) }} / {{ activeCharBulk.encumberedAt }} ({{ activeCharBulk.maxBulk }})
+          </span>
+        </div>
+
+        <button type="button" class="icon-btn" title="Отключить режим добавления персонажу" @click="ws.setActivePf2eChar('')">
+          <Icon name="x" :size="15" />
+        </button>
+
+        <datalist id="pf-lib-groups">
+          <option v-for="g in activeCharGroups" :key="g" :value="g" />
+        </datalist>
+      </div>
+
+      <Pf2eItemBrowser
+        :pick-mode="Boolean(activeChar)"
+        :initial-type="initialItemType"
+        :owned-counts="ownedItemCounts"
+        :pick-label="activeChar ? `В инвентарь «${activeChar.name}»` : 'Добавить'"
+        @pick="quickAddItem"
+      />
+    </template>
 
     <!-- CREATE CHARACTER MODAL -->
     <Modal v-if="creating" title="Новый персонаж PF2e" width="540px" @close="creating = false">
@@ -423,75 +557,28 @@ function charSpellsCount(c: Pf2eCharacter): number {
       @save="onCropSave"
       @close="framing = null"
     />
-
-    <!-- QUICK ADD SPELL TO CHARACTER MODAL -->
-    <Modal v-if="addSpellTarget" title="Добавить заклинание персонажу" width="460px" @close="addSpellTarget = null">
-      <div class="stack">
-        <div class="small"><b>{{ catalog.lang.value === 'ru' ? addSpellTarget.ru : addSpellTarget.en }}</b></div>
-        <label class="field">
-          <span>Персонаж</span>
-          <select v-model="pickCharId" class="input">
-            <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }} (Ур. {{ c.level }})</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Список заклинаний</span>
-          <select v-model="pickListId" class="input">
-            <option v-if="!pickedChar?.spellLists.length" value="">— создать автоматически —</option>
-            <option v-for="l in pickedChar?.spellLists ?? []" :key="l.id" :value="l.id">{{ l.name }}</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Круг (0 = заговор)</span>
-          <input v-model.number="pickRank" type="number" min="0" max="10" class="input" />
-        </label>
-      </div>
-      <template #footer>
-        <button type="button" class="btn" @click="addSpellTarget = null">Отмена</button>
-        <button type="button" class="btn btn-primary" @click="confirmAddSpell"><Icon name="plus" :size="14" /> Добавить</button>
-      </template>
-    </Modal>
-
-    <!-- QUICK ADD ITEM TO CHARACTER MODAL -->
-    <Modal v-if="addItemTarget" title="Добавить предмет персонажу" width="460px" @close="addItemTarget = null">
-      <div class="stack">
-        <div class="small"><b>{{ catalog.lang.value === 'ru' ? addItemTarget.item.ru : addItemTarget.item.en }}</b></div>
-        <label class="field">
-          <span>Персонаж</span>
-          <select v-model="pickCharId" class="input">
-            <option v-for="c in chars" :key="c.id" :value="c.id">{{ c.name }} (Ур. {{ c.level }})</option>
-          </select>
-        </label>
-        <label v-if="!addItemTarget.asContainer && pickedChar?.containers.length" class="field">
-          <span>Положить в контейнер</span>
-          <select v-model="pickContainerId" class="input">
-            <option value="">— вне контейнера (на себе / в руках) —</option>
-            <option v-for="ct in pickedChar.containers" :key="ct.id" :value="ct.id">{{ ct.name }}</option>
-          </select>
-        </label>
-        <label v-if="addItemTarget.item.type === 'backpack' || addItemTarget.item.capacity > 0" class="check small">
-          <input v-model="addItemTarget.asContainer" type="checkbox" /> Добавить как контейнер (с учётом вместимости)
-        </label>
-      </div>
-      <template #footer>
-        <button type="button" class="btn" @click="addItemTarget = null">Отмена</button>
-        <button type="button" class="btn btn-primary" @click="confirmAddItem"><Icon name="plus" :size="14" /> Добавить</button>
-      </template>
-    </Modal>
   </div>
 </template>
 
 <style scoped>
-.page { max-width: 1360px; margin: 0 auto; padding: 18px 24px 60px; }
-.crumbs-row { margin-bottom: 8px; }
-.back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text-muted); }
-.back-link:hover { color: var(--accent); text-decoration: none; }
+.page { max-width: 1360px; margin: 0 auto; padding: 16px 24px 60px; }
+
+.pick-ctx-bar {
+  position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 20;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; margin-bottom: 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow: var(--shadow);
+}
+.badge-warn { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning); }
 
 .char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
 .char-card {
   display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border);
   border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); transition: border-color .12s, transform .12s;
 }
+.char-card.active { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 .char-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .cc-main { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; color: var(--text); text-decoration: none !important; flex: 1; }
 .cc-ava {

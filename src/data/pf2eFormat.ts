@@ -1,7 +1,9 @@
-// Renders Foundry PF2e rich descriptions (@UUID, @Damage, @Check, @Template, @Condition, @Trait, @Glyph, @Unit, [[/r ...]])
-// into clean, safe HTML badges + readable text in both RU and EN.
+// Renders Foundry PF2e rich descriptions (@UUID, @Damage, @Check, @Template, @Condition, @Trait,
+// @Glyph, @Unit, [[/r ...]], plus plain-text dice like 6d6) into clean, safe interactive HTML
+// with clickable roll buttons, average-damage hints, and cross-links opening in new tabs.
 import DOMPurify from 'dompurify'
 import type { Pf2eLang, Pf2eMeta, Pf2eRarity } from '@/model/pf2e'
+import { compilePf2eFormula, formatAvgNumber, type Pf2eFormulaContext } from './pf2eRoll'
 
 const SAVE_LABELS: Record<string, { ru: string; en: string }> = {
   fortitude: { ru: 'Стойкость', en: 'Fortitude' },
@@ -90,6 +92,16 @@ export function formatArea(type: string | null, val: number | null, lang: Pf2eLa
   return `${val} ${lang === 'ru' ? 'фт.' : 'ft'} ${lbl}`
 }
 
+export function localizeDamageType(type: string, lang: Pf2eLang, meta: Pf2eMeta | null): string {
+  const k = type.trim().toLowerCase()
+  if (k === 'persistent') return lang === 'ru' ? 'продолж.' : 'persistent'
+  if (k === 'splash') return lang === 'ru' ? 'брызги' : 'splash'
+  if (k === 'healing') return lang === 'ru' ? 'исцеление' : 'healing'
+  if (k === 'negative') return meta?.damageTypes?.void?.[lang] || (lang === 'ru' ? 'Пустота' : 'Void')
+  if (k === 'positive') return meta?.damageTypes?.vitality?.[lang] || (lang === 'ru' ? 'Витальность' : 'Vitality')
+  return meta?.damageTypes?.[k]?.[lang] || k
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 }
@@ -104,10 +116,162 @@ function glyphInline(g: string): string {
   return `<span class="pf-act">${esc(g)}</span>`
 }
 
+/** Replace balanced @Tag[...]{optLabel} handling arbitrary nested [...] inside. */
+function replaceBalancedTag(
+  input: string,
+  tagPrefix: string,
+  replacer: (inner: string, label: string | undefined) => string,
+): string {
+  const lower = input.toLowerCase()
+  const needle = tagPrefix.toLowerCase()
+  let out = ''
+  let pos = 0
+  while (pos < input.length) {
+    const idx = lower.indexOf(needle, pos)
+    if (idx === -1) {
+      out += input.slice(pos)
+      break
+    }
+    out += input.slice(pos, idx)
+    let i = idx + tagPrefix.length
+    let depth = 1
+    while (i < input.length && depth > 0) {
+      if (input[i] === '[') depth++
+      else if (input[i] === ']') depth--
+      i++
+    }
+    if (depth !== 0) {
+      out += input.slice(idx, idx + tagPrefix.length)
+      pos = idx + tagPrefix.length
+      continue
+    }
+    const inner = input.slice(idx + tagPrefix.length, i - 1)
+    let label: string | undefined
+    if (input[i] === '{') {
+      const endBrace = input.indexOf('}', i + 1)
+      if (endBrace !== -1) {
+        label = input.slice(i + 1, endBrace)
+        i = endBrace + 1
+      }
+    }
+    out += replacer(inner, label)
+    pos = i
+  }
+  return out
+}
+
+/** Replace balanced [[/r ...]] / [[/roll ...]] / [[/gmr ...]] / [[/br ...]] even when inner contains [...]. */
+function replaceDoubleBracketRolls(
+  input: string,
+  replacer: (cmd: string, inner: string, label: string | undefined) => string,
+): string {
+  let out = ''
+  let pos = 0
+  while (pos < input.length) {
+    const idx = input.indexOf('[[/', pos)
+    if (idx === -1) {
+      out += input.slice(pos)
+      break
+    }
+    const mCmd = /^\[\[\/(r|roll|gmr|br|gr|act)\s+/i.exec(input.slice(idx))
+    if (!mCmd) {
+      out += input.slice(pos, idx + 3)
+      pos = idx + 3
+      continue
+    }
+    out += input.slice(pos, idx)
+    const cmd = mCmd[1].toLowerCase()
+    const startInner = idx + mCmd[0].length
+    const closeIdx = input.indexOf(']]', startInner)
+    if (closeIdx === -1) {
+      out += input.slice(idx, startInner)
+      pos = startInner
+      continue
+    }
+    const inner = input.slice(startInner, closeIdx)
+    let nextPos = closeIdx + 2
+    let label: string | undefined
+    if (input[nextPos] === '{') {
+      const endBrace = input.indexOf('}', nextPos + 1)
+      if (endBrace !== -1) {
+        label = input.slice(nextPos + 1, endBrace)
+        nextPos = endBrace + 1
+      }
+    }
+    out += replacer(cmd, inner, label)
+    pos = nextPos
+  }
+  return out
+}
+
+function renderRollButton(
+  spec: string,
+  lang: Pf2eLang,
+  meta: Pf2eMeta | null,
+  ctx: Pf2eFormulaContext | undefined,
+  variant: 'dmg' | 'roll',
+  explicitLabel?: string,
+): string {
+  const compiled = compilePf2eFormula(spec, ctx)
+  if (!compiled) {
+    const fallbackText = explicitLabel || spec.split('|')[0].replace(/@item\.rank|@item\.level/gi, lang === 'ru' ? 'круг' : 'rank')
+    return `<span class="${variant === 'dmg' ? 'pf-inline-dmg' : 'pf-inline-roll'}">${esc(fallbackText)}</span>`
+  }
+
+  const labelParts = compiled.components.map((c) => {
+    const typeText = c.types.length ? ` (${c.types.map((t) => localizeDamageType(t, lang, meta)).join(', ')})` : ''
+    return `${c.displayExpr}${typeText}`
+  })
+  const mainLabel = explicitLabel || labelParts.join(' + ')
+
+  // Flat-only damage (no dice to roll) -> clean non-interactive damage badge
+  if (!compiled.hasDice) {
+    return `<span class="pf-inline-dmg">${esc(mainLabel)}</span>`
+  }
+
+  const avgStr = formatAvgNumber(compiled.avg)
+  const avgHint = lang === 'ru' ? `ср. ${avgStr}` : `avg ${avgStr}`
+  const title = lang === 'ru'
+    ? `Нажмите, чтобы бросить ${compiled.displayExpr} · Среднее: ${avgStr} (${compiled.min}–${compiled.max})`
+    : `Click to roll ${compiled.displayExpr} · Average: ${avgStr} (${compiled.min}–${compiled.max})`
+  const noteAttr = compiled.note ? ` data-roll-note="${esc(compiled.note)}"` : ''
+
+  return `<button type="button" class="pf-roll-btn ${variant === 'dmg' ? 'pf-inline-dmg' : 'pf-inline-roll'}" data-roll-spec="${esc(spec)}"${noteAttr} title="${esc(title)}"><span class="pf-roll-ic" aria-hidden="true">🎲</span><span>${esc(mainLabel)}</span><span class="pf-roll-avg">· ${esc(avgHint)}</span></button>`
+}
+
+/** Auto-enhance plain-text dice like "6d6" or "2d8+4" in text nodes outside HTML tags/buttons. */
+function enhancePlainDice(html: string, lang: Pf2eLang, meta: Pf2eMeta | null, ctx?: Pf2eFormulaContext): string {
+  const tokens = html.split(/(<[^>]+>)/g)
+  let inButton = 0
+  let inLink = 0
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+    if (tok.startsWith('<')) {
+      if (/^<button\b/i.test(tok)) inButton++
+      else if (/^<\/button>/i.test(tok)) inButton = Math.max(0, inButton - 1)
+      else if (/^<a\b/i.test(tok)) inLink++
+      else if (/^<\/a>/i.test(tok)) inLink = Math.max(0, inLink - 1)
+      continue
+    }
+    if (inButton > 0 || inLink > 0 || !/\d+d\d+/i.test(tok)) continue
+    tokens[i] = tok.replace(/(^|[^\w/])(\d{1,2}d(?:4|6|8|10|12|20|100)(?:\s*[+-]\s*\d{1,3})?)(?![\w\]])/gi, (m, lead, expr) => {
+      const normalized = expr.replace(/\s+/g, '')
+      return lead + renderRollButton(normalized, lang, meta, ctx, 'roll')
+    })
+  }
+  return tokens.join('')
+}
+
 /**
- * Transforms Foundry PF2e inline enrichers into clean, human-readable HTML badges.
+ * Transforms Foundry PF2e inline enrichers into clean, human-readable HTML badges
+ * and interactive dice-roll buttons.
  */
-export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | null): string {
+export function renderPf2eHtml(
+  raw: string,
+  lang: Pf2eLang,
+  meta: Pf2eMeta | null,
+  ctx?: Pf2eFormulaContext,
+): string {
   if (!raw) return ''
   let html = raw
 
@@ -155,31 +319,13 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
     return `<span class="pf-inline-ref">${esc(text)}</span>`
   })
 
-  // @Damage[expr[type,type]|options]{Optional}
-  html = html.replace(/@Damage\[([^\]]+(?:\[[^\]]*\])?[^\]]*)\](?:\{([^}]+)\})?/gi, (_, inner, label) => {
-    if (label) return `<span class="pf-inline-dmg">${esc(label)}</span>`
-    const main = inner.split('|')[0].trim()
-    // Parse "4d6[fire]" or "(2d6+4)[slashing,persistent]"
-    const m = /^(.+?)\[([^\]]+)\]$/.exec(main)
-    if (m) {
-      const expr = m[1].replace(/^\(|\)$/g, '').replace(/@item\.rank|@item\.level/gi, lang === 'ru' ? 'круг' : 'rank')
-      const types = m[2]
-        .split(',')
-        .map((t: string) => {
-          const k = t.trim().toLowerCase()
-          if (k === 'persistent') return lang === 'ru' ? 'продолж.' : 'persistent'
-          if (k === 'splash') return lang === 'ru' ? 'брызги' : 'splash'
-          if (k === 'healing') return lang === 'ru' ? 'исцеление' : 'healing'
-          return meta?.damageTypes?.[k]?.[lang] || k
-        })
-        .join(', ')
-      return `<span class="pf-inline-dmg">${esc(expr)} (${esc(types)})</span>`
-    }
-    return `<span class="pf-inline-dmg">${esc(main)}</span>`
-  })
+  // Balanced @Damage[...] (supports multi-bracket & multi-component formulas like (@item.rank -2)d6[void] and 2d8[piercing],2d4[slashing])
+  html = replaceBalancedTag(html, '@Damage[', (inner, label) =>
+    renderRollButton(inner, lang, meta, ctx, 'dmg', label),
+  )
 
   // @Check[type:reflex|dc:20|basic]{Optional} or @Check[reflex|basic]
-  html = html.replace(/@Check\[([^\]]+)\](?:\{([^}]+)\})?/gi, (_, inner, label) => {
+  html = replaceBalancedTag(html, '@Check[', (inner, label) => {
     if (label) return `<span class="pf-inline-check">${esc(label)}</span>`
     const parts = inner.split('|')
     let type = ''
@@ -205,7 +351,7 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
   })
 
   // @Template[type:cone|distance:30]{Optional} or @Template[cone|distance:30]
-  html = html.replace(/@Template\[([^\]]+)\](?:\{([^}]+)\})?/gi, (_, inner, label) => {
+  html = replaceBalancedTag(html, '@Template[', (inner, label) => {
     if (label) return `<span class="pf-inline-tpl">${esc(label)}</span>`
     const parts = inner.split('|')
     let type = ''
@@ -233,20 +379,20 @@ export function renderPf2eHtml(raw: string, lang: Pf2eLang, meta: Pf2eMeta | nul
     return /^[A-Za-z0-9]{16}(?:\s|$)/.test(tail) ? '' : esc(tail)
   })
 
-  // Inline actions [[/act grapple ...]]{label}
-  html = html.replace(/\[\[\/act\s+([^\]]+)\]\](?:\{([^}]+)\})?/gi, (_, expr, label) => {
-    const clean = label || expr.split(/\s+/)[0].replace(/-/g, ' ')
-    return `<span class="pf-inline-check">${esc(clean)}</span>`
+  // Balanced [[/act ...]] and [[/r ...]] / [[/roll ...]] / [[/gmr ...]] / [[/br ...]]
+  html = replaceDoubleBracketRolls(html, (cmd, inner, label) => {
+    if (cmd === 'act') {
+      const clean = label || inner.split(/\s+/)[0].replace(/-/g, ' ')
+      return `<span class="pf-inline-check">${esc(clean)}</span>`
+    }
+    return renderRollButton(inner, lang, meta, ctx, 'roll', label)
   })
 
-  // Inline dice rolls [[/r 1d4 #rounds]]{label} or [[/r 1d4]]
-  html = html.replace(/\[\[\/(?:r|roll|gmr|br)\s+([^\]]+)\]\](?:\{([^}]+)\})?/gi, (_, expr, label) => {
-    const clean = label || expr.split('#')[0].replace(/\{[^}]*\}/g, '').trim()
-    return `<span class="pf-inline-roll">${esc(clean)}</span>`
-  })
+  // Make plain-text dice like "6d6" or "1d8" in descriptions clickable too!
+  html = enhancePlainDice(html, lang, meta, ctx)
 
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'blockquote', 'sup', 'sub', 'code'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title', 'colspan', 'rowspan'],
+    ALLOWED_TAGS: ['a', 'button', 'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'blockquote', 'sup', 'sub', 'code'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title', 'type', 'aria-hidden', 'data-roll-spec', 'data-roll-note', 'colspan', 'rowspan'],
   })
 }

@@ -28,6 +28,7 @@ const {
 } = await import('../src/data/statCalc.ts')
 const { computeCharacterBulk, formatLight, formatPriceCp } = await import('../src/data/pf2eBulk.ts')
 const { autoRank, computeSpellStats, PF2E_CLASS_PRESETS, proficiencyBonus } = await import('../src/data/pf2eSpellcasting.ts')
+const { compilePf2eFormula, evalPf2eMath, executePf2eRoll } = await import('../src/data/pf2eRoll.ts')
 
 let passed = 0
 let failed = 0
@@ -368,6 +369,112 @@ test('All spells & items exist with 100% RU+EN, Feybound+Impossible Magic, clean
       checkedImgs.add(it.img)
     }
   }
+})
+
+console.log('\n5. PF2e Formula Parser, Dice Roller & Expected-Average Indicator')
+test('Evaluates complex Foundry PF2e math, multi-component damage, average & deviation verdict', () => {
+  // User-reported formula: (@item.rank -2)d6[void]
+  const c4 = compilePf2eFormula('(@item.rank -2)d6[void]', { rank: 4, baseRank: 4 })
+  assert.ok(c4)
+  assert.equal(c4.displayExpr, '2d6')
+  assert.deepEqual(c4.components[0].types, ['void'])
+  assert.equal(c4.min, 2)
+  assert.equal(c4.max, 12)
+  assert.equal(c4.avg, 7)
+
+  const c6 = compilePf2eFormula('(@item.rank -2)d6[void]', { rank: 6, baseRank: 4 })
+  assert.equal(c6.displayExpr, '4d6')
+  assert.equal(c6.avg, 14)
+
+  // Nested floor / ternary / multi-component / scaled flat
+  const fw = compilePf2eFormula('(1+(floor((@item.rank -2)/2)))d4[persistent,fire]', { rank: 6, baseRank: 2 })
+  assert.equal(fw.displayExpr, '3d4')
+  assert.equal(fw.avg, 7.5)
+
+  const multi = compilePf2eFormula('2d8[piercing],2d4[slashing]|options:area-damage')
+  assert.equal(multi.components.length, 2)
+  assert.equal(multi.min, 4)
+  assert.equal(multi.max, 24)
+  assert.equal(multi.avg, 14)
+
+  const tern = compilePf2eFormula('(ternary(gte(@item.level,8),3,ternary(gte(@item.level,6),2,1)))d6[persistent,spirit]', { level: 8 })
+  assert.equal(tern.displayExpr, '3d6')
+  assert.equal(tern.avg, 10.5)
+
+  const flatScaled = compilePf2eFormula('(@item.rank -2)*2[electricity]', { rank: 5, baseRank: 3 })
+  assert.equal(flatScaled.hasDice, false)
+  assert.equal(flatScaled.avg, 6)
+
+  const heal = compilePf2eFormula('((@item.level)d6+(@item.level)*4)[vitality,healing]', { level: 3 })
+  assert.equal(heal.displayExpr, '3d6 + 12')
+  assert.equal(heal.avg, 22.5)
+
+  // Roll deviation verdicts (deterministic RNG)
+  const rMax = executePf2eRoll(c6, () => 6) // 24 vs avg 14
+  assert.equal(rMax.total, 24)
+  assert.equal(rMax.diff, 10)
+  assert.equal(rMax.verdict, 'great')
+
+  const rAvg = executePf2eRoll(c6, () => 3.5) // rounds to 4 -> 16 vs 14 -> high; test exact 2d6 = 7
+  const rExact = executePf2eRoll(c4, (() => { let i = 0; return () => [3, 4][i++] })())
+  assert.equal(rExact.total, 7)
+  assert.equal(rExact.diff, 0)
+  assert.equal(rExact.verdict, 'avg')
+
+  const rMin = executePf2eRoll(c6, () => 1) // 4 vs avg 14
+  assert.equal(rMin.total, 4)
+  assert.equal(rMin.verdict, 'poor')
+  assert.ok(rAvg.total > 0)
+  assert.equal(evalPf2eMath('ceil(5/2) + max(2, 4)'), 7)
+})
+
+test('100% of all @Damage[...] and [[/r ...]] formulas across all 8,041 spells & items compile cleanly', () => {
+  const dir = path.join(process.cwd(), 'public/data/pf2e')
+  const spells = JSON.parse(fs.readFileSync(path.join(dir, 'spells-index.json'), 'utf8'))
+  const items = JSON.parse(fs.readFileSync(path.join(dir, 'items-index.json'), 'utf8'))
+  const spMap = new Map(spells.map((s) => [s.id, s]))
+  const itMap = new Map(items.map((i) => [i.id, i]))
+  let total = 0
+  const failed = []
+
+  for (const [f, isSpell] of [['spells-desc-en.json', true], ['spells-desc-ru.json', true], ['items-desc-en.json', false], ['items-desc-ru.json', false]]) {
+    const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+    for (const [id, txt] of Object.entries(d)) {
+      const m = isSpell ? spMap.get(id) : itMap.get(id)
+      const ctx = isSpell
+        ? { rank: Math.max(1, m?.baseRank || 1), baseRank: Math.max(1, m?.baseRank || 1), level: Math.max(1, m?.baseRank || 1), actorLevel: Math.max(1, (m?.baseRank || 1) * 2 - 1) }
+        : { level: m?.level || 1, rank: Math.max(1, Math.ceil((m?.level || 1) / 2)), actorLevel: Math.max(1, m?.level || 1), diceNum: m?.diceNum || 1, dmgType: m?.dmgType || undefined }
+
+      let idx = 0
+      while ((idx = txt.indexOf('@Damage[', idx)) !== -1) {
+        let i = idx + 8
+        let depth = 1
+        while (i < txt.length && depth > 0) {
+          if (txt[i] === '[') depth++
+          else if (txt[i] === ']') depth--
+          i++
+        }
+        const inner = txt.slice(idx + 8, i - 1)
+        total++
+        if (!compilePf2eFormula(inner, ctx)) failed.push(`${f}:${m?.en}:${inner}`)
+        idx = i
+      }
+
+      let ridx = 0
+      while ((ridx = txt.indexOf('[[/', ridx)) !== -1) {
+        const mc = /^\[\[\/(r|roll|gmr|br|gr)\s+/i.exec(txt.slice(ridx))
+        if (!mc) { ridx += 3; continue }
+        const close = txt.indexOf(']]', ridx + mc[0].length)
+        if (close === -1) break
+        const inner = txt.slice(ridx + mc[0].length, close)
+        total++
+        if (!compilePf2eFormula(inner, ctx)) failed.push(`${f}:${m?.en}:[[/r ${inner}]]`)
+        ridx = close + 2
+      }
+    }
+  }
+  assert.ok(total > 5000, `Expected > 5000 formulas, got ${total}`)
+  assert.equal(failed.length, 0, `Uncompiled formulas (${failed.length}): ${failed.slice(0, 10).join(' | ')}`)
 })
 
 console.log(`\n${passed} passed, ${failed} failed`)

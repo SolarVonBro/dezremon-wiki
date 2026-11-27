@@ -3,35 +3,91 @@ import { computed, ref, watch } from 'vue'
 import type { Pf2eItemIndex, Pf2eLang, Pf2eMeta } from '@/model/pf2e'
 import { ensureItemDescriptions, getItemDesc } from '@/data/pf2eCatalog'
 import { ITEM_TYPE_LABEL, pf2eIconUrl, RARITY_LABEL, renderPf2eHtml } from '@/data/pf2eFormat'
+import { compilePf2eFormula, executePf2eRoll, formatAvgNumber, type Pf2eFormulaContext, type Pf2eRollResult } from '@/data/pf2eRoll'
 import { formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
 import { PF2E_ATTRIBUTES } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
+import Pf2eRollPanel from './Pf2eRollPanel.vue'
 
 const props = defineProps<{
   item: Pf2eItemIndex
   meta: Pf2eMeta | null
   lang: Pf2eLang
   standalone?: boolean
+  actorLevel?: number
+  strMod?: number
 }>()
 
 const cardLang = ref<Pf2eLang>(props.lang)
 watch(() => props.lang, (l) => { cardLang.value = l })
 
-const descHtml = ref('')
+const rawDesc = ref('')
 const loadingDesc = ref(false)
+const activeRoll = ref<Pf2eRollResult | null>(null)
+const rollHistory = ref<Pf2eRollResult[]>([])
 
 async function loadDesc() {
   loadingDesc.value = true
   try {
     await ensureItemDescriptions(cardLang.value)
-    const raw = getItemDesc(props.item.id, cardLang.value)
-    descHtml.value = renderPf2eHtml(raw, cardLang.value, props.meta)
+    rawDesc.value = getItemDesc(props.item.id, cardLang.value)
   } finally {
     loadingDesc.value = false
   }
 }
 
+watch(() => props.item.id, () => {
+  activeRoll.value = null
+  rollHistory.value = []
+})
 watch([() => props.item.id, cardLang], () => { void loadDesc() }, { immediate: true })
+
+const formulaCtx = computed<Pf2eFormulaContext>(() => ({
+  level: props.item.level,
+  rank: Math.max(1, Math.ceil((props.item.level || 1) / 2)),
+  baseRank: Math.max(1, Math.ceil((props.item.level || 1) / 2)),
+  actorLevel: props.actorLevel ?? Math.max(1, props.item.level || 1),
+  strMod: props.strMod ?? 0,
+  diceNum: props.item.diceNum || 1,
+  dmgType: props.item.dmgType || undefined,
+}))
+
+const descHtml = computed(() => renderPf2eHtml(rawDesc.value, cardLang.value, props.meta, formulaCtx.value))
+
+function runRoll(spec: string, note?: string) {
+  const compiled = compilePf2eFormula(spec, formulaCtx.value)
+  if (!compiled || !compiled.hasDice) return
+  if (note && !compiled.note) compiled.note = note
+  const res = executePf2eRoll(compiled)
+  activeRoll.value = res
+  rollHistory.value = [res, ...rollHistory.value].slice(0, 6)
+}
+
+function onProseClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('button.pf-roll-btn')
+  if (!btn) return
+  const spec = btn.dataset.rollSpec
+  if (!spec) return
+  e.preventDefault()
+  runRoll(spec, btn.dataset.rollNote)
+}
+
+function rerollActive() {
+  if (!activeRoll.value) return
+  runRoll(activeRoll.value.formula.raw, activeRoll.value.formula.note)
+}
+
+const weaponRollSpec = computed(() => {
+  if (props.item.type !== 'weapon' || !props.item.die) return ''
+  const n = props.item.diceNum || 1
+  const dt = props.item.dmgType ? `[${props.item.dmgType}]` : ''
+  return `${n}${props.item.die}${dt}`
+})
+const weaponAvg = computed(() => {
+  if (!weaponRollSpec.value) return null
+  const c = compilePf2eFormula(weaponRollSpec.value, formulaCtx.value)
+  return c ? formatAvgNumber(c.avg) : null
+})
 
 const title = computed(() => (cardLang.value === 'ru' ? props.item.ru : props.item.en))
 const subTitle = computed(() => (cardLang.value === 'ru' ? props.item.en : props.item.ru))
@@ -147,13 +203,23 @@ const standaloneHref = computed(() => `#/tools/pf2e/item/${encodeURIComponent(pr
         </dd>
       </template>
 
-      <!-- Weapon stats -->
+      <!-- Weapon stats (damage badge is clickable to roll!) -->
       <template v-if="item.type === 'weapon'">
         <dt>{{ cardLang === 'ru' ? 'Оружие' : 'Weapon' }}</dt>
         <dd>
           <span v-if="item.category" class="badge">{{ WEAPON_CAT[item.category]?.[cardLang] ?? item.category }}</span>
           <span v-if="item.group" class="badge">{{ meta?.weaponGroups?.[item.group]?.[cardLang] ?? item.group }}</span>
-          <span v-if="item.die" class="badge"><b>{{ item.diceNum || 1 }}{{ item.die }}</b> {{ meta?.damageTypes?.[item.dmgType]?.[cardLang] ?? item.dmgType }}</span>
+          <button
+            v-if="item.die"
+            type="button"
+            class="wep-roll-btn"
+            :title="cardLang === 'ru' ? `Бросить урон оружия (ср. ${weaponAvg})` : `Roll weapon damage (avg ${weaponAvg})`"
+            @click="runRoll(weaponRollSpec)"
+          >
+            🎲 <b>{{ item.diceNum || 1 }}{{ item.die }}</b>
+            {{ meta?.damageTypes?.[item.dmgType]?.[cardLang] ?? item.dmgType }}
+            <span v-if="weaponAvg" class="faint">· {{ cardLang === 'ru' ? `ср. ${weaponAvg}` : `avg ${weaponAvg}` }}</span>
+          </button>
           <span v-if="item.wRange" class="badge">{{ cardLang === 'ru' ? `Дист. ${item.wRange} фт.` : `Range ${item.wRange} ft` }}</span>
           <span v-if="item.reload && item.reload !== '-'" class="badge">{{ cardLang === 'ru' ? `Перезарядка ${item.reload}` : `Reload ${item.reload}` }}</span>
         </dd>
@@ -206,9 +272,21 @@ const standaloneHref = computed(() => `#/tools/pf2e/item/${encodeURIComponent(pr
       </template>
     </dl>
 
+    <!-- Active Interactive Dice Roll Panel -->
+    <Pf2eRollPanel
+      v-if="activeRoll"
+      :result="activeRoll"
+      :history="rollHistory"
+      :lang="cardLang"
+      :meta="meta"
+      @reroll="rerollActive"
+      @close="activeRoll = null"
+      @select="activeRoll = $event"
+    />
+
     <div class="pfc-body">
       <div v-if="loadingDesc" class="empty" style="padding: 16px"><Icon name="refresh-cw" class="spin" :size="18" /></div>
-      <div v-else-if="descHtml" class="pf-prose" v-html="descHtml" />
+      <div v-else-if="descHtml" class="pf-prose" v-html="descHtml" @click="onProseClick" />
       <p v-else class="faint small" style="margin: 0">
         {{ cardLang === 'ru' ? 'Дополнительного текстового описания у предмета нет.' : 'No additional description.' }}
       </p>
@@ -252,7 +330,14 @@ const standaloneHref = computed(() => `#/tools/pf2e/item/${encodeURIComponent(pr
 .pfc-meta dt { color: var(--text-muted); font-weight: 600; }
 .pfc-meta dd { margin: 0; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 
-.pfc-body { font-family: var(--font-text); font-size: 15px; line-height: 1.6; }
+.wep-roll-btn {
+  display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  color: var(--text); font-size: 12.5px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.wep-roll-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.pfc-body { font-family: var(--font-text); font-size: 15px; line-height: 1.65; }
 .pf-prose :deep(p) { margin: 0 0 10px; }
 .pf-prose :deep(p:last-child) { margin-bottom: 0; }
 .pf-prose :deep(hr) { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
@@ -261,7 +346,7 @@ const standaloneHref = computed(() => `#/tools/pf2e/item/${encodeURIComponent(pr
 .pf-prose :deep(th), .pf-prose :deep(td) { padding: 5px 8px; border: 1px solid var(--border); text-align: left; }
 .pf-prose :deep(th) { background: var(--surface-2); }
 .pf-prose :deep(.pf-act) { font-family: var(--font-ui); color: var(--accent); font-weight: 700; letter-spacing: -1px; padding: 0 2px; }
-.pf-prose :deep(.pf-inline-dmg) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+.pf-prose :deep(.pf-inline-dmg) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--danger) 14%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent); color: var(--text); }
 .pf-prose :deep(.pf-inline-check) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--info) 15%, transparent); border: 1px solid color-mix(in srgb, var(--info) 35%, transparent); }
 .pf-prose :deep(.pf-inline-tpl) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--warning) 15%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); }
 .pf-prose :deep(.pf-inline-ref) { font-family: var(--font-ui); font-size: .92em; font-weight: 600; color: var(--text); text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
@@ -272,7 +357,15 @@ const standaloneHref = computed(() => `#/tools/pf2e/item/${encodeURIComponent(pr
 .pf-prose :deep(.pf-uuid-link::after) { content: ' ↗'; font-size: .78em; opacity: .72; }
 .pf-prose :deep(.pf-uuid-link:hover) { background: var(--accent-soft); }
 .pf-prose :deep(.pf-inline-trait) { font-family: var(--font-ui); font-size: .82em; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); }
-.pf-prose :deep(.pf-inline-roll) { font-family: var(--font-mono); font-size: .88em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.pf-prose :deep(.pf-inline-roll) { font-family: var(--font-ui); font-size: .88em; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text); }
+.pf-prose :deep(.pf-roll-btn) {
+  display: inline-flex; align-items: baseline; gap: 4px; cursor: pointer; vertical-align: baseline;
+  line-height: 1.35; transition: transform .08s, border-color .12s, background .12s;
+}
+.pf-prose :deep(.pf-roll-btn:hover) { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+.pf-prose :deep(.pf-roll-btn:active) { transform: translateY(0); }
+.pf-prose :deep(.pf-roll-ic) { font-size: .9em; }
+.pf-prose :deep(.pf-roll-avg) { font-size: .86em; font-weight: 500; color: var(--text-muted); }
 
 .pfc-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
 </style>

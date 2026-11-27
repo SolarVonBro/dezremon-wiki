@@ -15,11 +15,13 @@ const props = withDefaults(defineProps<{
   initialTradition?: Pf2eTradition | ''
   initialCat?: Pf2eSpellCategory | ''
   pickLabel?: string
+  ownedCounts?: Record<string, number>
 }>(), {
   pickMode: false,
   initialTradition: '',
   initialCat: '',
   pickLabel: 'Добавить',
+  ownedCounts: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -41,6 +43,13 @@ const rankMax = ref<string>('')
 const cats = ref<Pf2eSpellCategory[]>(props.initialCat ? [props.initialCat] : [])
 const traditionsInc = ref<Pf2eTradition[]>(props.initialTradition ? [props.initialTradition] : [])
 const traditionsExc = ref<Pf2eTradition[]>([])
+watch(() => props.initialTradition, (t) => {
+  traditionsInc.value = t ? [t] : []
+  traditionsExc.value = []
+})
+watch(() => props.initialCat, (c) => {
+  cats.value = c ? [c] : []
+})
 const tradMode = ref<'or' | 'and'>('or')
 const raritiesInc = ref<Pf2eRarity[]>([])
 const raritiesExc = ref<Pf2eRarity[]>([])
@@ -802,6 +811,9 @@ function saveShort(s: Pf2eSpellIndex): string {
               <div class="row gap-sm" style="align-items: baseline">
                 <b class="ellipsis">{{ lang === 'ru' ? s.ru : s.en }}</b>
                 <span v-if="s.rarity !== 'common'" class="rar-dot" :class="'rd-' + s.rarity" :title="RARITY_LABEL[s.rarity][lang]" />
+                <span v-if="ownedCounts[s.id]" class="badge badge-public" style="font-size: 10.5px" :title="lang === 'ru' ? 'Уже в списке персонажа' : 'Already in character list'">
+                  ✓<template v-if="ownedCounts[s.id] > 1"> ×{{ ownedCounts[s.id] }}</template>
+                </span>
               </div>
               <div class="faint small ellipsis">
                 {{ lang === 'ru' ? s.en : s.ru }}

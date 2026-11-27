@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { deletePf2eCharacter, exportPf2eCharacters, updatePf2eCharacter, watchPf2eCharacter } from '@/data/pf2eCharacters'
+import { setActivePf2eChar } from '@/data/pf2eWorkspace'
 import { fileToSource, renderAvatar } from '@/data/avatar'
 import { errorText } from '@/data/util'
 import type { ImageCrop } from '@/data/crop'
@@ -10,6 +11,7 @@ import type { Pf2eCharacter, Pf2eSpellList } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
 import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eCharSpells from '@/components/pf2e/Pf2eCharSpells.vue'
 import Pf2eCharInventory from '@/components/pf2e/Pf2eCharInventory.vue'
 import { toast } from '@/components/common/toast'
@@ -22,6 +24,14 @@ const cid = computed(() => String(route.params.cid ?? ''))
 const character = ref<Pf2eCharacter | null>(null)
 const loading = ref(true)
 const tab = ref<'spells' | 'inventory'>(route.query.tab === 'inventory' ? 'inventory' : 'spells')
+watch(() => route.query.tab, (t) => {
+  if (t === 'inventory') tab.value = 'inventory'
+  else if (t === 'spells') tab.value = 'spells'
+})
+function setTab(next: 'spells' | 'inventory') {
+  tab.value = next
+  void router.replace({ name: 'toolPf2eChar', params: { cid: cid.value }, query: next === 'inventory' ? { tab: 'inventory' } : {} })
+}
 let stopWatch: (() => void) | null = null
 
 watch(() => [session.ready, session.user?.uid, cid.value] as const, ([ready, u, id]) => {
@@ -29,6 +39,7 @@ watch(() => [session.ready, session.user?.uid, cid.value] as const, ([ready, u, 
   stopWatch = null
   if (ready && !u) { void router.replace({ name: 'login', query: { next: route.fullPath } }); return }
   if (!u || !id) return
+  setActivePf2eChar(id)
   loading.value = true
   stopWatch = watchPf2eCharacter(
     u,
@@ -124,11 +135,7 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
 
 <template>
   <div class="page">
-    <div class="crumbs-row row gap-sm">
-      <RouterLink :to="{ name: 'tools' }" class="back-link">Инструменты</RouterLink>
-      <span class="faint">/</span>
-      <RouterLink :to="{ name: 'toolPf2e' }" class="back-link">Pathfinder 2e</RouterLink>
-    </div>
+    <Pf2eTopNav active="chars" :current-char="character" />
 
     <div v-if="loading" class="empty"><Icon name="refresh-cw" class="spin" :size="24" /></div>
     <div v-else-if="!character" class="card empty">
@@ -169,11 +176,11 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
 
       <!-- Main Character Tabs -->
       <div class="tabs" style="margin-top: 16px">
-        <button type="button" class="tab" :class="{ on: tab === 'spells' }" @click="tab = 'spells'">
+        <button type="button" class="tab" :class="{ on: tab === 'spells' }" @click="setTab('spells')">
           <Icon name="sparkles" :size="16" /> Заклинания
           <span class="count">{{ totalSpells }}</span>
         </button>
-        <button type="button" class="tab" :class="{ on: tab === 'inventory' }" @click="tab = 'inventory'">
+        <button type="button" class="tab" :class="{ on: tab === 'inventory' }" @click="setTab('inventory')">
           <Icon name="backpack" :size="16" /> Инвентарь и контейнеры
           <span class="count">{{ character.inventory.length }}</span>
         </button>

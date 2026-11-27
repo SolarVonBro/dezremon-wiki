@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type {
   Pf2eAttribute, Pf2eCastingType, Pf2eCharacter, Pf2eProficiency, Pf2eSpellEntryItem,
   Pf2eSpellIndex, Pf2eSpellList, Pf2eTradition,
@@ -9,17 +10,18 @@ import {
   autoRank, computeSpellStats, fullCasterProficiency, PF2E_ATTRIBUTES, PF2E_CASTING_TYPES,
   PF2E_CLASS_PRESETS, PF2E_PROFICIENCIES, PF2E_TRADITIONS,
 } from '@/data/pf2eSpellcasting'
-import { formatActionSymbol, pf2eIconUrl, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { formatActionSymbol, pf2eIconUrl } from '@/data/pf2eFormat'
+import { setSpellPickTarget } from '@/data/pf2eWorkspace'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
-import Pf2eSpellBrowser from './Pf2eSpellBrowser.vue'
 import Pf2eSpellCard from './Pf2eSpellCard.vue'
 import { toast } from '@/components/common/toast'
 
 const props = defineProps<{ character: Pf2eCharacter }>()
 const emit = defineEmits<{ save: [spellLists: Pf2eSpellList[]] }>()
 
+const router = useRouter()
 const catalog = usePf2eCatalog()
 const lang = catalog.lang
 const setLang = catalog.setLang
@@ -28,6 +30,7 @@ onMounted(() => { void ensurePf2eSpells() })
 const activeListId = ref<string | null>(props.character.spellLists[0]?.id ?? null)
 const searchQ = ref('')
 const viewingSpell = ref<Pf2eSpellIndex | null>(null)
+const viewingSpellRank = ref<number | undefined>(undefined)
 
 // Ensure activeListId stays valid
 const activeList = computed(() => {
@@ -199,36 +202,37 @@ function dailyRest() {
   toast.success('Ежедневные приготовления: все ячейки, очки фокуса и использования восстановлены')
 }
 
-// ==================== Add Spell Modal (Library + Custom) ====================
-const pickerOpen = ref(false)
-const pickerTargetRank = ref<number | null>(null)
+// ==================== Open Full-Page Library & Custom Spell Modal ====================
 const customModal = ref<{ name: string; rank: number; notes: string; usesMax: number; atWill: boolean } | null>(null)
 
 function openSpellPicker(rank: number | null = null) {
-  pickerTargetRank.value = rank
-  pickerOpen.value = true
-}
-
-function onPickSpell(sp: Pf2eSpellIndex) {
   const l = activeList.value
   if (!l) return
-  const rank = pickerTargetRank.value != null
-    ? pickerTargetRank.value
-    : sp.cat === 'cantrip' ? 0 : sp.baseRank
-  updateList(l.id, (entry) => {
-    entry.spells.push({
-      id: randomId(10),
-      spellId: sp.id,
-      rank,
-      preparedCount: entry.castingType === 'prepared' && rank > 0 ? 1 : undefined,
-      expendedCount: 0,
-      usesMax: entry.castingType === 'innate' && rank > 0 ? 1 : undefined,
-      usesLeft: entry.castingType === 'innate' && rank > 0 ? 1 : undefined,
-      atWill: entry.castingType === 'innate' && rank === 0,
-      notes: '',
-    })
+  setSpellPickTarget(props.character.id, l.id, rank)
+  void router.push({
+    name: 'toolPf2e',
+    params: { tab: 'spells' },
+    query: { for: props.character.id, list: l.id, ...(rank != null ? { rank: String(rank) } : {}) },
   })
-  toast.success(`Добавлено: ${lang.value === 'ru' ? sp.ru : sp.en} (${rank === 0 ? 'заговор' : `${rank} круг`})`)
+}
+
+function libraryHref(rank: number | null = null): string {
+  const l = activeList.value
+  const params = new URLSearchParams()
+  params.set('for', props.character.id)
+  if (l) params.set('list', l.id)
+  if (rank != null) params.set('rank', String(rank))
+  return `#/tools/pf2e/spells?${params.toString()}`
+}
+
+function openSpellPreview(row: Pf2eSpellEntryItem) {
+  if (!row.spellId) return
+  const sp = catalog.spellsById.value.get(row.spellId) ?? null
+  if (!sp) return
+  viewingSpell.value = sp
+  viewingSpellRank.value = row.rank === 0 || activeList.value?.castingType === 'focus'
+    ? Math.max(sp.baseRank, cantripRank.value)
+    : Math.max(sp.baseRank, row.rank)
 }
 
 function openCustomSpell(rank = 1) {
@@ -491,6 +495,9 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
             <button type="button" class="btn btn-sm btn-primary" @click="openSpellPicker(null)">
               <Icon name="book-open" :size="14" /> Из библиотеки
             </button>
+            <a :href="libraryHref(null)" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть библиотеку заклинаний в новой вкладке">
+              <Icon name="external-link" :size="15" />
+            </a>
             <button type="button" class="btn btn-sm" @click="openCustomSpell(activeList.castingType === 'focus' ? cantripRank : 1)">
               <Icon name="plus" :size="14" /> Своё
             </button>
@@ -561,7 +568,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
               type="button"
               class="sp-main grow"
               :disabled="!row.spellId"
-              @click="row.spellId && (viewingSpell = catalog.spellsById.value.get(row.spellId) ?? null)"
+              @click="openSpellPreview(row)"
             >
               <span class="row gap-sm" style="align-items: baseline">
                 <b class="ellipsis">{{ spellName(row) }}</b>
@@ -717,25 +724,6 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
       </form>
     </Modal>
 
-    <!-- LIBRARY PICKER MODAL -->
-    <Modal v-if="pickerOpen && activeList" :title="`Добавить заклинания в «${activeList.name}»`" width="1140px" @close="pickerOpen = false">
-      <div class="row gap-sm wrap" style="margin-bottom: 10px">
-        <span class="small muted">Круг при добавлении:</span>
-        <select v-model="pickerTargetRank" class="input input-sm" style="width: auto">
-          <option :value="null">Базовый круг заклинания</option>
-          <option :value="0">Заговор (0)</option>
-          <option v-for="r in 10" :key="r" :value="r">Круг {{ r }} (усиление)</option>
-        </select>
-      </div>
-      <Pf2eSpellBrowser
-        pick-mode
-        :initial-tradition="activeList.tradition"
-        :initial-cat="activeList.castingType === 'focus' ? 'focus' : activeList.castingType === 'ritual' ? 'ritual' : ''"
-        pick-label="Добавить в список"
-        @pick="onPickSpell"
-      />
-    </Modal>
-
     <!-- CUSTOM SPELL MODAL -->
     <Modal v-if="customModal" title="Своё заклинание" width="460px" @close="customModal = null">
       <form class="stack" @submit.prevent="submitCustomSpell">
@@ -772,7 +760,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 
     <!-- VIEW SPELL CARD MODAL -->
     <Modal v-if="viewingSpell" width="760px" @close="viewingSpell = null">
-      <Pf2eSpellCard :spell="viewingSpell" :meta="catalog.meta.value" :lang="lang" />
+      <Pf2eSpellCard :spell="viewingSpell" :meta="catalog.meta.value" :lang="lang" :initial-rank="viewingSpellRank" :actor-level="character.level" />
     </Modal>
   </div>
 </template>

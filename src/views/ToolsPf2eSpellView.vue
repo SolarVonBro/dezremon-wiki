@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '@/stores/session'
 import { ensurePf2eSpells, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { updatePf2eCharacter, watchPf2eCharacters } from '@/data/pf2eCharacters'
+import { usePf2eWorkspace } from '@/data/pf2eWorkspace'
 import { copyText } from '@/data/statCalc'
 import { errorText, randomId } from '@/data/util'
 import type { Pf2eCharacter } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
+import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eSpellCard from '@/components/pf2e/Pf2eSpellCard.vue'
 import { toast } from '@/components/common/toast'
 
@@ -16,6 +18,7 @@ const session = useSession()
 const route = useRoute()
 const router = useRouter()
 const catalog = usePf2eCatalog()
+const ws = usePf2eWorkspace()
 
 const id = computed(() => String(route.params.id ?? ''))
 const spell = computed(() => catalog.spellsById.value.get(id.value) ?? null)
@@ -40,7 +43,9 @@ watch([spell, catalog.lang], ([s, l]) => {
   if (s) document.title = `${l === 'ru' ? s.ru : s.en} — PF2e | Вики сеттинга`
 }, { immediate: true })
 
-// Quick add to character modal
+const activeChar = computed(() => chars.value.find((c) => c.id === ws.activeCharId.value) ?? null)
+
+// Quick add to character modal (defaults to active workspace character!)
 const addOpen = ref(false)
 const pickCharId = ref('')
 const pickListId = ref('')
@@ -50,8 +55,11 @@ const pickedChar = computed(() => chars.value.find((c) => c.id === pickCharId.va
 function openAdd() {
   if (!spell.value) return
   if (!chars.value.length) { toast.info('Сначала создайте персонажа PF2e'); return }
-  pickCharId.value = chars.value[0].id
-  pickListId.value = chars.value[0].spellLists[0]?.id ?? ''
+  const defChar = activeChar.value ?? chars.value[0]
+  pickCharId.value = defChar.id
+  pickListId.value = (ws.targetListId.value && defChar.spellLists.some((l) => l.id === ws.targetListId.value))
+    ? ws.targetListId.value
+    : defChar.spellLists[0]?.id ?? ''
   pickRank.value = spell.value.cat === 'cantrip' ? 0 : spell.value.baseRank
   addOpen.value = true
 }
@@ -89,13 +97,15 @@ async function confirmAdd() {
     id: randomId(10),
     spellId: sp.id,
     rank: pickRank.value,
-    preparedCount: target.castingType === 'prepared' ? 1 : undefined,
+    preparedCount: target.castingType === 'prepared' && pickRank.value > 0 ? 1 : undefined,
     expendedCount: 0,
-    usesMax: target.castingType === 'innate' ? 1 : undefined,
-    usesLeft: target.castingType === 'innate' ? 1 : undefined,
+    usesMax: target.castingType === 'innate' && pickRank.value > 0 ? 1 : undefined,
+    usesLeft: target.castingType === 'innate' && pickRank.value > 0 ? 1 : undefined,
+    atWill: target.castingType === 'innate' && pickRank.value === 0,
   })
   try {
     await updatePf2eCharacter(uid, c.id, { spellLists: lists })
+    ws.setActivePf2eChar(c.id)
     toast.success(`Добавлено персонажу ${c.name}`)
     addOpen.value = false
   } catch (e) { toast.error(errorText(e)) }
@@ -108,12 +118,12 @@ async function copyLink() {
 
 <template>
   <div class="page">
-    <div class="crumbs-row row gap-sm wrap">
-      <RouterLink :to="{ name: 'tools' }" class="back-link">Инструменты</RouterLink>
-      <span class="faint">/</span>
-      <RouterLink :to="{ name: 'toolPf2e' }" class="back-link">Pathfinder 2e</RouterLink>
-      <span class="faint">/</span>
-      <RouterLink :to="{ name: 'toolPf2e', params: { tab: 'spells' } }" class="back-link">Заклинания</RouterLink>
+    <Pf2eTopNav active="spells" :chars="chars" />
+
+    <div class="sub-row">
+      <RouterLink :to="{ name: 'toolPf2e', params: { tab: 'spells' } }" class="back-link">
+        <Icon name="arrow-left" :size="14" /> К библиотеке заклинаний
+      </RouterLink>
     </div>
 
     <div v-if="!ready || catalog.loadingSpells.value" class="card empty">
@@ -124,10 +134,12 @@ async function copyLink() {
       <RouterLink class="btn btn-primary" :to="{ name: 'toolPf2e', params: { tab: 'spells' } }">К библиотеке заклинаний</RouterLink>
     </div>
     <section v-else class="card card-pad">
-      <Pf2eSpellCard :spell="spell" :meta="catalog.meta.value" :lang="catalog.lang.value" standalone>
+      <Pf2eSpellCard :spell="spell" :meta="catalog.meta.value" :lang="catalog.lang.value" :actor-level="activeChar?.level" standalone>
         <template #actions>
           <button type="button" class="btn btn-sm" @click="copyLink"><Icon name="link" :size="14" /> Ссылка</button>
-          <button v-if="chars.length" type="button" class="btn btn-sm btn-primary" @click="openAdd"><Icon name="plus" :size="14" /> Персонажу…</button>
+          <button v-if="chars.length" type="button" class="btn btn-sm btn-primary" @click="openAdd">
+            <Icon name="plus" :size="14" /> {{ activeChar ? `Персонажу «${activeChar.name}»…` : 'Персонажу…' }}
+          </button>
         </template>
       </Pf2eSpellCard>
     </section>
@@ -162,9 +174,9 @@ async function copyLink() {
 </template>
 
 <style scoped>
-.page { max-width: 920px; margin: 0 auto; padding: 18px 24px 60px; }
-.crumbs-row { margin-bottom: 12px; font-size: 13.5px; }
-.back-link { color: var(--text-muted); }
+.page { max-width: 1020px; margin: 0 auto; padding: 16px 24px 60px; }
+.sub-row { margin-bottom: 10px; }
+.back-link { display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; color: var(--text-muted); }
 .back-link:hover { color: var(--accent); text-decoration: none; }
 @media (max-width: 720px) { .page { padding: 14px 12px 50px; } }
 </style>
