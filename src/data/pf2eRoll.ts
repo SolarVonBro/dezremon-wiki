@@ -1,5 +1,6 @@
 // Pathfinder 2e Foundry formula evaluator, dice roller, expected-value calculator,
-// and distribution deviation indicator (zero eval, full Foundry PF2e Roll syntax support).
+// spell heightening calculator, and distribution deviation indicator (zero eval).
+import type { Pf2eAreaType, Pf2eSpellDamageEntry, Pf2eSpellIndex } from '@/model/pf2e'
 
 export interface Pf2eFormulaContext {
   /** Cast rank for spells (1..10); defaults to baseRank or 1 */
@@ -599,4 +600,148 @@ export function executePf2eRoll(compiled: CompiledPf2eRoll, rng: (sides: number)
 
 export function formatAvgNumber(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+/** Combine a base formula (e.g. "6d6" or "1d4+1") with `steps` copies of an increment (e.g. "2d6"). */
+export function addScaledFormula(baseFormula: string, stepFormula: string, steps: number, ctx: Pf2eFormulaContext = {}): string {
+  if (steps <= 0 || !stepFormula) return baseFormula
+  const b = compilePf2eFormula(baseFormula, ctx)
+  const inc = compilePf2eFormula(stepFormula, ctx)
+  if (!b || !inc || b.components.length !== 1 || inc.components.length !== 1) {
+    return `${baseFormula} + ${steps}*(${stepFormula})`
+  }
+  const bc = b.components[0]
+  const ic = inc.components[0]
+  const diceMap = new Map<number, number>()
+  for (const d of bc.dice) diceMap.set(d.sides, (diceMap.get(d.sides) ?? 0) + d.sign * d.count * (d.mult ?? 1))
+  for (const d of ic.dice) diceMap.set(d.sides, (diceMap.get(d.sides) ?? 0) + d.sign * d.count * (d.mult ?? 1) * steps)
+  const mergedDice: DiceTerm[] = [...diceMap.entries()]
+    .filter(([, cnt]) => cnt !== 0)
+    .sort((a, b2) => b2[0] - a[0])
+    .map(([sides, cnt]) => ({ count: Math.abs(cnt), sides, sign: (cnt < 0 ? -1 : 1) as 1 | -1 }))
+  const mergedFlat = bc.flat + ic.flat * steps
+  return formatComponentExpr(mergedDice, mergedFlat)
+}
+
+export interface HeightenedSpellState {
+  rank: number
+  isHeightened: boolean
+  damageEntries: Array<{ formula: string; baseFormula: string; type: string; category?: string | null; healing?: boolean; spec: string }>
+  /** Full combined Foundry-style roll spec across all primary damage entries, e.g. "10d6[fire]" */
+  combinedSpec: string
+  /** Compiled roll stats for combinedSpec (if it has dice) */
+  compiled: CompiledPf2eRoll | null
+  /** Maps normalized base formula ("6d6") -> scaled formula ("10d6") for prose auto-upgrading */
+  baseOverrides: Record<string, string>
+  areaType: Pf2eAreaType | null
+  areaVal: number | null
+  rangeOverride: string | null
+  targetOverride: string | null
+}
+
+/**
+ * Computes the exact damage, healing, area, range, and target of a PF2e spell when cast at `castRank`,
+ * using Foundry's structured `scaling` metadata (both interval and fixed heightening).
+ */
+export function computeHeightenedSpell(spell: Pf2eSpellIndex, castRank: number, ctx?: Pf2eFormulaContext): HeightenedSpellState {
+  const baseRank = Math.max(1, spell.baseRank || 1)
+  const rank = Math.max(baseRank, Math.min(10, Math.round(castRank || baseRank)))
+  const isHeightened = rank > baseRank
+  const sc = spell.scaling
+  const evalCtx: Pf2eFormulaContext = {
+    rank,
+    baseRank,
+    level: rank,
+    actorLevel: ctx?.actorLevel ?? Math.max(1, rank * 2 - 1),
+    strMod: ctx?.strMod ?? 0,
+  }
+
+  let areaType: Pf2eAreaType | null = spell.areaType
+  let areaVal: number | null = spell.areaVal
+  let rangeOverride: string | null = null
+  let targetOverride: string | null = null
+
+  const baseList: Pf2eSpellDamageEntry[] = sc?.baseDamage ?? []
+  const currentByKey = new Map<string, { baseFormula: string; formula: string; type: string; category?: string | null; healing?: boolean }>()
+  for (const d of baseList) {
+    currentByKey.set(d.key, {
+      baseFormula: d.formula,
+      formula: d.formula,
+      type: d.type,
+      category: d.category,
+      healing: d.healing,
+    })
+  }
+
+  // 1. Interval heightening
+  if (sc?.interval && sc.interval > 0 && isHeightened) {
+    const steps = Math.floor((rank - baseRank) / sc.interval)
+    if (steps > 0) {
+      if (sc.intervalArea && areaVal != null) areaVal += steps * sc.intervalArea
+      if (sc.intervalDamage) {
+        for (const [k, incFormula] of Object.entries(sc.intervalDamage)) {
+          const cur = currentByKey.get(k)
+          if (cur) {
+            cur.formula = addScaledFormula(cur.formula, incFormula, steps, evalCtx)
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Fixed-level heightening (apply all thresholds <= castRank in ascending order)
+  if (sc?.fixed && isHeightened) {
+    const lvls = Object.keys(sc.fixed).map(Number).filter((n) => Number.isFinite(n) && n <= rank).sort((a, b) => a - b)
+    for (const lvl of lvls) {
+      const f = sc.fixed[lvl]
+      if (!f) continue
+      if (f.areaVal != null) areaVal = f.areaVal
+      if (f.areaType) areaType = f.areaType
+      if (f.range) rangeOverride = f.range
+      if (f.target) targetOverride = f.target
+      if (f.damage) {
+        for (const fd of f.damage) {
+          const prev = currentByKey.get(fd.key)
+          currentByKey.set(fd.key, {
+            baseFormula: prev?.baseFormula ?? fd.formula,
+            formula: fd.formula,
+            type: fd.type || prev?.type || 'untyped',
+            category: fd.category !== undefined ? fd.category : prev?.category,
+            healing: fd.healing ?? prev?.healing,
+          })
+        }
+      }
+    }
+  }
+
+  const baseOverrides: Record<string, string> = {}
+  const damageEntries = [...currentByKey.values()].map((d) => {
+    const tags: string[] = []
+    if (d.category) tags.push(d.category)
+    if (d.healing) tags.push('healing')
+    if (d.type && d.type !== 'untyped') tags.push(d.type)
+    const spec = tags.length ? `${d.formula}[${tags.join(',')}]` : d.formula
+    const normBase = d.baseFormula.replace(/\s+/g, '').toLowerCase()
+    const normCur = d.formula.replace(/\s+/g, '').toLowerCase()
+    if (normBase && normCur && normBase !== normCur) {
+      baseOverrides[normBase] = d.formula
+    }
+    return { ...d, spec }
+  })
+
+  const combinedSpec = damageEntries.map((d) => d.spec).join(',')
+  const compiled = combinedSpec ? compilePf2eFormula(combinedSpec, evalCtx) : null
+
+  return {
+    rank,
+    isHeightened,
+    damageEntries,
+    combinedSpec,
+    compiled,
+    baseOverrides,
+    areaType,
+    areaVal,
+    rangeOverride,
+    targetOverride,
+  }
 }

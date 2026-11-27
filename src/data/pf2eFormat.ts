@@ -211,6 +211,7 @@ function renderRollButton(
   ctx: Pf2eFormulaContext | undefined,
   variant: 'dmg' | 'roll',
   explicitLabel?: string,
+  isUpgraded = false,
 ): string {
   const compiled = compilePf2eFormula(spec, ctx)
   if (!compiled) {
@@ -235,15 +236,23 @@ function renderRollButton(
     ? `Нажмите, чтобы бросить ${compiled.displayExpr} · Среднее: ${avgStr} (${compiled.min}–${compiled.max})`
     : `Click to roll ${compiled.displayExpr} · Average: ${avgStr} (${compiled.min}–${compiled.max})`
   const noteAttr = compiled.note ? ` data-roll-note="${esc(compiled.note)}"` : ''
+  const upCls = isUpgraded ? ' pf-heightened' : ''
 
-  return `<button type="button" class="pf-roll-btn ${variant === 'dmg' ? 'pf-inline-dmg' : 'pf-inline-roll'}" data-roll-spec="${esc(spec)}"${noteAttr} title="${esc(title)}"><span class="pf-roll-ic" aria-hidden="true">🎲</span><span>${esc(mainLabel)}</span><span class="pf-roll-avg">· ${esc(avgHint)}</span></button>`
+  return `<button type="button" class="pf-roll-btn ${variant === 'dmg' ? 'pf-inline-dmg' : 'pf-inline-roll'}${upCls}" data-roll-spec="${esc(spec)}"${noteAttr} title="${esc(title)}"><span class="pf-roll-ic" aria-hidden="true">🎲</span><span>${esc(mainLabel)}</span><span class="pf-roll-avg">· ${esc(avgHint)}</span></button>`
 }
 
 /** Auto-enhance plain-text dice like "6d6" or "2d8+4" in text nodes outside HTML tags/buttons. */
-function enhancePlainDice(html: string, lang: Pf2eLang, meta: Pf2eMeta | null, ctx?: Pf2eFormulaContext): string {
+function enhancePlainDice(
+  html: string,
+  lang: Pf2eLang,
+  meta: Pf2eMeta | null,
+  ctx?: Pf2eFormulaContext,
+  heightenOverrides?: Record<string, string>,
+): string {
   const tokens = html.split(/(<[^>]+>)/g)
   let inButton = 0
   let inLink = 0
+  let inHeightenSection = false
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i]
     if (tok.startsWith('<')) {
@@ -253,9 +262,14 @@ function enhancePlainDice(html: string, lang: Pf2eLang, meta: Pf2eMeta | null, c
       else if (/^<\/a>/i.test(tok)) inLink = Math.max(0, inLink - 1)
       continue
     }
+    if (/\b(?:Heightened|Усиление)\s*\(/i.test(tok)) inHeightenSection = true
     if (inButton > 0 || inLink > 0 || !/\d+d\d+/i.test(tok)) continue
     tokens[i] = tok.replace(/(^|[^\w/])(\d{1,2}d(?:4|6|8|10|12|20|100)(?:\s*[+-]\s*\d{1,3})?)(?![\w\]])/gi, (m, lead, expr) => {
       const normalized = expr.replace(/\s+/g, '')
+      const upgraded = !inHeightenSection && heightenOverrides?.[normalized.toLowerCase()]
+      if (upgraded) {
+        return lead + renderRollButton(upgraded, lang, meta, ctx, 'roll', undefined, true)
+      }
       return lead + renderRollButton(normalized, lang, meta, ctx, 'roll')
     })
   }
@@ -271,6 +285,7 @@ export function renderPf2eHtml(
   lang: Pf2eLang,
   meta: Pf2eMeta | null,
   ctx?: Pf2eFormulaContext,
+  heightenOverrides?: Record<string, string>,
 ): string {
   if (!raw) return ''
   let html = raw
@@ -319,10 +334,25 @@ export function renderPf2eHtml(
     return `<span class="pf-inline-ref">${esc(text)}</span>`
   })
 
-  // Balanced @Damage[...] (supports multi-bracket & multi-component formulas like (@item.rank -2)d6[void] and 2d8[piercing],2d4[slashing])
-  html = replaceBalancedTag(html, '@Damage[', (inner, label) =>
-    renderRollButton(inner, lang, meta, ctx, 'dmg', label),
-  )
+  // Balanced @Damage[...] (supports multi-bracket & multi-component formulas + heightened base upgrades!)
+  const heightenSplitIdx = html.search(/(?:Heightened|Усиление)\s*\(/i)
+  const replaceDmg = (segment: string, allowUpgrade: boolean) =>
+    replaceBalancedTag(segment, '@Damage[', (inner, label) => {
+      if (allowUpgrade && heightenOverrides && !inner.includes('@') && !inner.includes(',')) {
+        const mBase = /^([^[\]|]+)(\[[^\]]*\])?(.*)$/.exec(inner.trim())
+        if (mBase) {
+          const norm = mBase[1].replace(/\s+/g, '').toLowerCase()
+          if (heightenOverrides[norm]) {
+            const upgradedSpec = `${heightenOverrides[norm]}${mBase[2] || ''}${mBase[3] || ''}`
+            return renderRollButton(upgradedSpec, lang, meta, ctx, 'dmg', label, true)
+          }
+        }
+      }
+      return renderRollButton(inner, lang, meta, ctx, 'dmg', label)
+    })
+  html = heightenSplitIdx > 0
+    ? replaceDmg(html.slice(0, heightenSplitIdx), true) + replaceDmg(html.slice(heightenSplitIdx), false)
+    : replaceDmg(html, true)
 
   // @Check[type:reflex|dc:20|basic]{Optional} or @Check[reflex|basic]
   html = replaceBalancedTag(html, '@Check[', (inner, label) => {
@@ -388,8 +418,8 @@ export function renderPf2eHtml(
     return renderRollButton(inner, lang, meta, ctx, 'roll', label)
   })
 
-  // Make plain-text dice like "6d6" or "1d8" in descriptions clickable too!
-  html = enhancePlainDice(html, lang, meta, ctx)
+  // Make plain-text dice like "6d6" or "1d8" in descriptions clickable (and upgraded if heightened!)
+  html = enhancePlainDice(html, lang, meta, ctx, heightenOverrides)
 
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ['a', 'button', 'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'blockquote', 'sup', 'sub', 'code'],

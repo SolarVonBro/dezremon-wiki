@@ -13,6 +13,30 @@ export type Pf2eCarryType = 'worn' | 'held' | 'stowed' | 'dropped'
 
 // ======================= Static Catalog (Index + Details) =======================
 
+export interface Pf2eSpellDamageEntry {
+  key: string
+  formula: string
+  type: string
+  category?: string | null
+  healing?: boolean
+}
+
+export interface Pf2eSpellFixedLevel {
+  damage?: Pf2eSpellDamageEntry[]
+  areaVal?: number
+  areaType?: Pf2eAreaType
+  range?: string
+  target?: string
+}
+
+export interface Pf2eSpellScaling {
+  baseDamage?: Pf2eSpellDamageEntry[]
+  interval?: number
+  intervalDamage?: Record<string, string>
+  intervalArea?: number
+  fixed?: Record<number, Pf2eSpellFixedLevel>
+}
+
 export interface Pf2eSpellIndex {
   id: string
   slug: string
@@ -50,6 +74,7 @@ export interface Pf2eSpellIndex {
   heightenType: 'none' | 'interval' | 'fixed'
   heightenStep: number | null // e.g., 1, 2, 3 for interval
   heightenLevels: number[] // e.g., [3, 5, 7] for fixed
+  scaling?: Pf2eSpellScaling
   hasCost: boolean
   cost: string
   costRu: string

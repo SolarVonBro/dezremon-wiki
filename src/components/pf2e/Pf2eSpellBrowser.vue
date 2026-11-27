@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { Pf2eAreaType, Pf2eLang, Pf2eRarity, Pf2eSaveType, Pf2eSpellCategory, Pf2eSpellIndex, Pf2eTradition } from '@/model/pf2e'
 import { ensurePf2eSpells, ensureSpellDescriptions, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { formatActionSymbol, formatArea, pf2eIconUrl, RARITY_LABEL, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { endPf2eDrag, startPf2eDrag } from '@/data/pf2eDrag'
 import { PF2E_TRADITIONS } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -12,12 +13,16 @@ import Pf2eSpellCard from './Pf2eSpellCard.vue'
 
 const props = withDefaults(defineProps<{
   pickMode?: boolean
+  docked?: boolean
+  draggableRows?: boolean
   initialTradition?: Pf2eTradition | ''
   initialCat?: Pf2eSpellCategory | ''
   pickLabel?: string
   ownedCounts?: Record<string, number>
 }>(), {
   pickMode: false,
+  docked: false,
+  draggableRows: false,
   initialTradition: '',
   initialCat: '',
   pickLabel: 'Добавить',
@@ -455,7 +460,20 @@ const shown = computed(() => filtered.value.slice(0, limit.value))
 
 function openSpell(s: Pf2eSpellIndex) {
   selected.value = s
-  if (window.innerWidth < 1140) modalOpen.value = true
+  if (props.docked || window.innerWidth < 1140) modalOpen.value = true
+}
+
+function onRowDragStart(e: DragEvent, s: Pf2eSpellIndex) {
+  if (!props.draggableRows) return
+  startPf2eDrag({ kind: 'library-spell', spell: s })
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.setData('text/plain', `pf2e-spell:${s.id}`)
+  }
+}
+
+function onRowDragEnd() {
+  endPf2eDrag()
 }
 
 function saveShort(s: Pf2eSpellIndex): string {
@@ -785,7 +803,7 @@ function saveShort(s: Pf2eSpellIndex): string {
     </div>
 
     <!-- Results + Split Detail -->
-    <div v-else class="pf-split" :class="{ 'has-detail': Boolean(selected) }">
+    <div v-else class="pf-split" :class="{ 'has-detail': Boolean(selected) && !docked }">
       <div class="card pf-list-card">
         <div v-if="!filtered.length" class="empty">
           <Icon name="search" :size="28" />
@@ -798,9 +816,13 @@ function saveShort(s: Pf2eSpellIndex): string {
             v-for="s in shown"
             :key="s.id"
             class="pf-row"
-            :class="{ on: selected?.id === s.id }"
+            :class="{ on: selected?.id === s.id, draggable: draggableRows }"
+            :draggable="draggableRows"
+            @dragstart="onRowDragStart($event, s)"
+            @dragend="onRowDragEnd"
             @click="openSpell(s)"
           >
+            <Icon v-if="draggableRows" name="grip-vertical" :size="14" class="drag-grip hide-sm" title="Перетащите в ячейку или круг персонажа" />
             <span class="pf-rk" :class="'cat-' + s.cat" :title="SPELL_CAT_LABEL[s.cat][lang]">
               {{ s.cat === 'cantrip' ? 'З' : s.cat === 'focus' ? `Ф${s.baseRank}` : s.cat === 'ritual' ? `Р${s.baseRank}` : s.rank }}
             </span>
@@ -857,8 +879,8 @@ function saveShort(s: Pf2eSpellIndex): string {
         </div>
       </div>
 
-      <!-- Sticky Desktop Detail Card -->
-      <aside v-if="selected" class="card card-pad pf-detail-pane">
+      <!-- Sticky Desktop Detail Card (when not docked next to a character) -->
+      <aside v-if="selected && !docked" class="card card-pad pf-detail-pane">
         <Pf2eSpellCard :spell="selected" :meta="catalog.meta.value" :lang="lang">
           <template #actions>
             <button v-if="pickMode" type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected)">
@@ -924,6 +946,10 @@ function saveShort(s: Pf2eSpellIndex): string {
 .pf-row:last-child { border-bottom: 0; }
 .pf-row:hover { background: var(--surface-2); }
 .pf-row.on { background: var(--accent-soft); }
+.pf-row.draggable { cursor: grab; }
+.pf-row.draggable:active { cursor: grabbing; }
+.drag-grip { color: var(--text-faint); flex-shrink: 0; opacity: .65; }
+.pf-row:hover .drag-grip { opacity: 1; color: var(--accent); }
 
 .pf-rk {
   width: 30px; height: 28px; border-radius: 6px; flex-shrink: 0; font-size: 12.5px; font-weight: 700;

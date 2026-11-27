@@ -994,23 +994,64 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
   const dmgTypes = new Set()
   let hasPersistent = false
   let hasHealing = traits.includes('healing')
-  for (const d of Object.values(s.damage || {})) {
+  const baseDamage = []
+  for (const [dKey, d] of Object.entries(s.damage || {})) {
     if (!d || typeof d !== 'object') continue
     if (d.type) dmgTypes.add(d.type)
     if (d.category === 'persistent') hasPersistent = true
-    if (d.kinds && Array.isArray(d.kinds) && d.kinds.includes('healing')) hasHealing = true
+    const isHeal = Boolean(d.kinds && Array.isArray(d.kinds) && d.kinds.includes('healing'))
+    if (isHeal) hasHealing = true
+    if (d.formula && String(d.formula).trim()) {
+      const entry = { key: dKey, formula: String(d.formula).trim(), type: String(d.type || 'untyped') }
+      if (d.category) entry.category = d.category
+      if (isHeal) entry.healing = true
+      baseDamage.push(entry)
+    }
   }
   if (!hasPersistent && /persistent/i.test(rawEnDesc) && /@Damage\[[^\]]*persistent/i.test(rawEnDesc)) hasPersistent = true
 
   let heightenType = 'none'
   let heightenStep = null
   let heightenLevels = []
+  let scaling = undefined
+  const scObj = {}
+  if (baseDamage.length) scObj.baseDamage = baseDamage
+
   if (s.heightening?.type === 'interval') {
     heightenType = 'interval'
     heightenStep = Number(s.heightening.interval) || 1
+    scObj.interval = heightenStep
+    const intDmg = {}
+    for (const [k, v] of Object.entries(s.heightening.damage || {})) {
+      if (v && String(v).trim()) intDmg[k] = String(v).trim()
+    }
+    if (Object.keys(intDmg).length) scObj.intervalDamage = intDmg
+    if (Number(s.heightening.area) > 0) scObj.intervalArea = Number(s.heightening.area)
   } else if (s.heightening?.type === 'fixed' && s.heightening.levels) {
     heightenType = 'fixed'
     heightenLevels = Object.keys(s.heightening.levels).map(Number).filter(Number.isFinite).sort((a, b) => a - b)
+    const fixedMap = {}
+    for (const lvl of heightenLevels) {
+      const ld = s.heightening.levels[String(lvl)] || {}
+      const fEntry = {}
+      if (ld.damage && typeof ld.damage === 'object') {
+        const arr = []
+        for (const [dk, dv] of Object.entries(ld.damage)) {
+          if (!dv || typeof dv !== 'object' || !dv.formula) continue
+          const e = { key: dk, formula: String(dv.formula).trim(), type: String(dv.type || 'untyped') }
+          if (dv.category) e.category = dv.category
+          if (dv.kinds && Array.isArray(dv.kinds) && dv.kinds.includes('healing')) e.healing = true
+          arr.push(e)
+        }
+        if (arr.length) fEntry.damage = arr
+      }
+      if (ld.area?.value != null) fEntry.areaVal = Number(ld.area.value)
+      if (ld.area?.type) fEntry.areaType = ld.area.type
+      if (ld.range?.value) fEntry.range = String(ld.range.value).trim()
+      if (ld.target?.value) fEntry.target = String(ld.target.value).trim()
+      if (Object.keys(fEntry).length) fixedMap[lvl] = fEntry
+    }
+    if (Object.keys(fixedMap).length) scObj.fixed = fixedMap
   } else if (/Heightened\s*\(\+(\d+)\)/i.test(rawEnDesc)) {
     heightenType = 'interval'
     heightenStep = Number(/Heightened\s*\(\+(\d+)\)/i.exec(rawEnDesc)[1]) || 1
@@ -1020,6 +1061,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
     for (const m of rawEnDesc.matchAll(/Heightened\s*\((\d+)(?:st|nd|rd|th)\)/gi)) lvls.add(Number(m[1]))
     heightenLevels = [...lvls].sort((a, b) => a - b)
   }
+  if (Object.keys(scObj).length) scaling = scObj
 
   const deities = new Set([
     ...(deitySpellMap.get(j._id) || []),
@@ -1072,6 +1114,7 @@ for (const f of walk(path.join(pf2eSrc, 'packs/pf2e/spells'))) {
     heightenType,
     heightenStep,
     heightenLevels,
+    ...(scaling ? { scaling } : {}),
     hasCost: Boolean(costRaw),
     cost: costRaw,
     costRu,

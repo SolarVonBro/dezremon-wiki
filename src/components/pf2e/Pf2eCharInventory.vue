@@ -7,19 +7,25 @@ import type {
 import { ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { computeCharacterBulk, formatLight, formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
 import { ITEM_TYPE_LABEL, pf2eIconUrl } from '@/data/pf2eFormat'
+import { endPf2eDrag, startPf2eDrag, usePf2eDrag } from '@/data/pf2eDrag'
 import { setItemPickTarget } from '@/data/pf2eWorkspace'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
 import Pf2eItemCard from './Pf2eItemCard.vue'
+import { toast } from '@/components/common/toast'
 
-const props = defineProps<{ character: Pf2eCharacter }>()
+const props = withDefaults(defineProps<{
+  character: Pf2eCharacter
+  compact?: boolean
+}>(), { compact: false })
 const emit = defineEmits<{
   patch: [p: Partial<Omit<Pf2eCharacter, 'id' | 'createdAt'>>]
 }>()
 
 const router = useRouter()
 const catalog = usePf2eCatalog()
+const { currentDrag } = usePf2eDrag()
 const lang = catalog.lang
 const setLang = catalog.setLang
 onMounted(() => { void ensurePf2eItems() })
@@ -250,7 +256,7 @@ function deleteContainer(c: Pf2eContainer) {
   emit('patch', { containers, inventory, coins })
 }
 
-// ==================== Full-Page Item Library Navigation ====================
+// ==================== Full-Page Item Library Navigation & Drag-and-Drop ====================
 function openItemPicker(containerId = '', initType: Pf2eItemType | '' = '') {
   setItemPickTarget(props.character.id, containerId)
   void router.push({
@@ -264,11 +270,96 @@ function openItemPicker(containerId = '', initType: Pf2eItemType | '' = '') {
   })
 }
 
-function itemLibraryHref(containerId = ''): string {
-  const params = new URLSearchParams()
-  params.set('for', props.character.id)
-  if (containerId) params.set('container', containerId)
-  return `#/tools/pf2e/items?${params.toString()}`
+const invDragOver = ref<string | null>(null) // 'loose' | 'c:<id>' | 'new-container'
+const isItemDrag = computed(() => {
+  const d = currentDrag.value
+  return Boolean(d && (d.kind === 'library-item' || d.kind === 'char-item'))
+})
+const draggingContainerItem = computed(() => {
+  const d = currentDrag.value
+  return d?.kind === 'library-item' && (d.item.type === 'backpack' || d.item.capacity > 0)
+})
+
+function onInvRowDragStart(e: DragEvent, row: Pf2eInventoryItem) {
+  const cat = row.itemId ? catalog.itemsById.value.get(row.itemId) ?? null : null
+  startPf2eDrag({ kind: 'char-item', row, item: cat })
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `pf2e-char-item:${row.id}`)
+  }
+}
+
+function onInvDragOver(e: DragEvent, key: string) {
+  if (!isItemDrag.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = currentDrag.value?.kind === 'char-item' ? 'move' : 'copy'
+  invDragOver.value = key
+}
+
+function onInvDragLeave(key: string) {
+  if (invDragOver.value === key) invDragOver.value = null
+}
+
+function handleInvDrop(e: DragEvent, target: 'loose' | 'new-container' | `c:${string}`) {
+  e.preventDefault()
+  invDragOver.value = null
+  const d = currentDrag.value
+  if (!d || (d.kind !== 'library-item' && d.kind !== 'char-item')) return
+
+  if (d.kind === 'library-item') {
+    const it = d.item
+    if (target === 'new-container') {
+      const newC: Pf2eContainer = {
+        id: randomId(10),
+        itemId: it.id,
+        name: lang.value === 'ru' ? it.ru : it.en,
+        carryType: it.usage.startsWith('worn') ? 'worn' : 'held',
+        parentContainerId: null,
+        bulk: it.bulk,
+        bulkHeld: it.bulkHeld,
+        capacity: it.capacity,
+        ignored: it.ignored,
+        extradimensional: it.extradimensional,
+        invested: false,
+        priceCp: it.priceCp,
+        notes: '',
+        order: props.character.containers.length,
+      }
+      saveContainers([...props.character.containers, newC])
+      toast.success(`Контейнер «${newC.name}» добавлен`)
+    } else {
+      const cid = target.startsWith('c:') ? target.slice(2) : null
+      const carryType: Pf2eCarryType = cid
+        ? 'stowed'
+        : it.usageGroup === 'worn' || it.usageGroup === 'worn-slot' || it.type === 'armor'
+          ? 'worn'
+          : 'held'
+      saveInv([
+        ...props.character.inventory,
+        {
+          id: randomId(10),
+          itemId: it.id,
+          name: '',
+          quantity: it.bulkPer > 1 && it.bulkPer < 1000 ? it.bulkPer : 1,
+          carryType,
+          containerId: cid,
+          group: '',
+          invested: false,
+          notes: '',
+          order: props.character.inventory.length,
+        },
+      ])
+      const cName = cid ? props.character.containers.find((x) => x.id === cid)?.name : 'На себе'
+      toast.success(`${lang.value === 'ru' ? it.ru : it.en} → ${cName}`)
+    }
+  } else if (d.kind === 'char-item') {
+    if (target === 'new-container') { endPf2eDrag(); return }
+    const cid = target.startsWith('c:') ? target.slice(2) : null
+    const carryType: Pf2eCarryType = cid ? 'stowed' : 'held'
+    saveInv(props.character.inventory.map((x) => (x.id === d.row.id ? { ...x, carryType, containerId: cid } : x)))
+  }
+
+  endPf2eDrag()
 }
 
 // Container Presets & Modal
@@ -515,12 +606,9 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
     <!-- ==================== INVENTORY TOOLBAR ==================== -->
     <section class="card card-pad stack-sm">
       <div class="row gap-sm wrap">
-        <button type="button" class="btn btn-sm btn-primary" @click="openItemPicker('', '')">
-          <Icon name="book-open" :size="14" /> Из библиотеки
+        <button v-if="!compact" type="button" class="btn btn-sm btn-primary" @click="openItemPicker('', '')">
+          <Icon name="book-open" :size="14" /> Библиотека рядом
         </button>
-        <a :href="itemLibraryHref('')" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть библиотеку предметов в новой вкладке">
-          <Icon name="external-link" :size="15" />
-        </a>
         <button type="button" class="btn btn-sm" @click="openNewContainer">
           <Icon name="backpack" :size="14" /> Контейнер
         </button>
@@ -530,7 +618,7 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
 
         <span class="grow" />
 
-        <div class="lang-switch" role="group" aria-label="Язык предметов">
+        <div v-if="!compact" class="lang-switch" role="group" aria-label="Язык предметов">
           <button type="button" :class="{ on: lang === 'ru' }" @click="setLang('ru')">RU</button>
           <button type="button" :class="{ on: lang === 'en' }" @click="setLang('en')">EN</button>
         </div>
@@ -599,18 +687,33 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
     <!-- ==================== VIEW 1: BY CONTAINERS ==================== -->
     <template v-if="groupMode === 'containers'">
       <!-- Loose Carried (Worn / Held) -->
-      <section class="card inv-sec">
+      <section
+        class="card inv-sec"
+        :class="{ 'drop-valid': isItemDrag, 'drop-over': invDragOver === 'loose' }"
+        @dragover="onInvDragOver($event, 'loose')"
+        @dragleave="onInvDragLeave('loose')"
+        @drop="handleInvDrop($event, 'loose')"
+      >
         <header class="is-head">
           <div class="row gap-sm grow">
             <Icon name="shield" :size="16" class="faint" />
             <b>На себе и в руках (вне контейнеров)</b>
             <span class="badge">{{ looseCarriedItems.length }}</span>
           </div>
-          <button type="button" class="btn btn-sm btn-ghost" @click="openItemPicker('', '')"><Icon name="plus" :size="13" /> Добавить</button>
+          <button v-if="!compact" type="button" class="btn btn-sm btn-ghost" @click="openItemPicker('', '')"><Icon name="plus" :size="13" /> Добавить</button>
         </header>
-        <div v-if="!looseCarriedItems.length" class="faint small" style="padding: 10px 14px">Нет предметов вне контейнеров.</div>
+        <div v-if="!looseCarriedItems.length" class="faint small" style="padding: 10px 14px">
+          {{ invDragOver === 'loose' ? '+ Отпустите сюда, чтобы положить на себя' : 'Нет предметов вне контейнеров — перетащите сюда предмет.' }}
+        </div>
         <div v-else class="inv-rows">
-          <div v-for="row in looseCarriedItems" :key="row.id" class="inv-row">
+          <div
+            v-for="row in looseCarriedItems"
+            :key="row.id"
+            class="inv-row"
+            draggable="true"
+            @dragstart="onInvRowDragStart($event, row)"
+            @dragend="endPf2eDrag()"
+          >
             <div v-if="sortBy === 'order'" class="ord-btns">
               <button type="button" title="Выше" @click="moveItemOrder(row, -1)"><Icon name="chevron-up" :size="12" /></button>
               <button type="button" title="Ниже" @click="moveItemOrder(row, 1)"><Icon name="chevron-down" :size="12" /></button>
@@ -664,7 +767,19 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
       </section>
 
       <!-- Containers List -->
-      <section v-for="c in sortedContainers" :key="c.id" class="card inv-sec" :class="{ dropped: summary.byContainer[c.id]?.effectivelyDropped }">
+      <section
+        v-for="c in sortedContainers"
+        :key="c.id"
+        class="card inv-sec"
+        :class="{
+          dropped: summary.byContainer[c.id]?.effectivelyDropped,
+          'drop-valid': isItemDrag,
+          'drop-over': invDragOver === `c:${c.id}`,
+        }"
+        @dragover="onInvDragOver($event, `c:${c.id}`)"
+        @dragleave="onInvDragLeave(`c:${c.id}`)"
+        @drop="handleInvDrop($event, `c:${c.id}`)"
+      >
         <header class="is-head">
           <button type="button" class="icon-btn" style="width: 24px; height: 24px" @click="toggleContainerCollapse(c)">
             <Icon :name="c.collapsed ? 'chevron-right' : 'chevron-down'" :size="15" />
@@ -698,7 +813,7 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
             <option value="dropped">Сброшено / В лагере</option>
           </select>
 
-          <button type="button" class="btn btn-sm btn-ghost" title="Добавить предмет в этот контейнер" @click="openItemPicker(c.id, '')">
+          <button v-if="!compact" type="button" class="btn btn-sm btn-ghost" title="Добавить предмет в этот контейнер" @click="openItemPicker(c.id, '')">
             <Icon name="plus" :size="13" /> Предмет
           </button>
           <button type="button" class="icon-btn" title="Настройки контейнера" @click="openEditContainer(c)"><Icon name="pencil" :size="14" /></button>
@@ -706,9 +821,18 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
         </header>
 
         <div v-if="!c.collapsed">
-          <div v-if="!itemsInContainer(c.id).length" class="faint small" style="padding: 10px 14px">Контейнер пуст.</div>
+          <div v-if="!itemsInContainer(c.id).length" class="faint small" style="padding: 10px 14px">
+            {{ invDragOver === `c:${c.id}` ? `+ Отпустите сюда, чтобы положить в «${c.name}»` : 'Контейнер пуст — перетащите предмет сюда.' }}
+          </div>
           <div v-else class="inv-rows">
-            <div v-for="row in itemsInContainer(c.id)" :key="row.id" class="inv-row">
+            <div
+              v-for="row in itemsInContainer(c.id)"
+              :key="row.id"
+              class="inv-row"
+              draggable="true"
+              @dragstart="onInvRowDragStart($event, row)"
+              @dragend="endPf2eDrag()"
+            >
               <div v-if="sortBy === 'order'" class="ord-btns">
                 <button type="button" title="Выше" @click="moveItemOrder(row, -1)"><Icon name="chevron-up" :size="12" /></button>
                 <button type="button" title="Ниже" @click="moveItemOrder(row, 1)"><Icon name="chevron-down" :size="12" /></button>
@@ -761,6 +885,19 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
           </div>
         </div>
       </section>
+
+      <!-- Drop Zone for adding a dragged backpack/pouch directly as a new Container -->
+      <div
+        v-if="draggingContainerItem"
+        class="new-cont-drop"
+        :class="{ over: invDragOver === 'new-container' }"
+        @dragover="onInvDragOver($event, 'new-container')"
+        @dragleave="onInvDragLeave('new-container')"
+        @drop="handleInvDrop($event, 'new-container')"
+      >
+        <Icon name="backpack" :size="18" />
+        <b>Перетащите сюда, чтобы добавить как отдельный контейнер</b>
+      </div>
 
       <!-- Dropped / Camp Items -->
       <section v-if="looseDroppedItems.length" class="card inv-sec dropped">
@@ -1017,8 +1154,16 @@ const encMarkerPct = computed(() => Math.min(100, (summary.value.encumberedAt / 
 .lang-switch button { border: 0; background: var(--surface-2); padding: 4px 9px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text-muted); }
 .lang-switch button.on { background: var(--accent); color: var(--accent-fg); }
 
-.inv-sec { overflow: hidden; }
+.inv-sec { overflow: hidden; transition: border-color .14s, box-shadow .14s; }
 .inv-sec.dropped { opacity: .76; border-style: dashed; }
+.inv-sec.drop-valid { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.inv-sec.drop-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.new-cont-drop {
+  display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px;
+  border-radius: var(--radius-sm); border: 2px dashed var(--accent); background: var(--accent-soft);
+  color: var(--accent); font-size: 13.5px; transition: background .12s;
+}
+.new-cont-drop.over { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 .is-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);

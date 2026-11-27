@@ -2,8 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import type { Pf2eLang, Pf2eMeta, Pf2eSpellIndex } from '@/model/pf2e'
 import { ensureSpellDescriptions, getSpellDesc } from '@/data/pf2eCatalog'
-import { formatActionSymbol, formatArea, pf2eIconUrl, RARITY_LABEL, renderPf2eHtml, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
-import { compilePf2eFormula, executePf2eRoll, type Pf2eFormulaContext, type Pf2eRollResult } from '@/data/pf2eRoll'
+import { formatActionSymbol, formatArea, localizeDamageType, pf2eIconUrl, RARITY_LABEL, renderPf2eHtml, SPELL_CAT_LABEL } from '@/data/pf2eFormat'
+import { compilePf2eFormula, computeHeightenedSpell, executePf2eRoll, formatAvgNumber, type Pf2eFormulaContext, type Pf2eRollResult } from '@/data/pf2eRoll'
 import { PF2E_TRADITIONS } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
 import Pf2eRollPanel from './Pf2eRollPanel.vue'
@@ -51,6 +51,8 @@ const formulaCtx = computed<Pf2eFormulaContext>(() => ({
   actorLevel: props.actorLevel ?? Math.max(1, castRank.value * 2 - 1),
 }))
 
+const heightened = computed(() => computeHeightenedSpell(props.spell, castRank.value, formulaCtx.value))
+
 const hasDynamicScaling = computed(() =>
   props.spell.heightenType !== 'none'
   || props.spell.cat === 'cantrip'
@@ -58,7 +60,9 @@ const hasDynamicScaling = computed(() =>
   || /@item\.(rank|level)|@actor\.level/i.test(rawDesc.value),
 )
 
-const descHtml = computed(() => renderPf2eHtml(rawDesc.value, cardLang.value, props.meta, formulaCtx.value))
+const descHtml = computed(() =>
+  renderPf2eHtml(rawDesc.value, cardLang.value, props.meta, formulaCtx.value, heightened.value.baseOverrides),
+)
 
 // Interactive dice rolling inside card prose
 const activeRoll = ref<Pf2eRollResult | null>(null)
@@ -114,9 +118,9 @@ const defenseText = computed(() => {
   return parts.join(' / ')
 })
 
-const rangeText = computed(() => (cardLang.value === 'ru' ? props.spell.rangeRu : props.spell.range))
-const targetText = computed(() => (cardLang.value === 'ru' ? props.spell.targetRu : props.spell.target))
-const areaText = computed(() => formatArea(props.spell.areaType, props.spell.areaVal, cardLang.value))
+const rangeText = computed(() => heightened.value.rangeOverride ?? (cardLang.value === 'ru' ? props.spell.rangeRu : props.spell.range))
+const targetText = computed(() => heightened.value.targetOverride ?? (cardLang.value === 'ru' ? props.spell.targetRu : props.spell.target))
+const areaText = computed(() => formatArea(heightened.value.areaType, heightened.value.areaVal, cardLang.value))
 const durationText = computed(() => {
   const d = cardLang.value === 'ru' ? props.spell.durationRu : props.spell.duration
   if (props.spell.sustained) {
@@ -244,21 +248,37 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
       </template>
     </dl>
 
-    <!-- Cast Rank scaler for heightened formulas -->
-    <div v-if="hasDynamicScaling" class="cast-rank-bar">
-      <span class="small muted">{{ cardLang === 'ru' ? 'Круг для формул:' : 'Cast rank:' }}</span>
-      <div class="cr-pills">
-        <button
-          v-for="r in Array.from({ length: 11 - minRank }, (_, i) => minRank + i)"
-          :key="r"
-          type="button"
-          class="cr-pill"
-          :class="{ on: castRank === r }"
-          @click="castRank = r"
-        >
-          {{ r }}
-        </button>
-      </div>
+    <!-- Cast Rank scaler + Primary Scaled Roll Button -->
+    <div v-if="hasDynamicScaling || heightened.compiled?.hasDice" class="cast-rank-bar">
+      <template v-if="hasDynamicScaling">
+        <span class="small muted">{{ cardLang === 'ru' ? 'Круг сотворения:' : 'Cast rank:' }}</span>
+        <div class="cr-pills">
+          <button
+            v-for="r in Array.from({ length: 11 - minRank }, (_, i) => minRank + i)"
+            :key="r"
+            type="button"
+            class="cr-pill"
+            :class="{ on: castRank === r }"
+            @click="castRank = r"
+          >
+            {{ r }}
+          </button>
+        </div>
+      </template>
+      <span v-if="hasDynamicScaling && heightened.compiled?.hasDice" class="grow" />
+      <button
+        v-if="heightened.compiled?.hasDice"
+        type="button"
+        class="btn btn-sm btn-primary primary-roll-btn"
+        :title="cardLang === 'ru' ? `Бросить урон заклинания на ${castRank} круге` : `Roll spell damage at rank ${castRank}`"
+        @click="runRoll(heightened.combinedSpec)"
+      >
+        🎲 {{ heightened.compiled.displayExpr }}
+        <template v-if="heightened.damageEntries.length === 1 && heightened.damageEntries[0].type !== 'untyped'">
+          ({{ localizeDamageType(heightened.damageEntries[0].type, cardLang, meta) }})
+        </template>
+        <span class="pr-avg">· {{ cardLang === 'ru' ? 'ср.' : 'avg' }} {{ formatAvgNumber(heightened.compiled.avg) }}</span>
+      </button>
     </div>
 
     <!-- Active Interactive Dice Roll Panel -->
@@ -367,8 +387,14 @@ const standaloneHref = computed(() => `#/tools/pf2e/spell/${encodeURIComponent(p
 }
 .pf-prose :deep(.pf-roll-btn:hover) { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
 .pf-prose :deep(.pf-roll-btn:active) { transform: translateY(0); }
+.pf-prose :deep(.pf-roll-btn.pf-heightened) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
 .pf-prose :deep(.pf-roll-ic) { font-size: .9em; }
 .pf-prose :deep(.pf-roll-avg) { font-size: .86em; font-weight: 500; color: var(--text-muted); }
+.primary-roll-btn { font-family: var(--font-ui); }
+.pr-avg { opacity: .88; font-weight: 500; }
 
 .pfc-deities { font-size: 13px; padding-top: 6px; border-top: 1px solid var(--border); }
 .pfc-deities summary { cursor: pointer; color: var(--accent); font-weight: 500; }

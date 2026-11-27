@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { Pf2eAttribute, Pf2eItemIndex, Pf2eItemType, Pf2eRarity } from '@/model/pf2e'
 import { ensureItemDescriptions, ensurePf2eItems, usePf2eCatalog } from '@/data/pf2eCatalog'
 import { ITEM_TYPE_LABEL, pf2eIconUrl, RARITY_LABEL } from '@/data/pf2eFormat'
+import { endPf2eDrag, startPf2eDrag } from '@/data/pf2eDrag'
 import { formatPriceCp, formatUnitBulk } from '@/data/pf2eBulk'
 import { PF2E_ATTRIBUTES } from '@/data/pf2eSpellcasting'
 import Icon from '@/components/common/Icon.vue'
@@ -13,11 +14,15 @@ import Pf2eItemCard from './Pf2eItemCard.vue'
 
 const props = withDefaults(defineProps<{
   pickMode?: boolean
+  docked?: boolean
+  draggableRows?: boolean
   initialType?: Pf2eItemType | ''
   pickLabel?: string
   ownedCounts?: Record<string, number>
 }>(), {
   pickMode: false,
+  docked: false,
+  draggableRows: false,
   initialType: '',
   pickLabel: 'Добавить в инвентарь',
   ownedCounts: () => ({}),
@@ -428,7 +433,20 @@ const shown = computed(() => filtered.value.slice(0, limit.value))
 
 function openItem(it: Pf2eItemIndex) {
   selected.value = it
-  if (window.innerWidth < 1140) modalOpen.value = true
+  if (props.docked || window.innerWidth < 1140) modalOpen.value = true
+}
+
+function onRowDragStart(e: DragEvent, it: Pf2eItemIndex) {
+  if (!props.draggableRows) return
+  startPf2eDrag({ kind: 'library-item', item: it })
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.setData('text/plain', `pf2e-item:${it.id}`)
+  }
+}
+
+function onRowDragEnd() {
+  endPf2eDrag()
 }
 </script>
 
@@ -753,7 +771,7 @@ function openItem(it: Pf2eItemIndex) {
     </div>
 
     <!-- Results + Split Detail -->
-    <div v-else class="pf-split" :class="{ 'has-detail': Boolean(selected) }">
+    <div v-else class="pf-split" :class="{ 'has-detail': Boolean(selected) && !docked }">
       <div class="card pf-list-card">
         <div v-if="!filtered.length" class="empty">
           <Icon name="search" :size="28" />
@@ -766,9 +784,13 @@ function openItem(it: Pf2eItemIndex) {
             v-for="it in shown"
             :key="it.id"
             class="pf-row"
-            :class="{ on: selected?.id === it.id }"
+            :class="{ on: selected?.id === it.id, draggable: draggableRows }"
+            :draggable="draggableRows"
+            @dragstart="onRowDragStart($event, it)"
+            @dragend="onRowDragEnd"
             @click="openItem(it)"
           >
+            <Icon v-if="draggableRows" name="grip-vertical" :size="14" class="drag-grip hide-sm" title="Перетащите в инвентарь или контейнер персонажа" />
             <span class="pf-lvl" :title="lang === 'ru' ? `Уровень ${it.level}` : `Level ${it.level}`">{{ it.level }}</span>
             <img v-if="it.img" :src="pf2eIconUrl(it.img)" alt="" class="pf-row-ic" loading="lazy" decoding="async" />
             <Icon v-else :name="ITEM_TYPE_LABEL[it.type]?.icon ?? 'package'" :size="15" class="faint" />
@@ -818,8 +840,8 @@ function openItem(it: Pf2eItemIndex) {
         </div>
       </div>
 
-      <!-- Sticky Desktop Detail -->
-      <aside v-if="selected" class="card card-pad pf-detail-pane">
+      <!-- Sticky Desktop Detail (when not docked next to character) -->
+      <aside v-if="selected && !docked" class="card card-pad pf-detail-pane">
         <Pf2eItemCard :item="selected" :meta="catalog.meta.value" :lang="lang">
           <template #actions>
             <template v-if="pickMode">
@@ -892,6 +914,10 @@ function openItem(it: Pf2eItemIndex) {
 .pf-row:last-child { border-bottom: 0; }
 .pf-row:hover { background: var(--surface-2); }
 .pf-row.on { background: var(--accent-soft); }
+.pf-row.draggable { cursor: grab; }
+.pf-row.draggable:active { cursor: grabbing; }
+.drag-grip { color: var(--text-faint); flex-shrink: 0; opacity: .65; }
+.pf-row:hover .drag-grip { opacity: 1; color: var(--accent); }
 
 .pf-lvl {
   width: 28px; height: 26px; border-radius: 6px; flex-shrink: 0; font-size: 12px; font-weight: 700; font-family: var(--font-mono);

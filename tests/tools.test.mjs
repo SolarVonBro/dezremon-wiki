@@ -28,7 +28,7 @@ const {
 } = await import('../src/data/statCalc.ts')
 const { computeCharacterBulk, formatLight, formatPriceCp } = await import('../src/data/pf2eBulk.ts')
 const { autoRank, computeSpellStats, PF2E_CLASS_PRESETS, proficiencyBonus } = await import('../src/data/pf2eSpellcasting.ts')
-const { compilePf2eFormula, evalPf2eMath, executePf2eRoll } = await import('../src/data/pf2eRoll.ts')
+const { compilePf2eFormula, computeHeightenedSpell, evalPf2eMath, executePf2eRoll } = await import('../src/data/pf2eRoll.ts')
 
 let passed = 0
 let failed = 0
@@ -475,6 +475,36 @@ test('100% of all @Damage[...] and [[/r ...]] formulas across all 8,041 spells &
   }
   assert.ok(total > 5000, `Expected > 5000 formulas, got ${total}`)
   assert.equal(failed.length, 0, `Uncompiled formulas (${failed.length}): ${failed.slice(0, 10).join(' | ')}`)
+})
+
+test('Heightened spell calculator scales interval damage, fixed tiers, area, and prose overrides accurately', () => {
+  const spells = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/pf2e/spells-index.json'), 'utf8'))
+
+  const fb = spells.find((s) => s.en === 'Fireball')
+  assert.ok(fb?.scaling?.baseDamage?.length)
+  const fb3 = computeHeightenedSpell(fb, 3)
+  assert.equal(fb3.compiled.displayExpr, '6d6')
+  assert.equal(fb3.compiled.avg, 21)
+  const fb5 = computeHeightenedSpell(fb, 5)
+  assert.equal(fb5.compiled.displayExpr, '10d6')
+  assert.equal(fb5.compiled.avg, 35)
+  assert.equal(fb5.baseOverrides['6d6'], '10d6')
+
+  const ea = spells.find((s) => s.en === 'Electric Arc')
+  const ea4 = computeHeightenedSpell(ea, 4)
+  assert.equal(ea4.compiled.displayExpr, '5d4')
+  assert.equal(ea4.compiled.avg, 12.5)
+  assert.equal(ea4.baseOverrides['2d4'], '5d4')
+
+  const dl = spells.find((s) => s.en === 'Darklight')
+  const dl10 = computeHeightenedSpell(dl, 10)
+  assert.equal(dl10.compiled.displayExpr, '3d6 + 3d6')
+  assert.equal(dl10.compiled.avg, 21)
+
+  const ew = spells.find((s) => s.en === 'Establish Ward')
+  const ewBase = computeHeightenedSpell(ew, ew.baseRank)
+  const ewPlus2 = computeHeightenedSpell(ew, ew.baseRank + 2)
+  assert.equal(ewPlus2.areaVal, (ewBase.areaVal ?? 0) + 5)
 })
 
 console.log(`\n${passed} passed, ${failed} failed`)

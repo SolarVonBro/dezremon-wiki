@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type {
   Pf2eAttribute, Pf2eCastingType, Pf2eCharacter, Pf2eProficiency, Pf2eSpellEntryItem,
@@ -10,7 +10,9 @@ import {
   autoRank, computeSpellStats, fullCasterProficiency, PF2E_ATTRIBUTES, PF2E_CASTING_TYPES,
   PF2E_CLASS_PRESETS, PF2E_PROFICIENCIES, PF2E_TRADITIONS,
 } from '@/data/pf2eSpellcasting'
-import { formatActionSymbol, pf2eIconUrl } from '@/data/pf2eFormat'
+import { formatActionSymbol, localizeDamageType, pf2eIconUrl } from '@/data/pf2eFormat'
+import { computeHeightenedSpell, formatAvgNumber } from '@/data/pf2eRoll'
+import { endPf2eDrag, startPf2eDrag, usePf2eDrag } from '@/data/pf2eDrag'
 import { setSpellPickTarget } from '@/data/pf2eWorkspace'
 import { randomId } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
@@ -18,26 +20,42 @@ import Modal from '@/components/common/Modal.vue'
 import Pf2eSpellCard from './Pf2eSpellCard.vue'
 import { toast } from '@/components/common/toast'
 
-const props = defineProps<{ character: Pf2eCharacter }>()
-const emit = defineEmits<{ save: [spellLists: Pf2eSpellList[]] }>()
+const props = withDefaults(defineProps<{
+  character: Pf2eCharacter
+  compact?: boolean
+  initialListId?: string
+}>(), {
+  compact: false,
+  initialListId: '',
+})
+
+const emit = defineEmits<{
+  save: [spellLists: Pf2eSpellList[]]
+  'active-list': [list: Pf2eSpellList | null]
+}>()
 
 const router = useRouter()
 const catalog = usePf2eCatalog()
 const lang = catalog.lang
 const setLang = catalog.setLang
+const { currentDrag } = usePf2eDrag()
 onMounted(() => { void ensurePf2eSpells() })
 
-const activeListId = ref<string | null>(props.character.spellLists[0]?.id ?? null)
+const activeListId = ref<string | null>(props.initialListId || props.character.spellLists[0]?.id || null)
+watch(() => props.initialListId, (id) => {
+  if (id && props.character.spellLists.some((l) => l.id === id)) activeListId.value = id
+})
+
 const searchQ = ref('')
 const viewingSpell = ref<Pf2eSpellIndex | null>(null)
 const viewingSpellRank = ref<number | undefined>(undefined)
 
-// Ensure activeListId stays valid
 const activeList = computed(() => {
   const lists = props.character.spellLists
   if (!lists.length) return null
   return lists.find((l) => l.id === activeListId.value) ?? lists[0]
 })
+watch(activeList, (l) => emit('active-list', l), { immediate: true })
 
 function cloneLists(): Pf2eSpellList[] {
   return JSON.parse(JSON.stringify(props.character.spellLists)) as Pf2eSpellList[]
@@ -202,7 +220,7 @@ function dailyRest() {
   toast.success('Ежедневные приготовления: все ячейки, очки фокуса и использования восстановлены')
 }
 
-// ==================== Open Full-Page Library & Custom Spell Modal ====================
+// ==================== Navigation to Side-by-Side Library & Custom Spell ====================
 const customModal = ref<{ name: string; rank: number; notes: string; usesMax: number; atWill: boolean } | null>(null)
 
 function openSpellPicker(rank: number | null = null) {
@@ -212,27 +230,8 @@ function openSpellPicker(rank: number | null = null) {
   void router.push({
     name: 'toolPf2e',
     params: { tab: 'spells' },
-    query: { for: props.character.id, list: l.id, ...(rank != null ? { rank: String(rank) } : {}) },
+    query: { for: props.character.id, list: l.id },
   })
-}
-
-function libraryHref(rank: number | null = null): string {
-  const l = activeList.value
-  const params = new URLSearchParams()
-  params.set('for', props.character.id)
-  if (l) params.set('list', l.id)
-  if (rank != null) params.set('rank', String(rank))
-  return `#/tools/pf2e/spells?${params.toString()}`
-}
-
-function openSpellPreview(row: Pf2eSpellEntryItem) {
-  if (!row.spellId) return
-  const sp = catalog.spellsById.value.get(row.spellId) ?? null
-  if (!sp) return
-  viewingSpell.value = sp
-  viewingSpellRank.value = row.rank === 0 || activeList.value?.castingType === 'focus'
-    ? Math.max(sp.baseRank, cantripRank.value)
-    : Math.max(sp.baseRank, row.rank)
 }
 
 function openCustomSpell(rank = 1) {
@@ -260,7 +259,196 @@ function submitCustomSpell() {
   customModal.value = null
 }
 
-// ==================== Row Operations ====================
+// ==================== Spell Preview & Rank-Aware Scaling ====================
+const cantripRank = computed(() => autoRank(props.character.level))
+
+function effectiveRankFor(rowRank: number, sp?: Pf2eSpellIndex | null): number {
+  const base = Math.max(1, sp?.baseRank || 1)
+  if (rowRank === 0 || activeList.value?.castingType === 'focus') {
+    return Math.max(base, cantripRank.value)
+  }
+  return Math.max(base, rowRank)
+}
+
+function openSpellPreview(row: Pf2eSpellEntryItem) {
+  if (!row.spellId) return
+  const sp = catalog.spellsById.value.get(row.spellId) ?? null
+  if (!sp) return
+  viewingSpell.value = sp
+  viewingSpellRank.value = effectiveRankFor(row.rank, sp)
+}
+
+function spellDamageBadge(sp: Pf2eSpellIndex | null | undefined, targetRank: number): { label: string; title: string; heightened: boolean } | null {
+  if (!sp) return null
+  const effRank = effectiveRankFor(targetRank, sp)
+  const h = computeHeightenedSpell(sp, effRank, { actorLevel: props.character.level })
+  if (!h.compiled?.hasDice) return null
+  const singleType = h.damageEntries.length === 1 && h.damageEntries[0].type !== 'untyped'
+    ? localizeDamageType(h.damageEntries[0].type, lang.value, catalog.meta.value)
+    : ''
+  const avgStr = formatAvgNumber(h.compiled.avg)
+  return {
+    label: singleType ? `${h.compiled.displayExpr} ${singleType}` : h.compiled.displayExpr,
+    title: lang.value === 'ru'
+      ? `Круг ${effRank}: ${h.compiled.displayExpr} · среднее ${avgStr} (${h.compiled.min}–${h.compiled.max})`
+      : `Rank ${effRank}: ${h.compiled.displayExpr} · avg ${avgStr} (${h.compiled.min}–${h.compiled.max})`,
+    heightened: h.isHeightened,
+  }
+}
+
+// ==================== Drag & Drop Into Prepared Slots & Rank Categories ====================
+const dragOverKey = ref<string | null>(null) // "rank:3" | "slot:3:empty:0" | "slot:3:rowId:0"
+
+const draggingSpell = computed<Pf2eSpellIndex | null>(() => {
+  const d = currentDrag.value
+  if (!d) return null
+  if (d.kind === 'library-spell') return d.spell
+  if (d.kind === 'char-spell') return d.spell
+  return null
+})
+
+function isSpellDrag(): boolean {
+  const d = currentDrag.value
+  return Boolean(d && (d.kind === 'library-spell' || d.kind === 'char-spell'))
+}
+
+function canDropInRank(sp: Pf2eSpellIndex | null, targetRank: number): boolean {
+  if (!sp) return true // custom spell can move anywhere
+  const l = activeList.value
+  if (!l) return false
+  if (targetRank === 0) {
+    return sp.cat === 'cantrip' || l.castingType === 'innate'
+  }
+  if (sp.cat === 'cantrip') return l.castingType === 'innate'
+  return targetRank >= Math.max(1, sp.baseRank || 1)
+}
+
+function dropHintFor(sp: Pf2eSpellIndex | null, targetRank: number, replaceMode = false): string {
+  if (!sp) return replaceMode ? 'Заменить ячейку' : `Добавить в ${targetRank === 0 ? 'Заговоры' : `${targetRank} круг`}`
+  const effRank = effectiveRankFor(targetRank, sp)
+  const dmg = spellDamageBadge(sp, targetRank)
+  const dmgStr = dmg ? ` (${dmg.label})` : ''
+  if (targetRank === 0) return `Заговоры (круг ${effRank})${dmgStr}`
+  if (replaceMode) return `Заменить ячейку ${targetRank} круга${dmgStr}`
+  const isPrep = activeList.value?.castingType === 'prepared' && !activeList.value?.flexible
+  return isPrep ? `Подготовить на ${targetRank} круге${dmgStr}` : `Добавить в ${targetRank} круг${dmgStr}`
+}
+
+function onRowDragStart(e: DragEvent, row: Pf2eSpellEntryItem) {
+  const l = activeList.value
+  if (!l) return
+  const sp = row.spellId ? catalog.spellsById.value.get(row.spellId) ?? null : null
+  startPf2eDrag({ kind: 'char-spell', listId: l.id, row, spell: sp })
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `pf2e-char-spell:${row.id}`)
+  }
+}
+
+function onDragOverTarget(e: DragEvent, key: string, targetRank: number) {
+  if (!isSpellDrag()) return
+  const ok = canDropInRank(draggingSpell.value, targetRank)
+  if (!ok) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    return
+  }
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = currentDrag.value?.kind === 'char-spell' ? 'move' : 'copy'
+  dragOverKey.value = key
+}
+
+function onDragLeaveTarget(key: string) {
+  if (dragOverKey.value === key) dragOverKey.value = null
+}
+
+function handleDropSpell(
+  e: DragEvent,
+  targetRank: number,
+  replaceSlot?: { rowId: string; slotIdx: number },
+) {
+  e.preventDefault()
+  dragOverKey.value = null
+  const l = activeList.value
+  const d = currentDrag.value
+  if (!l || !d) return
+  if (d.kind !== 'library-spell' && d.kind !== 'char-spell') return
+
+  const sp = d.kind === 'library-spell' ? d.spell : d.spell
+  if (!canDropInRank(sp, targetRank)) {
+    if (sp) toast.info(`«${lang.value === 'ru' ? sp.ru : sp.en}» нельзя поместить в ${targetRank === 0 ? 'Заговоры' : `${targetRank} круг`} (мин. ${sp.baseRank} круг)`)
+    endPf2eDrag()
+    return
+  }
+
+  const isSlottedPrep = l.castingType === 'prepared' && !l.flexible && targetRank > 0
+
+  if (d.kind === 'library-spell') {
+    updateList(l.id, (entry) => {
+      if (replaceSlot && isSlottedPrep) {
+        const idx = entry.spells.findIndex((x) => x.id === replaceSlot.rowId)
+        if (idx >= 0) {
+          const cur = entry.spells[idx]
+          const cnt = cur.preparedCount ?? 1
+          if (cnt <= 1) {
+            entry.spells[idx] = {
+              ...cur,
+              spellId: d.spell.id,
+              customName: undefined,
+              rank: targetRank,
+              preparedCount: 1,
+              expendedCount: 0,
+            }
+            return
+          }
+          cur.preparedCount = cnt - 1
+          if ((cur.expendedCount ?? 0) > cur.preparedCount) cur.expendedCount = cur.preparedCount
+        }
+      }
+      entry.spells.push({
+        id: randomId(10),
+        spellId: d.spell.id,
+        rank: targetRank,
+        preparedCount: entry.castingType === 'prepared' && targetRank > 0 ? 1 : undefined,
+        expendedCount: 0,
+        usesMax: entry.castingType === 'innate' && targetRank > 0 ? 1 : undefined,
+        usesLeft: entry.castingType === 'innate' && targetRank > 0 ? 1 : undefined,
+        atWill: entry.castingType === 'innate' && targetRank === 0,
+        notes: '',
+      })
+    })
+    const dmg = spellDamageBadge(d.spell, targetRank)
+    toast.success(`${lang.value === 'ru' ? d.spell.ru : d.spell.en} → ${targetRank === 0 ? 'Заговоры' : `${targetRank} круг`}${dmg ? ` (${dmg.label})` : ''}`)
+  } else if (d.kind === 'char-spell') {
+    if (d.listId !== l.id || d.row.rank === targetRank) { endPf2eDrag(); return }
+    updateList(l.id, (entry) => {
+      const srcIdx = entry.spells.findIndex((x) => x.id === d.row.id)
+      if (srcIdx < 0) return
+      const src = entry.spells[srcIdx]
+      const srcCount = src.preparedCount ?? 1
+      if (isSlottedPrep && srcCount > 1) {
+        // Move 1 prepared copy to target rank
+        src.preparedCount = srcCount - 1
+        if ((src.expendedCount ?? 0) > src.preparedCount) src.expendedCount = src.preparedCount
+        entry.spells.push({
+          ...src,
+          id: randomId(10),
+          rank: targetRank,
+          preparedCount: 1,
+          expendedCount: 0,
+        })
+      } else {
+        src.rank = targetRank
+        if (entry.castingType === 'prepared' && targetRank > 0 && !src.preparedCount) src.preparedCount = 1
+      }
+    })
+    const name = sp ? (lang.value === 'ru' ? sp.ru : sp.en) : (d.row.customName || 'Заклинание')
+    toast.success(`${name} перенесено в ${targetRank === 0 ? 'Заговоры' : `${targetRank} круг`}`)
+  }
+
+  endPf2eDrag()
+}
+
+// ==================== Row & Slot Operations ====================
 const editRow = ref<Pf2eSpellEntryItem | null>(null)
 function saveEditRow() {
   const r = editRow.value
@@ -279,24 +467,28 @@ function removeSpellRow(rowId: string) {
   updateList(l.id, (entry) => { entry.spells = entry.spells.filter((x) => x.id !== rowId) })
 }
 
+function removeOnePreparedSlot(row: Pf2eSpellEntryItem) {
+  const l = activeList.value
+  if (!l) return
+  updateList(l.id, (entry) => {
+    const t = entry.spells.find((x) => x.id === row.id)
+    if (!t) return
+    const next = (t.preparedCount ?? 1) - 1
+    if (next <= 0) {
+      entry.spells = entry.spells.filter((x) => x.id !== row.id)
+    } else {
+      t.preparedCount = next
+      if ((t.expendedCount ?? 0) > next) t.expendedCount = next
+    }
+  })
+}
+
 function toggleSignature(row: Pf2eSpellEntryItem) {
   const l = activeList.value
   if (!l) return
   updateList(l.id, (entry) => {
     const t = entry.spells.find((x) => x.id === row.id)
     if (t) t.signature = !t.signature
-  })
-}
-
-function bumpPrepared(row: Pf2eSpellEntryItem, delta: number) {
-  const l = activeList.value
-  if (!l) return
-  updateList(l.id, (entry) => {
-    const t = entry.spells.find((x) => x.id === row.id)
-    if (!t) return
-    const next = Math.max(0, (t.preparedCount ?? 1) + delta)
-    t.preparedCount = next
-    if ((t.expendedCount ?? 0) > next) t.expendedCount = next
   })
 }
 
@@ -357,6 +549,14 @@ function spellImg(row: Pf2eSpellEntryItem): string {
   return pf2eIconUrl(cat?.img)
 }
 
+interface PreparedSlotView {
+  key: string
+  row: Pf2eSpellEntryItem
+  slotIdx: number
+  expended: boolean
+  cat: Pf2eSpellIndex | null
+}
+
 // Group active entry's spells by rank (including ranks that have slots > 0)
 const rankGroups = computed(() => {
   const l = activeList.value
@@ -369,10 +569,16 @@ const rankGroups = computed(() => {
     for (const [rStr, cnt] of Object.entries(l.slotsMax)) {
       if (cnt > 0) ranksSet.add(Number(rStr))
     }
+  } else if (l.castingType === 'focus' && !l.spells.length) {
+    ranksSet.add(cantripRank.value)
+  } else if ((l.castingType === 'innate' || l.castingType === 'ritual') && !l.spells.length) {
+    ranksSet.add(1)
   }
   for (const sp of l.spells) ranksSet.add(sp.rank)
 
   const sortedRanks = [...ranksSet].sort((a, b) => a - b)
+  const isPrepSlotted = l.castingType === 'prepared' && !l.flexible
+
   return sortedRanks.map((rank) => {
     const items = l.spells
       .filter((row) => {
@@ -383,15 +589,45 @@ const rankGroups = computed(() => {
         return n1.includes(needle) || n2.includes(needle) || (row.notes ?? '').toLowerCase().includes(needle)
       })
       .sort((a, b) => spellName(a).localeCompare(spellName(b), lang.value === 'ru' ? 'ru' : 'en'))
+
     const maxSlots = rank > 0 ? (l.slotsMax[rank] ?? 0) : 0
-    const preparedSum = items.reduce((s, r) => s + (r.preparedCount ?? 0), 0)
+    const preparedSum = items.reduce((s, r) => s + Math.max(1, r.preparedCount ?? 1), 0)
     const usedShared = l.slotsUsed[rank] ?? 0
-    return { rank, items, maxSlots, preparedSum, usedShared }
+
+    // Flatten prepared entries into individual visual slot rows when castingType === 'prepared' && !flexible
+    const filledSlots: PreparedSlotView[] = []
+    if (isPrepSlotted && rank > 0) {
+      for (const row of items) {
+        const cnt = Math.max(1, row.preparedCount ?? 1)
+        const exp = row.expendedCount ?? 0
+        const cat = row.spellId ? catalog.spellsById.value.get(row.spellId) ?? null : null
+        for (let k = 0; k < cnt; k++) {
+          filledSlots.push({
+            key: `${row.id}:${k}`,
+            row,
+            slotIdx: k,
+            expended: k < exp,
+            cat,
+          })
+        }
+      }
+    }
+    const emptySlotCount = isPrepSlotted && rank > 0 && maxSlots > 0 ? Math.max(0, maxSlots - filledSlots.length) : 0
+
+    return {
+      rank,
+      items,
+      maxSlots,
+      preparedSum,
+      usedShared,
+      isSlotted: isPrepSlotted && rank > 0 && maxSlots > 0,
+      filledSlots,
+      emptySlotCount,
+    }
   })
 })
 
 const stats = computed(() => (activeList.value ? computeSpellStats(props.character.level, activeList.value) : null))
-const cantripRank = computed(() => autoRank(props.character.level))
 const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 </script>
 
@@ -423,19 +659,19 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
         </div>
 
         <button v-if="character.spellLists.length" type="button" class="btn btn-sm" title="Восстановить все ячейки, очки фокуса и использования" @click="dailyRest">
-          <Icon name="bed-double" :size="14" /> Дневной отдых
+          <Icon name="bed-double" :size="14" /> <span :class="{ 'hide-sm': compact }">Отдых</span>
         </button>
 
-        <div class="lang-switch" role="group" aria-label="Язык заклинаний">
+        <div v-if="!compact" class="lang-switch" role="group" aria-label="Язык заклинаний">
           <button type="button" :class="{ on: lang === 'ru' }" @click="setLang('ru')">RU</button>
           <button type="button" :class="{ on: lang === 'en' }" @click="setLang('en')">EN</button>
         </div>
       </div>
 
       <!-- Empty state -->
-      <div v-if="!activeList" class="empty" style="padding: 24px">
-        <Icon name="sparkles" :size="30" />
-        <p>У персонажа пока нет списков заклинаний. Добавьте список (подготавливаемый, спонтанный, фокусный, врождённый или ритуалы).</p>
+      <div v-if="!activeList" class="empty" style="padding: 20px">
+        <Icon name="sparkles" :size="28" />
+        <p class="small">У персонажа пока нет списков заклинаний. Создайте список (по шаблону класса или вручную), и сможете перетаскивать заклинания прямо в ячейки.</p>
         <button type="button" class="btn btn-primary btn-sm" @click="openNewEntry"><Icon name="plus" :size="14" /> Создать список заклинаний</button>
       </div>
 
@@ -445,9 +681,9 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
           <div class="row gap wrap grow">
             <div>
               <div class="row gap-sm wrap">
-                <h3 style="margin: 0; font-size: 22px">{{ activeList.name }}</h3>
+                <h3 style="margin: 0; font-size: 20px">{{ activeList.name }}</h3>
                 <span class="badge">{{ PF2E_CASTING_TYPES.find((x) => x.id === activeList!.castingType)?.ru }}</span>
-                <span v-if="activeList.flexible" class="badge badge-public">Гибкий заклинатель</span>
+                <span v-if="activeList.flexible" class="badge badge-public">Гибкий</span>
                 <span
                   v-if="activeList.tradition"
                   class="trad-badge"
@@ -457,8 +693,8 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
                 </span>
               </div>
               <div class="faint small" style="margin-top: 2px">
-                Ключевая хар.: {{ PF2E_ATTRIBUTES.find((x) => x.id === activeList!.keyAttr)?.ru }} ({{ signed(activeList.keyMod) }})
-                · Мастерство: {{ PF2E_PROFICIENCIES.find((x) => x.rank === activeList!.proficiency)?.ru }}
+                {{ PF2E_ATTRIBUTES.find((x) => x.id === activeList!.keyAttr)?.shortRu }} {{ signed(activeList.keyMod) }}
+                · {{ PF2E_PROFICIENCIES.find((x) => x.rank === activeList!.proficiency)?.ru }}
                 <template v-if="activeList.notes"> · {{ activeList.notes }}</template>
               </div>
             </div>
@@ -476,7 +712,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 
             <!-- Focus Pool Pips -->
             <div v-if="activeList.castingType === 'focus'" class="stat-box">
-              <span class="faint small">Очки фокуса ({{ activeList.focusCurrent ?? 0 }}/{{ activeList.focusMax ?? 1 }})</span>
+              <span class="faint small">Фокус ({{ activeList.focusCurrent ?? 0 }}/{{ activeList.focusMax ?? 1 }})</span>
               <div class="row gap-sm" style="margin-top: 2px">
                 <button
                   v-for="i in (activeList.focusMax ?? 1)"
@@ -492,12 +728,9 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
           </div>
 
           <div class="row gap-sm wrap">
-            <button type="button" class="btn btn-sm btn-primary" @click="openSpellPicker(null)">
-              <Icon name="book-open" :size="14" /> Из библиотеки
+            <button v-if="!compact" type="button" class="btn btn-sm btn-primary" @click="openSpellPicker(null)">
+              <Icon name="book-open" :size="14" /> Библиотека рядом
             </button>
-            <a :href="libraryHref(null)" target="_blank" rel="noopener noreferrer" class="icon-btn" title="Открыть библиотеку заклинаний в новой вкладке">
-              <Icon name="external-link" :size="15" />
-            </a>
             <button type="button" class="btn btn-sm" @click="openCustomSpell(activeList.castingType === 'focus' ? cantripRank : 1)">
               <Icon name="plus" :size="14" /> Своё
             </button>
@@ -506,32 +739,45 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
           </div>
         </div>
 
-        <div class="row gap-sm">
-          <input v-model="searchQ" type="text" class="input input-sm" style="max-width: 320px" placeholder="Фильтр по заклинаниям в этом списке…" />
-          <span class="faint small">Автоусиление заговоров и фокуса на ур. {{ character.level }}: <b>{{ cantripRank }} круг</b></span>
+        <div class="row gap-sm wrap">
+          <input v-model="searchQ" type="text" class="input input-sm" style="max-width: 260px" placeholder="Фильтр по этому списку…" />
+          <span class="faint small">Заговоры/фокус (ур. {{ character.level }}): <b>{{ cantripRank }} круг</b></span>
+          <span v-if="compact" class="faint small hide-sm">· Перетащите заклинание в нужный круг или ячейку</span>
         </div>
       </template>
     </div>
 
-    <!-- Rank Sections -->
+    <!-- Rank Sections (each is a Drop Target!) -->
     <template v-if="activeList">
       <div v-if="!rankGroups.length" class="card empty">
-        <p class="muted">В этом списке пока нет заклинаний. Нажмите «Из библиотеки» или «Своё», чтобы добавить.</p>
+        <p class="muted">В этом списке пока нет заклинаний.</p>
       </div>
 
-      <section v-for="g in rankGroups" :key="g.rank" class="card rank-sec">
+      <section
+        v-for="g in rankGroups"
+        :key="g.rank"
+        class="card rank-sec"
+        :class="{
+          'drop-valid': isSpellDrag() && canDropInRank(draggingSpell, g.rank),
+          'drop-invalid': isSpellDrag() && !canDropInRank(draggingSpell, g.rank),
+          'drop-over': dragOverKey === `rank:${g.rank}`,
+        }"
+        @dragover="onDragOverTarget($event, `rank:${g.rank}`, g.rank)"
+        @dragleave="onDragLeaveTarget(`rank:${g.rank}`)"
+        @drop="handleDropSpell($event, g.rank)"
+      >
         <header class="rs-head">
           <div class="row gap-sm wrap grow">
-            <h4 style="margin: 0; font-size: 18px">
+            <h4 style="margin: 0; font-size: 16.5px">
               <template v-if="g.rank === 0">Заговоры <span class="faint small">(круг {{ cantripRank }})</span></template>
-              <template v-else-if="activeList.castingType === 'focus'">Фокусные — базовый круг {{ g.rank }} <span class="faint small">(сотворяются на {{ Math.max(g.rank, cantripRank) }} круге)</span></template>
+              <template v-else-if="activeList.castingType === 'focus'">Фокусные — база {{ g.rank }} <span class="faint small">(круг {{ Math.max(g.rank, cantripRank) }})</span></template>
               <template v-else-if="activeList.castingType === 'ritual'">Ритуалы {{ g.rank }} круга</template>
               <template v-else>Круг {{ g.rank }}</template>
             </h4>
 
             <!-- Spontaneous / Flexible shared slots -->
             <div v-if="g.rank > 0 && (activeList.castingType === 'spontaneous' || activeList.flexible) && g.maxSlots > 0" class="row gap-sm">
-              <span class="small muted">Ячейки: {{ g.maxSlots - g.usedShared }}/{{ g.maxSlots }}</span>
+              <span class="small muted">{{ g.maxSlots - g.usedShared }}/{{ g.maxSlots }}</span>
               <div class="row" style="gap: 4px">
                 <button
                   v-for="si in g.maxSlots"
@@ -551,84 +797,194 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
               class="badge"
               :class="{ 'badge-dead': g.preparedSum > g.maxSlots, 'badge-public': g.preparedSum === g.maxSlots }"
             >
-              Подготовлено: {{ g.preparedSum }} / {{ g.maxSlots }}
+              Ячейки: {{ g.preparedSum }}/{{ g.maxSlots }}
+            </span>
+
+            <span v-if="isSpellDrag() && !canDropInRank(draggingSpell, g.rank) && draggingSpell" class="faint small">
+              (мин. {{ draggingSpell.cat === 'cantrip' ? 'Заговоры' : `${draggingSpell.baseRank} круг` }})
             </span>
           </div>
 
-          <button type="button" class="btn btn-sm btn-ghost" @click="openSpellPicker(g.rank)">
+          <button v-if="!compact" type="button" class="btn btn-sm btn-ghost" @click="openSpellPicker(g.rank)">
             <Icon name="plus" :size="13" /> Добавить
           </button>
         </header>
 
-        <div v-if="!g.items.length" class="faint small" style="padding: 10px 14px">Пусто</div>
-        <div v-else class="sp-rows">
-          <div v-for="row in g.items" :key="row.id" class="sp-row">
-            <img v-if="spellImg(row)" :src="spellImg(row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
+        <!-- ==================== MODE A: PREPARED EXPLICIT VISUAL SLOTS ==================== -->
+        <div v-if="g.isSlotted" class="sp-rows">
+          <!-- Filled prepared slots -->
+          <div
+            v-for="(slot, idx) in g.filledSlots"
+            :key="slot.key"
+            class="sp-row prep-slot"
+            :class="{
+              expended: slot.expended,
+              'slot-over': dragOverKey === `slot:${g.rank}:${slot.key}`,
+            }"
+            draggable="true"
+            @dragstart="onRowDragStart($event, slot.row)"
+            @dragend="endPf2eDrag()"
+            @dragover.stop="onDragOverTarget($event, `slot:${g.rank}:${slot.key}`, g.rank)"
+            @dragleave.stop="onDragLeaveTarget(`slot:${g.rank}:${slot.key}`)"
+            @drop.stop="handleDropSpell($event, g.rank, { rowId: slot.row.id, slotIdx: slot.slotIdx })"
+          >
+            <button
+              type="button"
+              class="slot-box"
+              :class="{ used: slot.expended }"
+              :title="slot.expended ? 'Восстановить ячейку' : 'Отметить ячейку потраченной'"
+              @click="togglePreparedCast(slot.row, slot.slotIdx)"
+            />
+            <span class="slot-num" :class="{ over: idx >= g.maxSlots }">#{{ idx + 1 }}</span>
+            <img v-if="spellImg(slot.row)" :src="spellImg(slot.row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
+
             <button
               type="button"
               class="sp-main grow"
-              :disabled="!row.spellId"
-              @click="openSpellPreview(row)"
+              :disabled="!slot.row.spellId"
+              @click="openSpellPreview(slot.row)"
             >
-              <span class="row gap-sm" style="align-items: baseline">
-                <b class="ellipsis">{{ spellName(row) }}</b>
-                <span v-if="row.spellId && catalog.spellsById.value.get(row.spellId)" class="pf-act-sm">
-                  {{ formatActionSymbol(catalog.spellsById.value.get(row.spellId)!.time, lang, catalog.spellsById.value.get(row.spellId)!.timeRu).glyph ?? formatActionSymbol(catalog.spellsById.value.get(row.spellId)!.time, lang, catalog.spellsById.value.get(row.spellId)!.timeRu).text }}
+              <span class="row gap-sm wrap" style="align-items: center">
+                <b class="ellipsis">{{ spellName(slot.row) }}</b>
+                <span v-if="slot.cat" class="pf-act-sm">
+                  {{ formatActionSymbol(slot.cat.time, lang, slot.cat.timeRu).glyph ?? formatActionSymbol(slot.cat.time, lang, slot.cat.timeRu).text }}
                 </span>
-                <span v-if="row.signature" class="badge" title="Фирменное заклинание (можно творить на любом круге)">★ Фирменное</span>
-                <span v-if="!row.spellId" class="badge">Своё</span>
+                <span
+                  v-if="spellDamageBadge(slot.cat, g.rank)"
+                  class="dmg-pill"
+                  :class="{ heightened: spellDamageBadge(slot.cat, g.rank)!.heightened }"
+                  :title="spellDamageBadge(slot.cat, g.rank)!.title"
+                >
+                  🎲 {{ spellDamageBadge(slot.cat, g.rank)!.label }}
+                </span>
+                <span v-if="slot.cat && g.rank > slot.cat.baseRank" class="badge badge-public" style="font-size: 10.5px" :title="`Усилено с ${slot.cat.baseRank} круга`">
+                  ↑{{ g.rank }}
+                </span>
+                <span v-if="!slot.row.spellId" class="badge">Своё</span>
               </span>
-              <span v-if="spellSecondary(row) || row.notes" class="faint small ellipsis">
-                {{ spellSecondary(row) }}<template v-if="row.notes"> · {{ row.notes }}</template>
+              <span v-if="slot.row.notes || (!compact && spellSecondary(slot.row))" class="faint small ellipsis">
+                <template v-if="!compact">{{ spellSecondary(slot.row) }}</template>
+                <template v-if="!compact && spellSecondary(slot.row) && slot.row.notes"> · </template>
+                <template v-if="slot.row.notes">{{ slot.row.notes }}</template>
               </span>
             </button>
 
-            <!-- Prepared: count stepper + expended checkboxes -->
-            <div v-if="g.rank > 0 && activeList.castingType === 'prepared' && !activeList.flexible" class="row gap-sm">
-              <div class="row" style="gap: 3px">
-                <button
-                  v-for="si in (row.preparedCount ?? 0)"
-                  :key="si"
-                  type="button"
-                  class="slot-box"
-                  :class="{ used: si - 1 < (row.expendedCount ?? 0) }"
-                  :title="si - 1 < (row.expendedCount ?? 0) ? 'Восстановить' : 'Отметить использованным'"
-                  @click="togglePreparedCast(row, si - 1)"
-                />
-              </div>
-              <div class="mini-step">
-                <button type="button" title="Уменьшить кол-во подготовок" @click="bumpPrepared(row, -1)">−</button>
-                <span>{{ row.preparedCount ?? 0 }}</span>
-                <button type="button" title="Подготовить ещё раз" @click="bumpPrepared(row, 1)">+</button>
-              </div>
-            </div>
+            <span v-if="dragOverKey === `slot:${g.rank}:${slot.key}`" class="drop-pill">
+              {{ dropHintFor(draggingSpell, g.rank, true) }}
+            </span>
+            <template v-else>
+              <button type="button" class="icon-btn" title="Настроить" @click="editRow = { ...slot.row }"><Icon name="pencil" :size="13" /></button>
+              <button type="button" class="icon-btn danger" title="Очистить ячейку" @click="removeOnePreparedSlot(slot.row)"><Icon name="x" :size="14" /></button>
+            </template>
+          </div>
 
-            <!-- Spontaneous: signature toggle -->
-            <button
-              v-if="g.rank > 0 && activeList.castingType === 'spontaneous'"
-              type="button"
-              class="icon-btn"
-              :class="{ on: row.signature }"
-              title="Фирменное заклинание"
-              @click="toggleSignature(row)"
-            >
-              <Icon name="star" :size="15" />
-            </button>
-
-            <!-- Innate: uses per day or at-will -->
-            <div v-if="activeList.castingType === 'innate'" class="row gap-sm">
-              <span v-if="row.atWill" class="badge badge-public">По желанию</span>
-              <div v-else class="mini-step">
-                <button type="button" @click="bumpInnateLeft(row, -1)">−</button>
-                <span>{{ row.usesLeft ?? row.usesMax ?? 1 }}/{{ row.usesMax ?? 1 }}</span>
-                <button type="button" @click="bumpInnateLeft(row, 1)">+</button>
-              </div>
-            </div>
-
-            <button type="button" class="icon-btn" title="Настроить запись" @click="editRow = { ...row }"><Icon name="pencil" :size="14" /></button>
-            <button type="button" class="icon-btn danger" title="Убрать" @click="removeSpellRow(row.id)"><Icon name="trash2" :size="14" /></button>
+          <!-- Empty prepared slot drop zones -->
+          <div
+            v-for="ei in g.emptySlotCount"
+            :key="`empty-${g.rank}-${ei}`"
+            class="empty-slot"
+            :class="{
+              'slot-valid': isSpellDrag() && canDropInRank(draggingSpell, g.rank),
+              'slot-over': dragOverKey === `slot:${g.rank}:empty:${ei}`,
+            }"
+            @dragover.stop="onDragOverTarget($event, `slot:${g.rank}:empty:${ei}`, g.rank)"
+            @dragleave.stop="onDragLeaveTarget(`slot:${g.rank}:empty:${ei}`)"
+            @drop.stop="handleDropSpell($event, g.rank)"
+          >
+            <span class="slot-num">#{{ g.filledSlots.length + ei }}</span>
+            <span v-if="dragOverKey === `slot:${g.rank}:empty:${ei}`" class="empty-slot-msg active">
+              <Icon name="plus" :size="13" /> {{ dropHintFor(draggingSpell, g.rank) }}
+            </span>
+            <span v-else class="empty-slot-msg">
+              Пустая ячейка {{ g.rank }} круга — перетащите заклинание сюда
+            </span>
           </div>
         </div>
+
+        <!-- ==================== MODE B: SPONTANEOUS / FLEXIBLE / CANTRIPS / FOCUS / INNATE / RITUAL ==================== -->
+        <template v-else>
+          <div v-if="!g.items.length" class="empty-cat" :class="{ active: dragOverKey === `rank:${g.rank}` }">
+            <template v-if="dragOverKey === `rank:${g.rank}`">
+              <Icon name="plus" :size="14" /> {{ dropHintFor(draggingSpell, g.rank) }}
+            </template>
+            <template v-else>
+              Пусто — перетащите сюда заклинание{{ g.rank === 0 ? ' (заговор)' : ` (${g.rank} круг)` }}
+            </template>
+          </div>
+          <div v-else class="sp-rows">
+            <div
+              v-for="row in g.items"
+              :key="row.id"
+              class="sp-row"
+              draggable="true"
+              @dragstart="onRowDragStart($event, row)"
+              @dragend="endPf2eDrag()"
+            >
+              <img v-if="spellImg(row)" :src="spellImg(row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
+              <button
+                type="button"
+                class="sp-main grow"
+                :disabled="!row.spellId"
+                @click="openSpellPreview(row)"
+              >
+                <span class="row gap-sm wrap" style="align-items: center">
+                  <b class="ellipsis">{{ spellName(row) }}</b>
+                  <span v-if="row.spellId && catalog.spellsById.value.get(row.spellId)" class="pf-act-sm">
+                    {{ formatActionSymbol(catalog.spellsById.value.get(row.spellId)!.time, lang, catalog.spellsById.value.get(row.spellId)!.timeRu).glyph ?? formatActionSymbol(catalog.spellsById.value.get(row.spellId)!.time, lang, catalog.spellsById.value.get(row.spellId)!.timeRu).text }}
+                  </span>
+                  <span
+                    v-if="row.spellId && spellDamageBadge(catalog.spellsById.value.get(row.spellId), g.rank)"
+                    class="dmg-pill"
+                    :class="{ heightened: spellDamageBadge(catalog.spellsById.value.get(row.spellId), g.rank)!.heightened }"
+                    :title="spellDamageBadge(catalog.spellsById.value.get(row.spellId), g.rank)!.title"
+                  >
+                    🎲 {{ spellDamageBadge(catalog.spellsById.value.get(row.spellId), g.rank)!.label }}
+                  </span>
+                  <span v-if="row.spellId && g.rank > (catalog.spellsById.value.get(row.spellId)?.baseRank ?? g.rank)" class="badge badge-public" style="font-size: 10.5px">
+                    ↑{{ g.rank }}
+                  </span>
+                  <span v-if="row.signature" class="badge" title="Фирменное заклинание (можно творить на любом круге)">★</span>
+                  <span v-if="!row.spellId" class="badge">Своё</span>
+                </span>
+                <span v-if="row.notes || (!compact && spellSecondary(row))" class="faint small ellipsis">
+                  <template v-if="!compact">{{ spellSecondary(row) }}</template>
+                  <template v-if="!compact && spellSecondary(row) && row.notes"> · </template>
+                  <template v-if="row.notes">{{ row.notes }}</template>
+                </span>
+              </button>
+
+              <!-- Spontaneous: signature toggle -->
+              <button
+                v-if="g.rank > 0 && activeList.castingType === 'spontaneous'"
+                type="button"
+                class="icon-btn"
+                :class="{ on: row.signature }"
+                title="Фирменное заклинание"
+                @click="toggleSignature(row)"
+              >
+                <Icon name="star" :size="14" />
+              </button>
+
+              <!-- Innate: uses per day or at-will -->
+              <div v-if="activeList.castingType === 'innate'" class="row gap-sm">
+                <span v-if="row.atWill" class="badge badge-public">По желанию</span>
+                <div v-else class="mini-step">
+                  <button type="button" @click="bumpInnateLeft(row, -1)">−</button>
+                  <span>{{ row.usesLeft ?? row.usesMax ?? 1 }}/{{ row.usesMax ?? 1 }}</span>
+                  <button type="button" @click="bumpInnateLeft(row, 1)">+</button>
+                </div>
+              </div>
+
+              <button type="button" class="icon-btn" title="Настроить запись" @click="editRow = { ...row }"><Icon name="pencil" :size="13" /></button>
+              <button type="button" class="icon-btn danger" title="Убрать" @click="removeSpellRow(row.id)"><Icon name="trash2" :size="13" /></button>
+            </div>
+
+            <!-- Live bottom drop banner while dragging over a non-empty rank category -->
+            <div v-if="dragOverKey === `rank:${g.rank}`" class="cat-drop-banner">
+              <Icon name="plus" :size="14" /> {{ dropHintFor(draggingSpell, g.rank) }}
+            </div>
+          </div>
+        </template>
       </section>
     </template>
 
@@ -758,7 +1114,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
       </form>
     </Modal>
 
-    <!-- VIEW SPELL CARD MODAL -->
+    <!-- VIEW SPELL CARD MODAL (pre-scaled to the slot's exact rank!) -->
     <Modal v-if="viewingSpell" width="760px" @close="viewingSpell = null">
       <Pf2eSpellCard :spell="viewingSpell" :meta="catalog.meta.value" :lang="lang" :initial-rank="viewingSpellRank" :actor-level="character.level" />
     </Modal>
@@ -767,8 +1123,8 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 
 <style scoped>
 .entry-pill {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
-  border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-size: 13.5px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-size: 13px;
 }
 .entry-pill:hover { border-color: var(--accent); }
 .entry-pill.on { background: var(--accent-soft); border-color: var(--accent); }
@@ -779,43 +1135,92 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 .lang-switch button.on { background: var(--accent); color: var(--accent-fg); }
 
 .entry-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
 }
 .trad-badge {
   display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
   background: color-mix(in srgb, var(--tc) 18%, transparent); border: 1px solid color-mix(in srgb, var(--tc) 45%, transparent);
 }
 .stat-box {
-  display: flex; flex-direction: column; align-items: center; padding: 4px 12px; border-radius: var(--radius-sm);
-  background: var(--surface); border: 1px solid var(--border); min-width: 64px;
+  display: flex; flex-direction: column; align-items: center; padding: 3px 10px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border); min-width: 58px;
 }
-.stat-box b { font-family: var(--font-head); font-size: 22px; line-height: 1.05; color: var(--accent); }
-
+.stat-box b { font-family: var(--font-head); font-size: 20px; line-height: 1.05; color: var(--accent); }
 .focus-pip {
-  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--secret); background: transparent; cursor: pointer; padding: 0;
+  width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--secret); background: transparent; cursor: pointer; padding: 0;
 }
 .focus-pip.on { background: var(--secret); }
 
-.rank-sec { overflow: hidden; }
+.rank-sec { overflow: hidden; transition: border-color .14s, opacity .14s, box-shadow .14s; }
+.rank-sec.drop-valid { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.rank-sec.drop-invalid { opacity: .48; }
+.rank-sec.drop-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
 .rs-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-  padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
 }
 .slot-box {
-  width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--accent); background: var(--accent-soft); cursor: pointer; padding: 0;
+  width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--accent); background: var(--accent-soft);
+  cursor: pointer; padding: 0; flex-shrink: 0;
 }
 .slot-box.used { background: var(--surface-3); border-color: var(--border-strong); opacity: .5; }
+.slot-num { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--text-faint); width: 22px; flex-shrink: 0; }
+.slot-num.over { color: var(--danger); }
 
 .sp-rows { display: flex; flex-direction: column; }
-.sp-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.sp-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border);
+  cursor: grab; transition: background .1s;
+}
 .sp-row:last-child { border-bottom: 0; }
 .sp-row:hover { background: var(--surface-2); }
+.sp-row.expended { opacity: .58; }
+.sp-row.expended .sp-main b { text-decoration: line-through; }
+.sp-row.slot-over { background: var(--accent-soft); outline: 2px dashed var(--accent); outline-offset: -2px; }
+
 .pf-sp-ic { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 .sp-main { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; min-width: 0; }
 .sp-main:not(:disabled):hover b { color: var(--accent); }
 .sp-main:disabled { cursor: default; }
 .pf-act-sm { color: var(--accent); font-weight: 700; font-size: 13px; }
+
+.dmg-pill {
+  display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 5px;
+  font-size: 11.5px; font-weight: 700; font-family: var(--font-ui); white-space: nowrap;
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--text);
+}
+.dmg-pill.heightened {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.empty-slot {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border-bottom: 1px dashed var(--border); background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  transition: background .12s, border-color .12s;
+}
+.empty-slot:last-child { border-bottom: 0; }
+.empty-slot.slot-valid { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-bottom-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.empty-slot.slot-over { background: var(--accent-soft); outline: 2px dashed var(--accent); outline-offset: -2px; }
+.empty-slot-msg { font-size: 12.5px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 4px; }
+.empty-slot-msg.active { color: var(--accent); font-weight: 700; }
+
+.empty-cat {
+  padding: 12px 14px; font-size: 12.5px; color: var(--text-faint);
+  display: flex; align-items: center; gap: 6px; transition: background .12s, color .12s;
+}
+.empty-cat.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.cat-drop-banner {
+  padding: 8px 12px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px; border-top: 2px dashed var(--accent);
+}
+.drop-pill {
+  padding: 2px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);
+  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
 
 .mini-step { display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; background: var(--surface); font-size: 12.5px; }
 .mini-step button { width: 22px; height: 24px; border: 0; background: var(--surface-2); cursor: pointer; font-weight: 700; }
