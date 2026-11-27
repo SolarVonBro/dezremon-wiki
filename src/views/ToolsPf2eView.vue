@@ -244,16 +244,22 @@ async function addSpellToRank(sp: Pf2eSpellIndex, listId: string, rank: number) 
 
 // Quick-add Item sheet (Mobile + Desktop "+" button)
 const quickItem = ref<Pf2eItemIndex | null>(null)
+const quickItemGroup = ref('')
+
+function isContainerCatalogItem(it: Pf2eItemIndex): boolean {
+  return it.type === 'backpack' || it.capacity > 0 || it.stowing
+}
 
 function openQuickAddItem(item: Pf2eItemIndex, asContainer = false) {
   const c = activeChar.value
   if (!c) return
-  if (asContainer) {
+  if (asContainer || isContainerCatalogItem(item)) {
     void addItemToDest(item, 'new-container')
     return
   }
-  // If character has no containers and item is not a container itself, add directly to worn/held in 1 tap!
-  if (!c.containers.length && item.type !== 'backpack' && item.capacity <= 0) {
+  quickItemGroup.value = ''
+  // If character has no containers and no groups, add directly to worn/held in 1 tap!
+  if (!c.containers.length && !(c.customGroups?.length)) {
     const defDest = item.usageGroup === 'worn' || item.usageGroup === 'worn-slot' || item.type === 'armor' ? 'worn' : 'held'
     void addItemToDest(item, defDest)
     return
@@ -300,7 +306,7 @@ async function addItemToDest(item: Pf2eItemIndex, dest: 'worn' | 'held' | 'new-c
           quantity: item.bulkPer > 1 && item.bulkPer < 1000 ? item.bulkPer : 1,
           carryType,
           containerId: cid,
-          group: '',
+          group: quickItemGroup.value.trim(),
           invested: false,
           notes: '',
           order: c.inventory.length,
@@ -636,6 +642,14 @@ function charSpellsCount(c: Pf2eCharacter): number {
           <div class="grow" style="min-width: 0">
             <b style="font-size: 16px">{{ catalog.lang.value === 'ru' ? quickItem.ru : quickItem.en }}</b>
             <div class="faint small">{{ catalog.lang.value === 'ru' ? quickItem.en : quickItem.ru }}</div>
+          </div>
+        </div>
+
+        <div v-if="activeChar.customGroups?.length" class="stack-sm">
+          <span class="field-label">Группа (необязательно)</span>
+          <div class="row gap-sm wrap">
+            <button type="button" class="chip" :class="{ on: !quickItemGroup }" @click="quickItemGroup = ''">Без группы</button>
+            <button v-for="g in activeChar.customGroups" :key="g" type="button" class="chip" :class="{ on: quickItemGroup === g }" @click="quickItemGroup = g">{{ g }}</button>
           </div>
         </div>
 

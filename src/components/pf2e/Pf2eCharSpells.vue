@@ -838,11 +838,13 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
             <span class="slot-num" :class="{ over: idx >= g.maxSlots }">#{{ idx + 1 }}</span>
             <img v-if="spellImg(slot.row)" :src="spellImg(slot.row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
 
-            <button
-              type="button"
+            <div
+              role="button"
+              :tabindex="slot.row.spellId ? 0 : -1"
               class="sp-main grow"
-              :disabled="!slot.row.spellId"
-              @click="openSpellPreview(slot.row)"
+              :class="{ disabled: !slot.row.spellId }"
+              @click="slot.row.spellId && openSpellPreview(slot.row)"
+              @keydown.enter.prevent="slot.row.spellId && openSpellPreview(slot.row)"
             >
               <span class="row gap-sm wrap" style="align-items: center">
                 <b class="ellipsis">{{ spellName(slot.row) }}</b>
@@ -867,7 +869,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
                 <template v-if="!compact && spellSecondary(slot.row) && slot.row.notes"> · </template>
                 <template v-if="slot.row.notes">{{ slot.row.notes }}</template>
               </span>
-            </button>
+            </div>
 
             <span v-if="dragOverKey === `slot:${g.rank}:${slot.key}`" class="drop-pill">
               {{ dropHintFor(draggingSpell, g.rank, true) }}
@@ -921,11 +923,13 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
               @dragend="endPf2eDrag()"
             >
               <img v-if="spellImg(row)" :src="spellImg(row)" alt="" class="pf-sp-ic" loading="lazy" decoding="async" />
-              <button
-                type="button"
+              <div
+                role="button"
+                :tabindex="row.spellId ? 0 : -1"
                 class="sp-main grow"
-                :disabled="!row.spellId"
-                @click="openSpellPreview(row)"
+                :class="{ disabled: !row.spellId }"
+                @click="row.spellId && openSpellPreview(row)"
+                @keydown.enter.prevent="row.spellId && openSpellPreview(row)"
               >
                 <span class="row gap-sm wrap" style="align-items: center">
                   <b class="ellipsis">{{ spellName(row) }}</b>
@@ -951,7 +955,7 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
                   <template v-if="!compact && spellSecondary(row) && row.notes"> · </template>
                   <template v-if="row.notes">{{ row.notes }}</template>
                 </span>
-              </button>
+              </div>
 
               <!-- Spontaneous: signature toggle -->
               <button
@@ -1182,8 +1186,8 @@ const signed = (n: number) => (n >= 0 ? `+${n}` : `−${-n}`)
 
 .pf-sp-ic { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2); }
 .sp-main { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; min-width: 0; }
-.sp-main:not(:disabled):hover b { color: var(--accent); }
-.sp-main:disabled { cursor: default; }
+.sp-main:not(.disabled):hover b { color: var(--accent); }
+.sp-main.disabled { cursor: default; }
 .pf-act-sm { color: var(--accent); font-weight: 700; font-size: 13px; }
 
 .dmg-pill {

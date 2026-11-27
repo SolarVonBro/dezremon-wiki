@@ -431,6 +431,10 @@ const filtered = computed(() => {
 
 const shown = computed(() => filtered.value.slice(0, limit.value))
 
+function isContainerItem(it: Pf2eItemIndex): boolean {
+  return it.type === 'backpack' || it.capacity > 0 || it.stowing
+}
+
 function openItem(it: Pf2eItemIndex) {
   selected.value = it
   if (props.docked || window.innerWidth < 1140) modalOpen.value = true
@@ -799,6 +803,9 @@ function onRowDragEnd() {
               <div class="row gap-sm" style="align-items: baseline">
                 <b class="ellipsis">{{ lang === 'ru' ? it.ru : it.en }}</b>
                 <span v-if="it.rarity !== 'common'" class="rar-dot" :class="'rd-' + it.rarity" :title="RARITY_LABEL[it.rarity][lang]" />
+                <span v-if="isContainerItem(it)" class="badge hide-sm" style="font-size: 10.5px">
+                  {{ lang === 'ru' ? 'контейнер' : 'container' }}
+                </span>
                 <span v-if="it.extradimensional" class="badge badge-secret hide-sm" style="font-size: 10.5px">экстрапр.</span>
                 <span v-if="ownedCounts[it.id]" class="badge badge-public" style="font-size: 10.5px" :title="lang === 'ru' ? 'Уже в инвентаре персонажа' : 'Already in inventory'">
                   ✓<template v-if="ownedCounts[it.id] > 1"> ×{{ ownedCounts[it.id] }}</template>
@@ -825,10 +832,10 @@ function onRowDragEnd() {
               type="button"
               class="btn btn-sm btn-primary"
               style="flex-shrink: 0"
-              :title="it.type === 'backpack' ? 'Добавить как контейнер' : 'Добавить в инвентарь'"
-              @click.stop="emit('pick', it, it.type === 'backpack')"
+              :title="isContainerItem(it) ? 'Добавить как контейнер' : 'Добавить в инвентарь'"
+              @click.stop="emit('pick', it, isContainerItem(it))"
             >
-              <Icon name="plus" :size="13" />
+              <Icon :name="isContainerItem(it) ? 'backpack' : 'plus'" :size="13" />
             </button>
           </div>
 
@@ -845,10 +852,10 @@ function onRowDragEnd() {
         <Pf2eItemCard :item="selected" :meta="catalog.meta.value" :lang="lang">
           <template #actions>
             <template v-if="pickMode">
-              <button v-if="selected.type === 'backpack' || selected.capacity > 0" type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, true)">
-                <Icon name="backpack" :size="14" /> Как контейнер
+              <button v-if="isContainerItem(selected)" type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, true)">
+                <Icon name="backpack" :size="14" /> Добавить контейнер
               </button>
-              <button type="button" class="btn btn-sm" :class="{ 'btn-primary': !(selected.type === 'backpack' || selected.capacity > 0) }" @click="emit('pick', selected, false)">
+              <button v-else type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, false)">
                 <Icon name="plus" :size="14" /> {{ pickLabel }}
               </button>
             </template>
@@ -863,10 +870,10 @@ function onRowDragEnd() {
       <Pf2eItemCard :item="selected" :meta="catalog.meta.value" :lang="lang">
         <template #actions>
           <template v-if="pickMode">
-            <button v-if="selected.type === 'backpack' || selected.capacity > 0" type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, true); modalOpen = false">
-              <Icon name="backpack" :size="14" /> Как контейнер
+            <button v-if="isContainerItem(selected)" type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, true); modalOpen = false">
+              <Icon name="backpack" :size="14" /> Добавить контейнер
             </button>
-            <button type="button" class="btn btn-sm" :class="{ 'btn-primary': !(selected.type === 'backpack' || selected.capacity > 0) }" @click="emit('pick', selected, false); modalOpen = false">
+            <button v-else type="button" class="btn btn-primary btn-sm" @click="emit('pick', selected, false); modalOpen = false">
               <Icon name="plus" :size="14" /> {{ pickLabel }}
             </button>
           </template>
