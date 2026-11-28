@@ -56,6 +56,7 @@ export const useWorld = defineStore('world', () => {
   let unsubs: Unsubscribe[] = []
   let syncs: SyncHandle[] = []
   let openToken = 0
+  let syncToken = 0
 
   const uid = computed(() => session.user?.uid ?? null)
   /**
@@ -247,6 +248,7 @@ export const useWorld = defineStore('world', () => {
   })
 
   function close() {
+    syncToken++
     unsubs.forEach((u) => u())
     syncs.forEach((s) => s.stop())
     unsubs = []
@@ -287,8 +289,13 @@ export const useWorld = defineStore('world', () => {
       loadCampaignTagPref()
       if (!member.value && !world.value.isPublic && !isServiceAdmin(u?.uid)) { deny(id, token); return }
       startLive(id, token)
+      const syncedAsMaster = realMaster.value
       await startSync(token)
       if (token !== openToken) return
+      if (realMaster.value !== syncedAsMaster) {
+        await restartSync()
+        if (token !== openToken) return
+      }
       status.value = 'ready'
       void touchLastSeen()
     } catch (e: any) {
@@ -348,6 +355,7 @@ export const useWorld = defineStore('world', () => {
         }
         if (prevRole && !member.value && !world.value?.isPublic && !effectiveAdminMode.value) {
           // removed, banned or left a closed world: drop everything we had, including the local cache
+          syncToken++
           syncs.forEach((x) => x.stop())
           syncs = []
           entities.value = new Map()
@@ -366,28 +374,37 @@ export const useWorld = defineStore('world', () => {
   }
 
   async function startSync(token: number) {
+    const mySync = ++syncToken
     const a = access.value
     const acl = world.value?.aclVersion ?? 0
     const onErr = (e: unknown) => {
+      if (token !== openToken || mySync !== syncToken) return
       // Access changed under us (removed from the world, role lowered…): re-check instead of alarming the user.
       if ((e as any)?.code === 'permission-denied') { void revalidateAccess(token); return }
       console.error('sync error', e)
       toast.error('Ошибка синхронизации: ' + ((e as any)?.message ?? e))
     }
-    const s1 = await syncCollection<Entity>(a, 'entities', acl, (ups, rem) => {
-      if (token !== openToken) return
-      const m = new Map(entities.value)
-      for (const u of ups) m.set(u.id, normalizeEntity(u))
-      for (const r of rem) m.delete(r)
-      entities.value = m
-    }, onErr)
-    const s2 = await syncCollection<Relation>(a, 'relations', acl, (ups, rem) => {
-      if (token !== openToken) return
-      const m = new Map(relations.value)
-      for (const u of ups) m.set(u.id, u)
-      for (const r of rem) m.delete(r)
-      relations.value = m
-    }, onErr)
+    const [s1, s2] = await Promise.all([
+      syncCollection<Entity>(a, 'entities', acl, (ups, rem) => {
+        if (token !== openToken || mySync !== syncToken) return
+        const m = new Map(entities.value)
+        for (const u of ups) m.set(u.id, normalizeEntity(u))
+        for (const r of rem) m.delete(r)
+        entities.value = m
+      }, onErr),
+      syncCollection<Relation>(a, 'relations', acl, (ups, rem) => {
+        if (token !== openToken || mySync !== syncToken) return
+        const m = new Map(relations.value)
+        for (const u of ups) m.set(u.id, u)
+        for (const r of rem) m.delete(r)
+        relations.value = m
+      }, onErr),
+    ])
+    if (token !== openToken || mySync !== syncToken) {
+      s1.stop()
+      s2.stop()
+      return
+    }
     syncs.push(s1, s2)
     await Promise.all([s1.ready, s2.ready])
   }
@@ -419,6 +436,7 @@ export const useWorld = defineStore('world', () => {
       if (token !== openToken) return
       member.value = ms?.exists() ? (ms.data() as Member) : null
       if (!member.value && !world.value?.isPublic && !isServiceAdmin(u?.uid)) {
+        syncToken++
         syncs.forEach((x) => x.stop())
         syncs = []
         entities.value = new Map()
@@ -432,6 +450,7 @@ export const useWorld = defineStore('world', () => {
   }
 
   async function restartSync() {
+    syncToken++
     syncs.forEach((s) => s.stop())
     syncs = []
     entities.value = new Map()

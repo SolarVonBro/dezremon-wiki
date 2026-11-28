@@ -3,7 +3,7 @@
 import { openDB, type IDBPDatabase } from 'idb'
 
 interface CacheSchema {
-  docs: { key: string; value: { wid: string; coll: string; id: string; data: any } ; indexes: { byWorldColl: [string, string] } }
+  docs: { key: string; value: { wid: string; coll: string; id: string; data: any }; indexes: { byWorldColl: [string, string] } }
   meta: { key: string; value: any }
   bodies: { key: string; value: { rev: number; html: string; text: string; secret: boolean } }
   images: { key: string; value: Blob }
@@ -58,16 +58,37 @@ export const cache = {
     }, undefined)
   },
   async deleteDocs(wid: string, coll: string, ids: string[]) {
+    if (!ids.length) return
     await safe(async (db) => {
       const tx = db.transaction('docs', 'readwrite')
       for (const id of ids) tx.store.delete(`${wid}/${coll}/${id}`)
       await tx.done
     }, undefined)
   },
+  /** Atomically apply document upserts/removals together with sync metadata in a single transaction. */
+  async commitSync(
+    wid: string,
+    coll: string,
+    ups: Array<{ id: string }>,
+    rem: string[],
+    metaKey?: string,
+    meta?: any,
+  ) {
+    if (!ups.length && !rem.length && !metaKey) return
+    await safe(async (db) => {
+      const stores = metaKey ? ['docs', 'meta'] : ['docs']
+      const tx = db.transaction(stores, 'readwrite')
+      const docs = tx.objectStore('docs')
+      for (const d of ups) docs.put({ wid, coll, id: d.id, data: d }, `${wid}/${coll}/${d.id}`)
+      for (const id of rem) docs.delete(`${wid}/${coll}/${id}`)
+      if (metaKey) tx.objectStore('meta').put(meta, metaKey)
+      await tx.done
+    }, undefined)
+  },
   async clearWorld(wid: string) {
     await safe(async (db) => {
       const tx = db.transaction(['docs', 'meta', 'bodies'], 'readwrite')
-      const range = IDBKeyRange.bound(`${wid}/`, `${wid}/￿`)
+      const range = IDBKeyRange.bound(`${wid}/`, `${wid}/\uffff`)
       await tx.objectStore('docs').delete(range)
       await tx.objectStore('meta').delete(range)
       await tx.objectStore('bodies').delete(range)
@@ -81,7 +102,7 @@ export const cache = {
   putBody: (wid: string, eid: string, v: CacheSchema['bodies']['value']) => safe((db) => db.put('bodies', v, `${wid}/${eid}`), undefined),
   async allBodies(wid: string): Promise<Map<string, CacheSchema['bodies']['value']>> {
     return safe(async (db) => {
-      const range = IDBKeyRange.bound(`${wid}/`, `${wid}/￿`)
+      const range = IDBKeyRange.bound(`${wid}/`, `${wid}/\uffff`)
       const keys = await db.getAllKeys('bodies', range)
       const vals = await db.getAll('bodies', range)
       const m = new Map<string, any>()

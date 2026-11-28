@@ -16,10 +16,12 @@ export const useGallery = defineStore('gallery', () => {
   let handle: SyncHandle | null = null
   let forWorld: string | null = null
   let starting: Promise<void> | null = null
+  let gen = 0
 
   watch(() => [world.wid, world.role], () => { stop() })
 
   function stop() {
+    gen++
     handle?.stop()
     handle = null
     forWorld = null
@@ -31,15 +33,19 @@ export const useGallery = defineStore('gallery', () => {
     if (!world.wid) return
     if (forWorld === world.wid && starting) return starting
     stop()
+    const myGen = gen
     forWorld = world.wid
     starting = (async () => {
-      handle = await syncCollection<ImageMeta>(world.access, 'images', world.world?.aclVersion ?? 0, (ups, rem) => {
+      const h = await syncCollection<ImageMeta>(world.access, 'images', world.world?.aclVersion ?? 0, (ups, rem) => {
+        if (myGen !== gen) return
         const m = new Map(images.value)
         for (const u of ups) m.set(u.id, u)
         for (const r of rem) m.delete(r)
         images.value = m
       }, (e) => console.warn('gallery sync', e))
-      await handle.ready
+      if (myGen !== gen) { h.stop(); return }
+      handle = h
+      await h.ready
     })()
     return starting
   }
