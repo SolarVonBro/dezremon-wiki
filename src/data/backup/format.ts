@@ -24,7 +24,7 @@ export const WORLD_COLLECTIONS = [
 export const MASTER_ONLY_COLLECTIONS = new Set<string>(['secrets', 'revisions', 'members', 'invites'])
 
 /** Never written back by restoreWorld as regular content (handled separately or not at all). */
-export const NON_CONTENT_COLLECTIONS = new Set<string>(['members', 'invites', 'users', 'imageChunks'])
+export const NON_CONTENT_COLLECTIONS = new Set<string>(['members', 'invites', 'users', 'imageChunks', 'bans', 'joinRequests'])
 
 /** Firestore stores image bytes in chunks of at most this size (same as src/data/images.ts). */
 export const IMAGE_CHUNK = 900_000

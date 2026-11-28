@@ -1,15 +1,27 @@
 # Автоматический бэкап Dezremon Wiki (GitHub Actions)
 
-Скрипт раз в сутки выгружает **все миры** из Firestore в отдельный приватный git-репозиторий:
+Скрипт раз в сутки выгружает **все миры и данные платформы** из Firestore в отдельный приватный git-репозиторий:
 
 ```
 backups/
   <worldId>/
     manifest.json          описание копии (тот же формат, что у кнопки «Скачать ZIP» в приложении)
     world.json             документ worlds/<worldId> (название, настройки, пользовательские типы)
-    data/<коллекция>.json  все документы: entities, bodies, secrets, posts, relations, …, members, invites
+    data/<коллекция>.json  все документы: entities, bodies, secrets, posts, relations, comments, …, members, invites
     data/users.json        профили участников мира (users/<uid>)
     images/<id>.<ext>      изображения, собранные из imageChunks
+platform/
+  manifest.json            сводка платформенных коллекций
+  users/
+    users.json             все профили пользователей (users/<uid>)
+    <uid>/<подколл>.json   наборы характеристик (statSets), персонажи PF2e (pf2eCharacters) и др.
+  campaigns/<cid>/
+    campaign.json          игра (campaigns/<cid>)
+    data/<подколл>.json    participants, sessions, invites
+  rooms/<rid>/
+    room.json              музыкальная комната (rooms/<rid>)
+    data/<подколл>.json    tracks, playlists, messages (эфемерные listeners пропускаются)
+  data/<коллекция>.json    profiles, service (конфиг сервиса), serviceBans и прочие верхнеуровневые коллекции
 ```
 
 Файлы перезаписываются, только если изменилось содержимое, а изображения (они неизменяемы) скачиваются один раз,

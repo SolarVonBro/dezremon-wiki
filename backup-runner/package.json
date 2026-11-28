@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "backup": "node backup.mjs --out ../backups",
+    "backup": "node backup.mjs --out ../backups --platform ../platform",
     "zip": "node zip-backup.mjs"
   },
   "dependencies": {

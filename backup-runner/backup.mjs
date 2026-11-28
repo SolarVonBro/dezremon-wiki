@@ -1,12 +1,17 @@
 #!/usr/bin/env node
-// Scheduled Firestore backup of every Dezremon Wiki world (run by GitHub Actions, see README.md).
+// Scheduled Firestore backup of Dezremon Wiki (run by GitHub Actions, see README.md).
 //
-//   FIREBASE_SA='{"type":"service_account",...}' node backup.mjs [--out ../backups] [--world <worldId>]
+//   FIREBASE_SA='{"type":"service_account",...}' node backup.mjs [--out ../backups] [--platform ../platform] [--world <worldId>]
 //
-// For every worlds/{id} it writes backups/<id>/ in the SAME layout as the in-app backup ZIP
-// (src/data/backup/format.ts — keep both in sync), so a zip of that folder can be restored in the app:
-//   manifest.json, world.json, data/<collection>.json (every subcollection + users of the members),
-//   images/<imageId>.<ext> rebuilt from imageChunks.
+// 1. Worlds (backups/<id>/): SAME layout as the in-app backup ZIP (src/data/backup/format.ts — keep both in sync),
+//    so a zip of any world folder can be restored in the app:
+//      manifest.json, world.json, data/<collection>.json (every subcollection + users of the members),
+//      images/<imageId>.<ext> rebuilt from imageChunks.
+// 2. Platform (platform/, when --platform is set and --world is not):
+//      manifest.json, users/users.json + users/<uid>/<subcollection>.json (statSets, pf2eCharacters, …),
+//      campaigns/<cid>/campaign.json + data/<subcollection>.json (participants, sessions, invites, …),
+//      rooms/<rid>/room.json + data/<subcollection>.json (tracks, playlists, messages; skips ephemeral listeners),
+//      data/<topLevel>.json (profiles, service, serviceBans, and any future non-cache top-level collections).
 // Files are only rewritten when their content changes and image chunks are only downloaded for images
 // that are new (images are immutable), so daily runs produce small git diffs and few Firestore reads.
 import { createHash } from 'node:crypto'
@@ -16,11 +21,16 @@ import { pathToFileURL } from 'node:url'
 
 export const BACKUP_FORMAT = 'dezremon-wiki-backup'
 export const BACKUP_VERSION = 1
+export const PLATFORM_BACKUP_FORMAT = 'dezremon-platform-backup'
+export const PLATFORM_BACKUP_VERSION = 1
 const MIME_EXT = {
   'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif',
   'image/svg+xml': 'svg', 'image/avif': 'avif', 'image/bmp': 'bmp', 'image/x-icon': 'ico',
 }
-const SKIP_COLLECTIONS = new Set(['imageChunks'])
+const SKIP_WORLD_COLLECTIONS = new Set(['imageChunks'])
+const SKIP_ROOM_SUBCOLLECTIONS = new Set(['listeners'])
+const HANDLED_TOP_COLLECTIONS = new Set(['worlds', 'users', 'campaigns', 'rooms', 'usage'])
+const DEFAULT_FLAT_TOP_COLLECTIONS = ['profiles', 'service', 'serviceBans']
 
 // ---------------------------------------------------------------- encoding (same rules as format.ts)
 
@@ -84,6 +94,33 @@ async function listFiles(dir) {
   try { return (await readdir(dir, { withFileTypes: true })).filter((d) => d.isFile()).map((d) => d.name) } catch { return [] }
 }
 
+async function listDirs(dir) {
+  try { return (await readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name) } catch { return [] }
+}
+
+async function dumpSubcollections(docRef, outDir, skip = new Set()) {
+  const colls = (await docRef.listCollections()).filter((c) => !skip.has(c.id)).sort((a, b) => a.id.localeCompare(b.id))
+  let reads = 0
+  let changed = 0
+  const counts = {}
+  const keepJson = new Set()
+  for (const c of colls) {
+    const snap = await c.get()
+    reads += Math.max(1, snap.size)
+    const docs = {}
+    for (const d of snap.docs) docs[d.id] = encodeValue(d.data())
+    counts[c.id] = snap.size
+    keepJson.add(`${c.id}.json`)
+    if (await writeIfChanged(path.join(outDir, `${c.id}.json`), stableStringify({ collection: c.id, count: snap.size, docs }, 1) + '\n')) {
+      changed++
+    }
+  }
+  for (const f of await listFiles(outDir)) {
+    if (f.endsWith('.json') && !keepJson.has(f)) { await rm(path.join(outDir, f)); changed++ }
+  }
+  return { reads, changed, counts }
+}
+
 // ---------------------------------------------------------------- backup of one world
 
 /**
@@ -100,7 +137,7 @@ export async function backupWorld(db, worldSnap, users, outRoot, log = console.l
   const worldData = worldSnap.data() ?? {}
 
   // ---- every subcollection ----
-  const colls = (await worldSnap.ref.listCollections()).filter((c) => !SKIP_COLLECTIONS.has(c.id)).sort((a, b) => a.id.localeCompare(b.id))
+  const colls = (await worldSnap.ref.listCollections()).filter((c) => !SKIP_WORLD_COLLECTIONS.has(c.id)).sort((a, b) => a.id.localeCompare(b.id))
   const counts = {}
   const keepJson = new Set()
   let images = []
@@ -189,8 +226,124 @@ export async function backupWorld(db, worldSnap, users, outRoot, log = console.l
   return stats
 }
 
-/** Backs up all worlds (or `onlyWorld`). */
-export async function runBackup(db, { out, onlyWorld = null, log = console.log } = {}) {
+// ---------------------------------------------------------------- backup of platform-level collections
+
+/**
+ * Backs up everything outside worlds/{wid}:
+ *   - users/{uid} + all user subcollections (statSets, pf2eCharacters, …)
+ *   - campaigns/{cid} + subcollections (participants, sessions, invites, …)
+ *   - rooms/{rid} + subcollections (tracks, playlists, messages; skips ephemeral listeners)
+ *   - flat top-level collections (profiles, service, serviceBans, plus any future non-cache top-level collections)
+ */
+export async function backupPlatform(db, usersSnap, platformRoot, log = console.log) {
+  const stats = { reads: 0, changed: 0, warnings: [] }
+  const mark = (changed) => { if (changed) stats.changed++ }
+  await mkdir(platformRoot, { recursive: true })
+
+  // ---- users + user subcollections (statSets, pf2eCharacters, …) ----
+  const allUsers = {}
+  const userSubCounts = {}
+  for (const d of usersSnap.docs) {
+    allUsers[d.id] = encodeValue(d.data())
+    const sub = await dumpSubcollections(d.ref, path.join(platformRoot, 'users', d.id))
+    stats.reads += sub.reads
+    stats.changed += sub.changed
+    for (const [k, n] of Object.entries(sub.counts)) userSubCounts[k] = (userSubCounts[k] ?? 0) + n
+  }
+  mark(await writeIfChanged(
+    path.join(platformRoot, 'users', 'users.json'),
+    stableStringify({ collection: 'users', count: usersSnap.size, docs: allUsers }, 1) + '\n',
+  ))
+
+  // ---- campaigns + subcollections ----
+  const campsSnap = await db.collection('campaigns').get()
+  stats.reads += Math.max(1, campsSnap.size)
+  const campSubCounts = {}
+  const campIds = new Set()
+  for (const d of campsSnap.docs) {
+    campIds.add(d.id)
+    const dir = path.join(platformRoot, 'campaigns', d.id)
+    mark(await writeIfChanged(path.join(dir, 'campaign.json'), stableStringify({ id: d.id, data: encodeValue(d.data()) }, 1) + '\n'))
+    const sub = await dumpSubcollections(d.ref, path.join(dir, 'data'))
+    stats.reads += sub.reads
+    stats.changed += sub.changed
+    for (const [k, n] of Object.entries(sub.counts)) campSubCounts[k] = (campSubCounts[k] ?? 0) + n
+  }
+  for (const oldId of await listDirs(path.join(platformRoot, 'campaigns'))) {
+    if (!campIds.has(oldId)) log(`  campaign ${oldId}: игры больше нет в Firestore — старая копия оставлена как есть`)
+  }
+
+  // ---- rooms + subcollections (skipping ephemeral listeners) ----
+  const roomsSnap = await db.collection('rooms').get()
+  stats.reads += Math.max(1, roomsSnap.size)
+  const roomSubCounts = {}
+  const roomIds = new Set()
+  for (const d of roomsSnap.docs) {
+    roomIds.add(d.id)
+    const dir = path.join(platformRoot, 'rooms', d.id)
+    mark(await writeIfChanged(path.join(dir, 'room.json'), stableStringify({ id: d.id, data: encodeValue(d.data()) }, 1) + '\n'))
+    const sub = await dumpSubcollections(d.ref, path.join(dir, 'data'), SKIP_ROOM_SUBCOLLECTIONS)
+    stats.reads += sub.reads
+    stats.changed += sub.changed
+    for (const [k, n] of Object.entries(sub.counts)) roomSubCounts[k] = (roomSubCounts[k] ?? 0) + n
+  }
+  for (const oldId of await listDirs(path.join(platformRoot, 'rooms'))) {
+    if (!roomIds.has(oldId)) log(`  room ${oldId}: комнаты больше нет в Firestore — старая копия оставлена как есть`)
+  }
+
+  // ---- flat top-level collections (profiles, service, serviceBans, + any newly added non-cache collections) ----
+  const discoveredTop = typeof db.listCollections === 'function'
+    ? (await db.listCollections()).map((c) => c.id).filter((id) => !HANDLED_TOP_COLLECTIONS.has(id))
+    : []
+  const flatNames = [...new Set([...DEFAULT_FLAT_TOP_COLLECTIONS, ...discoveredTop])].sort()
+  const flatCounts = {}
+  const keepFlat = new Set()
+  for (const name of flatNames) {
+    const snap = await db.collection(name).get()
+    stats.reads += Math.max(1, snap.size)
+    const docs = {}
+    for (const d of snap.docs) docs[d.id] = encodeValue(d.data())
+    flatCounts[name] = snap.size
+    keepFlat.add(`${name}.json`)
+    mark(await writeIfChanged(
+      path.join(platformRoot, 'data', `${name}.json`),
+      stableStringify({ collection: name, count: snap.size, docs }, 1) + '\n',
+    ))
+  }
+  for (const f of await listFiles(path.join(platformRoot, 'data'))) {
+    if (f.endsWith('.json') && !keepFlat.has(f)) { await rm(path.join(platformRoot, 'data', f)); stats.changed++ }
+  }
+
+  // ---- platform manifest (only rewritten when something changed) ----
+  const prevManifest = JSON.parse((await readOrNull(path.join(platformRoot, 'manifest.json')))?.toString('utf8') || 'null')
+  const t = Date.now()
+  const manifest = {
+    format: PLATFORM_BACKUP_FORMAT,
+    version: PLATFORM_BACKUP_VERSION,
+    exportedAt: new Date(t).toISOString(),
+    exportedAtMs: t,
+    generator: 'backup-runner',
+    counts: {
+      users: usersSnap.size,
+      userSubcollections: userSubCounts,
+      campaigns: campsSnap.size,
+      campaignSubcollections: campSubCounts,
+      rooms: roomsSnap.size,
+      roomSubcollections: roomSubCounts,
+      topLevel: flatCounts,
+    },
+  }
+  const comparable = (m) => (m ? stableStringify({ ...m, exportedAt: null, exportedAtMs: null }) : '')
+  if (stats.changed || comparable(prevManifest) !== comparable(manifest)) {
+    await writeIfChanged(path.join(platformRoot, 'manifest.json'), JSON.stringify(manifest, null, 1) + '\n')
+    stats.changed++
+  }
+  log(`  Платформа: пользователей ${usersSnap.size} (подколлекции: ${JSON.stringify(userSubCounts)}), игр ${campsSnap.size}, комнат ${roomsSnap.size}, изменённых файлов ${stats.changed}, чтений ${stats.reads}`)
+  return stats
+}
+
+/** Backs up all worlds (or `onlyWorld`) and optionally platform-level collections. */
+export async function runBackup(db, { out, platformOut = null, onlyWorld = null, log = console.log } = {}) {
   let reads = 0
   const usersSnap = await db.collection('users').get()
   reads += Math.max(1, usersSnap.size)
@@ -221,6 +374,12 @@ export async function runBackup(db, { out, onlyWorld = null, log = console.log }
     for (const d of dirs) if (d.isDirectory() && !known.has(d.name) && !d.name.startsWith('.')) {
       log(`  ${d.name}: мира больше нет в Firestore — старая копия оставлена как есть`)
     }
+    if (platformOut) {
+      const pst = await backupPlatform(db, usersSnap, platformOut, log)
+      reads += pst.reads
+      changed += pst.changed
+      warnings.push(...pst.warnings)
+    }
   }
   for (const w of warnings) log(`ВНИМАНИЕ: ${w}`)
   log(`Готово: изменённых файлов ${changed}, чтений Firestore ~${reads} (бесплатный лимит — 50 000 в сутки)`)
@@ -230,9 +389,10 @@ export async function runBackup(db, { out, onlyWorld = null, log = console.log }
 // ---------------------------------------------------------------- CLI
 
 function parseArgs(argv) {
-  const args = { out: process.env.BACKUP_DIR || 'backups', world: null }
+  const args = { out: process.env.BACKUP_DIR || 'backups', platform: process.env.PLATFORM_BACKUP_DIR || null, world: null }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--out') args.out = argv[++i]
+    else if (argv[i] === '--platform') args.platform = argv[++i]
     else if (argv[i] === '--world') args.world = argv[++i]
   }
   return args
@@ -253,9 +413,10 @@ async function main() {
   initializeApp({ credential: cert(sa), projectId: sa.project_id })
   const db = getFirestore()
   const out = path.resolve(args.out)
-  console.log(`Проект ${sa.project_id}, папка ${out}`)
+  const platformOut = args.platform && !args.world ? path.resolve(args.platform) : null
+  console.log(`Проект ${sa.project_id}, папка миров ${out}${platformOut ? `, платформа ${platformOut}` : ''}`)
   await mkdir(out, { recursive: true })
-  await runBackup(db, { out, onlyWorld: args.world })
+  await runBackup(db, { out, platformOut, onlyWorld: args.world })
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

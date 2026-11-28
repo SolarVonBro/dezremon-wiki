@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/backup.yml of your PRIVATE backup repository.
-# Repository layout:   backup-runner/ (this folder)   backups/ (created by the first run)
+# Repository layout:   backup-runner/ (this folder)   backups/ & platform/ (created by the first run)
 # Secret required:     FIREBASE_SA — the full JSON of a Firebase service-account key.
 name: Firestore backup
 
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       world:
-        description: 'Only this world id (empty = all worlds)'
+        description: 'Only this world id (empty = all worlds + platform)'
         required: false
         default: ''
 
@@ -31,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         working-directory: backup-runner
@@ -44,13 +44,15 @@ jobs:
           FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
           WORLD: ${{ github.event.inputs.world }}
         run: |
-          if [ -n "$WORLD" ]; then node backup.mjs --out ../backups --world "$WORLD"; else node backup.mjs --out ../backups; fi
+          if [ -n "$WORLD" ]; then node backup.mjs --out ../backups --world "$WORLD"; else node backup.mjs --out ../backups --platform ../platform; fi
 
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A backups
+          for dir in backups platform; do
+            [ -e "$dir" ] && git add -A "$dir"
+          done
           if git diff --cached --quiet; then
             echo "No changes since the previous backup"
             exit 0
