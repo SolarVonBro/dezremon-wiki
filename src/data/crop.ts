@@ -13,7 +13,11 @@ export interface ImageCrop {
 
 export const DEFAULT_CROP: ImageCrop = { x: 50, y: 50, zoom: 1 }
 
-export type CropField = 'imageCrop' | 'headerCrop'
+export type CropField = 'imageCrop' | 'headerCrop' | 'backgroundCrop'
+
+export function isZoomedCrop(c: ImageCrop | null | undefined): boolean {
+  return !!c && c.zoom > 1.001
+}
 
 export function cropOf(e: Entity | null | undefined, field: CropField = 'imageCrop'): ImageCrop | null {
   const c = e?.fields?.[field]

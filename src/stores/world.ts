@@ -441,7 +441,7 @@ export const useWorld = defineStore('world', () => {
 
   function normalizeEntity(e: any): Entity {
     return {
-      kind: '', parentId: null, imageId: null, headerImageId: null, tagIds: [], aliases: [], fields: {}, attributes: [], links: [],
+      kind: '', parentId: null, imageId: null, headerImageId: null, backgroundImageId: null, tagIds: [], aliases: [], fields: {}, attributes: [], links: [],
       excerpt: '', tooltip: '', mentions: [], editorUids: [], allowedUids: [], hasSecrets: false, bodyRev: 0, isTemplate: false,
       deleted: false, deletedAt: null, ...e,
     }
@@ -501,7 +501,7 @@ export const useWorld = defineStore('world', () => {
     if (secret) batch.set(docRef(wid.value!, 'secrets', e.id), { html, attributes: [], gmNotes: '', rev: e.bodyRev, updatedAt: now(), updatedBy: uid.value })
     entities.value = new Map(entities.value).set(e.id, e)
     void track(batch.commit(), 'Создание')
-    const imgs = [e.imageId, e.headerImageId, ...imageIdsInHtml(readable)].filter(Boolean) as string[]
+    const imgs = [e.imageId, e.headerImageId, e.backgroundImageId, ...imageIdsInHtml(readable)].filter(Boolean) as string[]
     if (imgs.length) void ensureImageAccess(access.value, imgs, e)
     return e.id
   }
@@ -524,7 +524,7 @@ export const useWorld = defineStore('world', () => {
       if (narrows(prev, next)) batch.update(doc(db, 'worlds', wid.value!), { aclVersion: increment(1) })
     }
     await track(batch.commit())
-    if (visChanged || 'imageId' in patch || 'headerImageId' in patch || 'fields' in patch) void widenEntityImages(next, visChanged && !narrows(prev, next))
+    if (visChanged || 'imageId' in patch || 'headerImageId' in patch || 'backgroundImageId' in patch || 'fields' in patch) void widenEntityImages(next, visChanged && !narrows(prev, next))
     if (visChanged && next.commentCount) void syncComments(next)
   }
 
@@ -539,7 +539,7 @@ export const useWorld = defineStore('world', () => {
    * the images inside its readable text) must be at least as visible as the entity.
    */
   async function widenEntityImages(e: Entity, includeText: boolean) {
-    const imgs = [e.imageId, e.headerImageId, e.fields?.mapImageId].filter((x) => typeof x === 'string' && x) as string[]
+    const imgs = [e.imageId, e.headerImageId, e.backgroundImageId, e.fields?.mapImageId].filter((x) => typeof x === 'string' && x) as string[]
     if (includeText && e.bodyRev) {
       const html = await loadText(e.id).catch(() => '')
       imgs.push(...imageIdsInHtml(stripSecrets(html)))
@@ -792,9 +792,14 @@ export const useWorld = defineStore('world', () => {
   // ---------- world / members / invites ----------
   async function updateWorld(patch: Partial<World>) {
     if (!world.value) return
-    world.value = { ...world.value, ...patch }
+    const next = { ...world.value, ...patch }
+    world.value = next
     if (patch.settings) setCustomTypes(settings.value.customTypes)
     await track(updateDoc(doc(db, 'worlds', wid.value!), clean({ ...patch, updatedAt: now() })))
+    if ('imageId' in patch || 'headerImageId' in patch) {
+      const ids = [next.imageId, next.headerImageId].filter(Boolean) as string[]
+      if (ids.length) void ensureImageAccess(access.value, ids, { visibility: next.isPublic ? 'public' : 'members', allowedUids: [] })
+    }
   }
   async function updateSettings(patch: Partial<WorldSettings>) {
     await updateWorld({ settings: { ...settings.value, ...patch } })

@@ -36,7 +36,7 @@ import LinkMenu from './LinkMenu.vue'
 import TextMenu from './TextMenu.vue'
 import FindBar from './FindBar.vue'
 import HtmlSource from './HtmlSource.vue'
-import ImageDialog from './ImageDialog.vue'
+import ImageModal from '@/components/common/ImageModal.vue'
 import LinkDialog from './LinkDialog.vue'
 import { WikiImage, rowWidth } from './extensions/image'
 import { EntityMention } from './extensions/mention'
@@ -230,6 +230,10 @@ function onImageUrl(url: string) {
   if (imageDialog.value === 'replace') editor.value?.chain().focus().updateAttributes('image', { imageId: null, src: url }).run()
   else editor.value?.chain().focus().insertWikiImage({ src: url, align: 'center' }).run()
 }
+function onImageRemove() {
+  editor.value?.chain().focus().deleteSelection().run()
+  imageDialog.value = false
+}
 
 function insertYoutube() {
   const url = window.prompt('Ссылка на видео YouTube:')
@@ -331,8 +335,21 @@ defineExpose({
       <span class="grow" />
       <span v-if="stats" class="muted">{{ stats.words }} слов · {{ stats.chars }} знаков · ~{{ stats.minutes }} мин чтения</span>
     </div>
-    <ImageDialog v-if="imageDialog" :title="imageDialog === 'replace' ? 'Заменить изображение' : 'Вставить изображение'" :multiple="imageDialog === 'insert'"
-      @close="imageDialog = false" @files="onImageFiles" @pick="onImagePick" @url="onImageUrl" />
+    <ImageModal
+      v-if="imageDialog"
+      :title="imageDialog === 'replace' ? 'Заменить изображение' : 'Вставить изображение'"
+      :multiple="imageDialog === 'insert'"
+      :allow-crop="false"
+      :allow-url="true"
+      :allow-delete="imageDialog === 'replace'"
+      :has-image="imageDialog === 'replace'"
+      remove-label="Удалить изображение"
+      @close="imageDialog = false"
+      @files="onImageFiles"
+      @pick="onImagePick"
+      @url="onImageUrl"
+      @remove="onImageRemove"
+    />
     <LinkDialog v-if="linkDialog" :href="currentHref" :text="selectedText" @close="linkDialog = false" @link="applyLink" @entity="linkEntity" />
   </div>
 </template>

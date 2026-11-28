@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
+import { cropOf } from '@/data/crop'
 import { DEFAULT_COLOUR, DEFAULT_FONT, resolveIcon, safeColour } from './mapUtils'
 import type { Entity, MapMarker } from '@/model/types'
 
@@ -17,7 +18,7 @@ const entityImage = computed(() => (ic.value.kind === 'entity' ? props.entity?.i
 <template>
   <span class="mg" :class="'mg-' + marker.shape" :style="{ '--mg': colour, '--mg-fg': fg }" aria-hidden="true">
     <template v-if="marker.shape === 'marker'">
-      <Thumb v-if="entityImage" :id="entityImage" class="mg-img" />
+      <Thumb v-if="entityImage" :id="entityImage" :crop="cropOf(entity)" class="mg-img" />
       <Icon v-else-if="ic.kind === 'icon'" :name="ic.name" :size="12" :stroke="2.4" />
       <i v-else class="mg-dot" />
     </template>

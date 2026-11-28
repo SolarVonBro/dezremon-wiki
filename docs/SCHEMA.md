@@ -67,7 +67,7 @@ usage/{wid | service}                        замеры объёма: по м�
 ## Статья (`entities`)
 
 Общие поля всех типов: `type`, `name`, `kind` (подтип: «город», «гильдия»), `parentId` (иерархия внутри типа),
-`imageId`, `headerImageId`, `tagIds[]` (ссылки на статьи-теги), `aliases[]`, `attributes[]` (произвольные
+`imageId`, `headerImageId`, `backgroundImageId`, `tagIds[]` (ссылки на статьи-теги), `aliases[]`, `attributes[]` (произвольные
 характеристики), `links[]`, `excerpt`/`tooltip` (для всплывающих карточек), `mentions[]` (на какие статьи ссылается
 текст — из этого строятся обратные ссылки), `isTemplate`, `deleted`/`deletedAt` (корзина), `bodyRev`, `hasSecrets`.
 

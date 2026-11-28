@@ -6,14 +6,14 @@ import { deletePf2eCharacter, exportPf2eCharacters, updatePf2eCharacter, watchPf
 import { setActivePf2eChar } from '@/data/pf2eWorkspace'
 import { fileToSource, renderAvatar } from '@/data/avatar'
 import { errorText } from '@/data/util'
-import type { ImageCrop } from '@/data/crop'
 import type { Pf2eCharacter, Pf2eSpellList } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
-import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eCharSpells from '@/components/pf2e/Pf2eCharSpells.vue'
 import Pf2eCharInventory from '@/components/pf2e/Pf2eCharInventory.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 
 const session = useSession()
@@ -63,11 +63,11 @@ async function saveSpells(spellLists: Pf2eSpellList[]) {
   await patchChar({ spellLists })
 }
 
-// Profile edit modal + portrait cropping
+// Profile edit modal + portrait modal
 const editing = ref(false)
 const editForm = ref({ name: '', description: '', level: 1, strMod: 0 })
-const portraitInput = ref<HTMLInputElement | null>(null)
-const framing = ref<{ source: string; crop: ImageCrop | null } | null>(null)
+const editingPortrait = ref(false)
+const portraitBusy = ref(false)
 
 function openEdit() {
   if (!character.value) return
@@ -92,32 +92,33 @@ async function submitEdit() {
   toast.success('Персонаж обновлён')
 }
 
-async function onPortraitFile(e: Event) {
-  const inp = e.target as HTMLInputElement
-  const f = inp.files?.[0]
-  inp.value = ''
-  if (!f) return
-  try {
-    framing.value = { source: await fileToSource(f), crop: null }
-  } catch (err: any) { toast.error(err?.message ?? String(err)) }
+function onPortraitClick() {
+  if (!character.value) return
+  const src = character.value.portraitSource || character.value.portrait
+  if (src) openLightbox([{ src, caption: character.value.name }])
+  else editingPortrait.value = true
 }
 
-function reframePortrait() {
-  if (!character.value?.portraitSource) {
-    toast.info('Исходник портрета не сохранён — загрузите картинку заново')
-    return
-  }
-  framing.value = { source: character.value.portraitSource, crop: character.value.portraitCrop ?? null }
-}
-
-async function onCropSave(crop: ImageCrop | null) {
-  if (!framing.value) return
+async function onPortraitSave(payload: ImageSavePayload) {
+  if (!character.value) return
+  portraitBusy.value = true
   try {
-    const portrait = await renderAvatar(framing.value.source, crop, 192)
-    await patchChar({ portrait, portraitSource: framing.value.source, portraitCrop: crop })
+    const source = payload.file ? await fileToSource(payload.file) : (character.value.portraitSource || character.value.portrait)
+    if (!source) return
+    const portrait = await renderAvatar(source, payload.crop, 192)
+    await patchChar({ portrait, portraitSource: source, portraitCrop: payload.crop })
     toast.success('Портрет обновлён')
+    editingPortrait.value = false
   } catch (err: any) { toast.error(err?.message ?? String(err)) }
-  finally { framing.value = null }
+  finally { portraitBusy.value = false }
+}
+
+async function onPortraitRemove() {
+  portraitBusy.value = true
+  try {
+    await patchChar({ portrait: null, portraitSource: null, portraitCrop: null })
+    editingPortrait.value = false
+  } finally { portraitBusy.value = false }
 }
 
 async function removeChar() {
@@ -147,14 +148,13 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
       <!-- Character Header Card -->
       <section class="card card-pad char-head">
         <div class="ch-ava-wrap">
-          <button type="button" class="ch-ava" title="Загрузить новый портрет" @click="portraitInput?.click()">
+          <button type="button" class="ch-ava" :class="{ zoomable: !!character.portrait }" :title="character.portrait ? 'Открыть портрет' : 'Добавить портрет'" @click="onPortraitClick">
             <img v-if="character.portrait" :src="character.portrait" alt="" />
             <Icon v-else name="user" :size="36" />
           </button>
-          <button v-if="character.portrait && character.portraitSource" type="button" class="ch-crop" title="Кадрировать портрет" @click="reframePortrait">
-            <Icon name="crosshair" :size="13" />
+          <button type="button" class="ch-crop" :title="character.portrait ? 'Изменить портрет и фокус' : 'Добавить портрет'" @click="editingPortrait = true">
+            <Icon name="pencil" :size="13" />
           </button>
-          <input ref="portraitInput" type="file" accept="image/*" hidden @change="onPortraitFile" />
         </div>
 
         <div class="grow" style="min-width: 0">
@@ -199,8 +199,7 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
           </div>
           <label class="field"><span>Описание</span><textarea v-model="editForm.description" class="input" rows="4" maxlength="2000" /></label>
           <div class="row gap-sm">
-            <button type="button" class="btn btn-sm" @click="portraitInput?.click()"><Icon name="upload" :size="13" /> Сменить портрет</button>
-            <button v-if="character.portrait" type="button" class="btn btn-sm btn-ghost danger" @click="patchChar({ portrait: null, portraitSource: null, portraitCrop: null })">Убрать портрет</button>
+            <button type="button" class="btn btn-sm" @click="editingPortrait = true"><Icon name="image" :size="13" /> {{ character.portrait ? 'Настроить портрет' : 'Загрузить портрет' }}</button>
           </div>
           <div class="row gap-sm" style="justify-content: flex-end">
             <button type="button" class="btn" @click="editing = false">Отмена</button>
@@ -209,14 +208,21 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
         </form>
       </Modal>
 
-      <ImageCropModal
-        v-if="framing"
-        :src="framing.source"
-        :initial="framing.crop"
-        kind="avatar"
-        title="Кадр портрета"
-        @save="onCropSave"
-        @close="framing = null"
+      <ImageModal
+        v-if="editingPortrait"
+        title="Портрет персонажа"
+        :src="character.portraitSource || character.portrait"
+        :has-image="!!character.portrait"
+        :initial-crop="character.portraitCrop ?? null"
+        kind="portrait"
+        :allow-gallery="false"
+        :allow-url="false"
+        :allow-delete="!!character.portrait"
+        remove-label="Убрать портрет"
+        :busy="portraitBusy"
+        @save="onPortraitSave"
+        @remove="onPortraitRemove"
+        @close="editingPortrait = false"
       />
     </template>
   </div>
@@ -236,6 +242,7 @@ const totalSpells = computed(() => character.value?.spellLists.reduce((s, l) => 
   display: flex; align-items: center; justify-content: center;
 }
 .ch-ava:hover { border-color: var(--accent); }
+.ch-ava.zoomable { cursor: zoom-in; }
 .ch-ava img { width: 100%; height: 100%; object-fit: cover; }
 .ch-crop {
   position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; border-radius: 50%;

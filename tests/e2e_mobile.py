@@ -142,9 +142,9 @@ def create_modal_type(pg):
 def settings_modal(pg):
     hero_menu(pg); pg.get_by_role('button', name='Доступ и настройки').click(); pg.wait_for_timeout(800)
 def image_dialog(pg):
-    hero_menu(pg); pg.locator('.menu-item', has_text='изображение').first.click(); pg.wait_for_timeout(1200)
+    hero_menu(pg); pg.locator('.menu-item', has_text='Изображение').first.click(); pg.wait_for_timeout(1200)
 def crop_modal(pg):
-    hero_menu(pg); pg.locator('.menu-item', has_text='Кадр изображения').click(); pg.wait_for_timeout(1200)
+    hero_menu(pg); pg.locator('.menu-item', has_text='Изображение').first.click(); pg.wait_for_timeout(1200)
 def editor_slash(pg):
     pg.goto(e('hero', '?edit=1')); settle(pg, 2500)
     pg.locator('.wiki-editor').click(); pg.keyboard.press('Control+End'); pg.keyboard.press('Enter'); pg.keyboard.type('/'); pg.wait_for_timeout(700)

@@ -17,7 +17,7 @@ function toDataUrl(canvas: HTMLCanvasElement, quality: number): string {
 }
 
 /** A picture file → a data URL no larger than `max` px on its longer side (the source of the own picture). */
-export async function fileToSource(file: Blob, max = 512): Promise<string> {
+export async function fileToSource(file: Blob, max = 1024): Promise<string> {
   const url = URL.createObjectURL(file)
   try {
     const img = await load(url)

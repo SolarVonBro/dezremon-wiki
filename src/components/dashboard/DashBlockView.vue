@@ -75,7 +75,7 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 
     <!-- ============ hero ============ -->
     <section v-if="b.type === 'hero'" class="dash-hero dbv-hero" :class="['align-' + (b.align ?? 'left')]" :style="{ minHeight: heroHeight + 'px' }">
-      <div v-if="world.world?.headerImageId" class="hero-img"><Thumb :id="world.world.headerImageId" variant="full" /></div>
+      <div v-if="world.world?.headerImageId" class="hero-img"><Thumb :id="world.world.headerImageId" variant="full" :crop="world.world.headerCrop ?? null" /></div>
       <div class="dash-hero-body" :style="{ paddingTop: Math.max(24, heroHeight - 110) + 'px' }">
         <h1>{{ world.world?.name }}</h1>
         <p v-if="b.showDescription !== false && world.world?.description" class="muted dbv-desc">{{ world.world.description }}</p>
@@ -176,7 +176,7 @@ const linkRows = computed(() => props.data.links(b.value).map((l) => {
 
     <!-- ============ image ============ -->
     <figure v-else-if="b.type === 'image'" class="dbv-figure" :class="{ 'fit-contain': b.fit === 'contain', fixed: b.h > 0 }">
-      <button v-if="b.imageId" type="button" class="dbv-img" title="Открыть крупно" @click="zoomImage"><Thumb :id="b.imageId" variant="full" :alt="b.caption || ''"><Icon name="image" :size="30" /></Thumb></button>
+      <button v-if="b.imageId" type="button" class="dbv-img" title="Открыть крупно" @click="zoomImage"><Thumb :id="b.imageId" variant="full" :crop="b.fit === 'contain' ? null : (b.imageCrop ?? null)" :alt="b.caption || ''"><Icon name="image" :size="30" /></Thumb></button>
       <span v-else class="dbv-img dbv-img-empty"><Icon name="image" :size="30" /></span>
       <figcaption v-if="b.caption" class="muted small">{{ b.caption }}</figcaption>
     </figure>

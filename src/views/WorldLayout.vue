@@ -174,7 +174,7 @@ watch(() => world.world?.name, (n) => { document.title = n ? `${n} — вики`
     <div v-if="sidebarOpen" class="sb-backdrop" @click="sidebarOpen = false" />
     <aside class="sidebar" :class="{ open: sidebarOpen }">
       <RouterLink class="sb-world" :to="{ name: 'dashboard', params: { wid: world.wid ?? '' } }">
-        <span class="sb-world-img"><Thumb :id="world.world?.imageId"><Icon name="castle" :size="22" /></Thumb></span>
+        <span class="sb-world-img"><Thumb :id="world.world?.imageId" :crop="world.world?.imageCrop ?? null"><Icon name="castle" :size="22" /></Thumb></span>
         <span class="grow">
           <div class="sb-world-name ellipsis">{{ world.world?.name ?? 'Загрузка…' }}</div>
           <div class="sb-world-role">{{ roleLabel }}{{ world.world?.isPublic ? ' · открытый мир' : '' }}</div>

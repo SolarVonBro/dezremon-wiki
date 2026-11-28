@@ -18,12 +18,13 @@ import type { ImageCrop } from '@/data/crop'
 import type { Pf2eCharacter, Pf2eItemIndex, Pf2eItemType, Pf2eSpellCategory, Pf2eSpellIndex, Pf2eSpellList, Pf2eTradition } from '@/model/pf2e'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
-import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import Pf2eTopNav from '@/components/pf2e/Pf2eTopNav.vue'
 import Pf2eSpellBrowser from '@/components/pf2e/Pf2eSpellBrowser.vue'
 import Pf2eItemBrowser from '@/components/pf2e/Pf2eItemBrowser.vue'
 import Pf2eCharSpells from '@/components/pf2e/Pf2eCharSpells.vue'
 import Pf2eCharInventory from '@/components/pf2e/Pf2eCharInventory.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 
 const session = useSession()
@@ -328,32 +329,38 @@ const activeCharBulkSummary = computed(() =>
 const creating = ref(false)
 const busy = ref(false)
 const form = ref({ name: '', description: '', level: 1, strMod: 0, portrait: null as string | null, portraitSource: null as string | null, portraitCrop: null as ImageCrop | null })
-const portraitInput = ref<HTMLInputElement | null>(null)
-const framing = ref<{ source: string; crop: ImageCrop | null } | null>(null)
+const editingPortrait = ref(false)
+const portraitBusy = ref(false)
 
 function openCreate() {
   form.value = { name: '', description: '', level: 1, strMod: 0, portrait: null, portraitSource: null, portraitCrop: null }
   creating.value = true
 }
 
-async function onPortraitFile(e: Event) {
-  const inp = e.target as HTMLInputElement
-  const f = inp.files?.[0]
-  inp.value = ''
-  if (!f) return
-  try {
-    framing.value = { source: await fileToSource(f), crop: null }
-  } catch (err: any) { toast.error(err?.message ?? String(err)) }
+function onPortraitClick() {
+  const src = form.value.portraitSource || form.value.portrait
+  if (src) openLightbox([{ src, caption: form.value.name.trim() || 'Портрет персонажа' }])
+  else editingPortrait.value = true
 }
 
-async function onCropSave(crop: ImageCrop | null) {
-  if (!framing.value) return
+async function onPortraitSave(payload: ImageSavePayload) {
+  portraitBusy.value = true
   try {
-    form.value.portrait = await renderAvatar(framing.value.source, crop, 192)
-    form.value.portraitSource = framing.value.source
-    form.value.portraitCrop = crop
+    const source = payload.file ? await fileToSource(payload.file) : (form.value.portraitSource || form.value.portrait)
+    if (!source) return
+    form.value.portrait = await renderAvatar(source, payload.crop, 192)
+    form.value.portraitSource = source
+    form.value.portraitCrop = payload.crop
+    editingPortrait.value = false
   } catch (err: any) { toast.error(err?.message ?? String(err)) }
-  finally { framing.value = null }
+  finally { portraitBusy.value = false }
+}
+
+function onPortraitRemove() {
+  form.value.portrait = null
+  form.value.portraitSource = null
+  form.value.portraitCrop = null
+  editingPortrait.value = false
 }
 
 async function submitCreate() {
@@ -694,7 +701,7 @@ function charSpellsCount(c: Pf2eCharacter): number {
     <Modal v-if="creating" title="Новый персонаж PF2e" width="540px" @close="creating = false">
       <form class="stack" @submit.prevent="submitCreate">
         <div class="row gap">
-          <button type="button" class="port-pick" title="Загрузить портрет" @click="portraitInput?.click()">
+          <button type="button" class="port-pick" :class="{ zoomable: !!form.portrait }" :title="form.portrait ? 'Открыть портрет' : 'Загрузить портрет'" @click="onPortraitClick">
             <img v-if="form.portrait" :src="form.portrait" alt="" />
             <Icon v-else name="camera" :size="24" />
           </button>
@@ -704,11 +711,11 @@ function charSpellsCount(c: Pf2eCharacter): number {
               <input v-model="form.name" type="text" class="input" maxlength="80" placeholder="Например: Лиара из Абсалома" autofocus />
             </label>
             <div class="row gap-sm">
-              <button type="button" class="btn btn-sm" @click="portraitInput?.click()"><Icon name="upload" :size="13" /> {{ form.portrait ? 'Другой портрет' : 'Загрузить портрет' }}</button>
-              <button v-if="form.portrait" type="button" class="btn btn-sm btn-ghost" @click="form.portrait = null; form.portraitSource = null">Убрать</button>
+              <button type="button" class="btn btn-sm" @click="editingPortrait = true">
+                <Icon :name="form.portrait ? 'pencil' : 'upload'" :size="13" /> {{ form.portrait ? 'Настроить портрет' : 'Загрузить портрет' }}
+              </button>
             </div>
           </div>
-          <input ref="portraitInput" type="file" accept="image/*" hidden @change="onPortraitFile" />
         </div>
 
         <div class="row gap">
@@ -734,14 +741,21 @@ function charSpellsCount(c: Pf2eCharacter): number {
       </form>
     </Modal>
 
-    <ImageCropModal
-      v-if="framing"
-      :src="framing.source"
-      :initial="framing.crop"
-      kind="avatar"
-      title="Кадр портрета"
-      @save="onCropSave"
-      @close="framing = null"
+    <ImageModal
+      v-if="editingPortrait"
+      title="Портрет персонажа"
+      :src="form.portraitSource || form.portrait"
+      :has-image="!!form.portrait"
+      :initial-crop="form.portraitCrop"
+      kind="portrait"
+      :allow-gallery="false"
+      :allow-url="false"
+      :allow-delete="!!form.portrait"
+      remove-label="Убрать портрет"
+      :busy="portraitBusy"
+      @save="onPortraitSave"
+      @remove="onPortraitRemove"
+      @close="editingPortrait = false"
     />
   </div>
 </template>
@@ -830,6 +844,7 @@ function charSpellsCount(c: Pf2eCharacter): number {
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
 .port-pick:hover { border-color: var(--accent); color: var(--accent); }
+.port-pick.zoomable { cursor: zoom-in; border-style: solid; border-color: var(--border); }
 .port-pick img { width: 100%; height: 100%; object-fit: cover; }
 
 @media (max-width: 1099px) {

@@ -11,7 +11,9 @@ import Thumb from '@/components/common/Thumb.vue'
 import EntityPicker from '@/components/common/EntityPicker.vue'
 import EntityLink from '@/components/common/EntityLink.vue'
 import MultiSelect, { type MultiOption } from '@/components/common/MultiSelect.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
+import { imageUrl } from '@/data/images'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 import { clean, errorText } from '@/data/util'
 import { HEIGHTS, WIDTHS, clampH, kindOf } from './blocks'
@@ -64,12 +66,28 @@ async function openImage() {
   if (!img.value) return
   try { await gallery.update(img.value.id, { visibility: openTo.value, allowedUids: [] }); toast.success('Картинка открыта') } catch (e) { toast.error(errorText(e)) }
 }
-async function upload(files: File[]) {
+async function saveImage(payload: ImageSavePayload) {
   uploading.value = true
   try {
-    const [m] = await gallery.upload(files.slice(0, 1), { folder: 'Обзор', visibility: openTo.value })
-    if (m) f.value.imageId = m.id
+    if (payload.file) {
+      const [m] = await gallery.upload([payload.file], { folder: 'Обзор', visibility: openTo.value })
+      if (m) f.value.imageId = m.id
+    } else if (payload.changed) {
+      f.value.imageId = payload.imageId
+    }
+    f.value.imageCrop = payload.crop
+    picking.value = false
   } catch (e) { toast.error('Не удалось загрузить: ' + errorText(e)) } finally { uploading.value = false }
+}
+function removeImage() {
+  f.value.imageId = null
+  f.value.imageCrop = null
+  picking.value = false
+}
+async function viewImage() {
+  if (!f.value.imageId) { picking.value = true; return }
+  const src = await imageUrl(world.access, f.value.imageId, 'full').catch(() => null)
+  if (src) openLightbox([{ src, caption: f.value.caption || '' }])
 }
 
 function save() {
@@ -132,11 +150,15 @@ const badUrls = computed(() => (f.value.links ?? []).some((l) => !l.entityId && 
 
       <template v-else-if="t === 'image'">
         <div class="row gap" style="align-items: flex-start">
-          <span class="dbs-img"><Thumb v-if="f.imageId" :id="f.imageId"><Icon name="image" :size="26" /></Thumb><Icon v-else name="image" :size="26" /></span>
+          <button type="button" class="dbs-img" :class="{ zoomable: !!f.imageId }" :title="f.imageId ? 'Открыть крупно' : 'Выбрать картинку'" @click="viewImage">
+            <Thumb v-if="f.imageId" :id="f.imageId" variant="full" :crop="f.fit === 'contain' ? null : (f.imageCrop ?? null)"><Icon name="image" :size="26" /></Thumb>
+            <Icon v-else name="image" :size="26" />
+          </button>
           <div class="stack-sm grow">
             <div class="row gap-sm wrap">
-              <button class="btn btn-sm" :disabled="uploading" @click="picking = true"><Icon :name="uploading ? 'refresh-cw' : 'images'" :size="14" :class="{ spin: uploading }" /> {{ f.imageId ? 'Заменить' : 'Выбрать или загрузить' }}</button>
-              <button v-if="f.imageId" class="btn btn-sm btn-ghost" @click="f.imageId = null">Убрать</button>
+              <button class="btn btn-sm" :disabled="uploading" @click="picking = true">
+                <Icon :name="uploading ? 'refresh-cw' : (f.imageId ? 'pencil' : 'images')" :size="14" :class="{ spin: uploading }" /> {{ f.imageId ? 'Настроить' : 'Выбрать или загрузить' }}
+              </button>
             </div>
             <div v-if="imgNarrower" class="small dbs-warn"><Icon name="eye-off" :size="13" /> Картинка в галерее закрыта от части зрителей обзора — они увидят пустую рамку.
               <button class="btn btn-sm" @click="openImage">Открыть {{ openTo === 'public' ? 'всем' : 'участникам' }}</button>
@@ -251,7 +273,18 @@ const badUrls = computed(() => (f.value.links ?? []).some((l) => !l.entityId && 
       <button class="btn" @click="emit('close')">Отмена</button>
       <button class="btn btn-primary" @click="save"><Icon name="check" :size="15" /> Готово</button>
     </template>
-    <ImageDialog v-if="picking" title="Картинка для обзора" :multiple="false" @close="picking = false" @pick="(id) => { f.imageId = id; picking = false }" @files="upload" @url="() => toast.info('Ссылки на внешние картинки не поддерживаются — загрузите файл')" />
+    <ImageModal
+      v-if="picking"
+      title="Картинка для обзора"
+      :image-id="f.imageId ?? null"
+      :initial-crop="f.imageCrop ?? null"
+      kind="block"
+      remove-label="Убрать картинку"
+      :busy="uploading"
+      @save="saveImage"
+      @remove="removeImage"
+      @close="picking = false"
+    />
   </Modal>
 </template>
 
@@ -259,7 +292,8 @@ const badUrls = computed(() => (f.value.links ?? []).some((l) => !l.entityId && 
 .dbs-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); min-width: 0; }
 .dbs-row:last-of-type { margin-bottom: 6px; }
 .dbs-link-target { max-width: 40%; flex-shrink: 0; }
-.dbs-img { width: 120px; height: 90px; border-radius: 10px; overflow: hidden; flex-shrink: 0; background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
+.dbs-img { width: 120px; height: 90px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; flex-shrink: 0; background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); cursor: pointer; }
+.dbs-img.zoomable { cursor: zoom-in; }
 .dbs-img :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .dbs-warn { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--warning); }
 .dbs-sep { border: 0; border-top: 1px solid var(--border); margin: 2px 0; width: 100%; }

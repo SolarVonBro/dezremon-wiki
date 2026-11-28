@@ -8,12 +8,15 @@ import { useWorld } from '@/stores/world'
 import { FORMAT_HINTS, FORMAT_LABELS, STATUS_LABELS, cleanIntro } from '@/data/campaigns'
 import { createWorldCampaign, setCampaignImage, worldCampaigns } from '@/data/worldCampaigns'
 import { formatDate, plural, errorText } from '@/data/util'
+import { cropStyle, type ImageCrop } from '@/data/crop'
+import { imageUrl } from '@/data/images'
 import Icon from '@/components/common/Icon.vue'
 import Modal from '@/components/common/Modal.vue'
 import CampaignCover from '@/components/campaign/CampaignCover.vue'
 import CampaignIntroEditor from '@/components/campaign/CampaignIntroEditor.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import Thumb from '@/components/common/Thumb.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 import type { CampaignFormat, CampaignStatus } from '@/model/types'
 
@@ -28,7 +31,7 @@ const creating = ref(false)
 const blankIntro = () => ['Жанр', 'Настроение', 'Система', 'Уровень персонажей'].map((name) => ({ name, value: '' }))
 const form = ref({ name: '', description: '', status: 'active' as CampaignStatus, schedule: '', format: null as CampaignFormat | null, intro: blankIntro() })
 // the cover: a file to upload into the world's gallery on creation, or a picture of the gallery
-const coverPick = ref<{ file?: File; imageId?: string; preview?: string } | null>(null)
+const coverPick = ref<{ file?: File | null; imageId?: string | null; preview?: string; crop?: ImageCrop | null } | null>(null)
 const choosingCover = ref(false)
 const busy = ref(false)
 function openCreate() {
@@ -41,9 +44,25 @@ watch(() => route.query.new, (n) => {
   if (n) void router.replace({ query: {} })
 }, { immediate: true })
 
-function setCoverPick(p: { file?: File; imageId?: string } | null) {
-  if (coverPick.value?.preview) URL.revokeObjectURL(coverPick.value.preview)
-  coverPick.value = p ? { ...p, preview: p.file ? URL.createObjectURL(p.file) : undefined } : null
+function setCoverPick(p: { file?: File | null; imageId?: string | null; crop?: ImageCrop | null } | null) {
+  if (coverPick.value?.preview && (!p || p.file !== coverPick.value.file)) URL.revokeObjectURL(coverPick.value.preview)
+  if (!p) { coverPick.value = null; return }
+  const preview = p.file ? (p.file === coverPick.value?.file ? coverPick.value.preview : URL.createObjectURL(p.file)) : undefined
+  coverPick.value = { file: p.file ?? null, imageId: p.imageId ?? null, preview, crop: p.crop ?? null }
+}
+function onSaveCover(payload: ImageSavePayload) {
+  if (payload.changed) {
+    setCoverPick({ file: payload.file, imageId: payload.imageId, crop: payload.crop })
+  } else if (coverPick.value) {
+    setCoverPick({ file: coverPick.value.file, imageId: coverPick.value.imageId, crop: payload.crop })
+  }
+  choosingCover.value = false
+}
+async function viewCoverPick() {
+  const p = coverPick.value
+  if (!p) return
+  const src = p.preview || (p.imageId ? await imageUrl(world.access, p.imageId, 'full').catch(() => null) : null)
+  if (src) openLightbox([{ src, caption: form.value.name.trim() || 'Обложка игры' }])
 }
 async function create() {
   if (!session.user || !form.value.name.trim() || busy.value) return
@@ -83,7 +102,7 @@ async function create() {
     </div>
     <div v-else class="camp-grid">
       <RouterLink v-for="c in worldCampaigns" :key="c.id" class="camp-card" :to="{ name: 'wcampaign', params: { wid: world.wid!, cid: c.id } }">
-        <CampaignCover :campaign="c" class="camp-cover" />
+        <CampaignCover :campaign="c" hires class="camp-cover" />
         <div class="camp-body">
           <div class="camp-name">{{ c.name }}</div>
           <div class="row gap-sm wrap" style="margin-top: 4px">
@@ -122,16 +141,31 @@ async function create() {
         </div>
         <div class="field"><span>Обложка (необязательно)</span>
           <div class="row gap">
-            <span v-if="coverPick" class="new-cover"><img v-if="coverPick.preview" :src="coverPick.preview" alt="" /><Thumb v-else-if="coverPick.imageId" :id="coverPick.imageId" /></span>
-            <button type="button" class="btn btn-sm" @click="choosingCover = true"><Icon name="image" :size="14" /> {{ coverPick ? 'Заменить' : 'Выбрать картинку' }}</button>
-            <button v-if="coverPick" type="button" class="btn btn-sm btn-ghost" @click="setCoverPick(null)">Убрать</button>
+            <button v-if="coverPick" type="button" class="new-cover" title="Открыть крупно" @click="viewCoverPick">
+              <img v-if="coverPick.preview" :src="coverPick.preview" :style="cropStyle(coverPick.crop)" alt="" />
+              <Thumb v-else-if="coverPick.imageId" :id="coverPick.imageId" variant="full" :crop="coverPick.crop ?? null" />
+            </button>
+            <button type="button" class="btn btn-sm" @click="choosingCover = true">
+              <Icon :name="coverPick ? 'pencil' : 'image'" :size="14" /> {{ coverPick ? 'Настроить обложку' : 'Выбрать картинку' }}
+            </button>
           </div>
         </div>
         <div><button class="btn btn-primary" :disabled="busy || !form.name.trim()"><Icon name="plus" :size="15" /> Создать игру</button></div>
       </form>
     </Modal>
-    <ImageDialog v-if="choosingCover" title="Обложка игры" :multiple="false" @close="choosingCover = false"
-      @files="(f) => setCoverPick({ file: f[0] })" @pick="(id) => setCoverPick({ imageId: id })" @url="() => toast.info('Загрузите файл или выберите картинку из галереи')" />
+    <ImageModal
+      v-if="choosingCover"
+      title="Обложка игры"
+      :image-id="coverPick?.imageId ?? null"
+      :src="coverPick?.preview ?? null"
+      :has-image="!!coverPick"
+      :initial-crop="coverPick?.crop ?? null"
+      kind="cover"
+      remove-label="Убрать обложку"
+      @save="onSaveCover"
+      @remove="setCoverPick(null); choosingCover = false"
+      @close="choosingCover = false"
+    />
   </div>
 </template>
 
@@ -140,7 +174,7 @@ async function create() {
 .camp-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; color: var(--text); text-decoration: none !important; transition: border-color .12s, transform .12s; }
 .camp-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .camp-cover { height: 120px; }
-.new-cover { width: 96px; height: 54px; border-radius: 8px; overflow: hidden; display: inline-flex; background: var(--surface-3); }
+.new-cover { width: 96px; height: 54px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; display: inline-flex; background: var(--surface-3); cursor: zoom-in; }
 .new-cover img, .new-cover :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .camp-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 2px; }
 .camp-name { font: 700 22px var(--font-head); line-height: 1.15; }

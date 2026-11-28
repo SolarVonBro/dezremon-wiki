@@ -17,11 +17,12 @@ import { useRoute } from 'vue-router'
 import { useWorld } from '@/stores/world'
 import { useGallery } from '@/stores/gallery'
 import { ensureImageAccess, imageUrl } from '@/data/images'
+import { cropOf, isZoomedCrop } from '@/data/crop'
 import { escapeHtml } from '@/data/util'
 import { toast } from '@/components/common/toast'
 import Icon from '@/components/common/Icon.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal from '@/components/common/ImageModal.vue'
 import MarkerPopup from './map/MarkerPopup.vue'
 import MarkerList from './map/MarkerList.vue'
 import MarkerEditor from './map/MarkerEditor.vue'
@@ -421,19 +422,22 @@ function toggleLayer(id: string) {
 
 // ---------- markers on the map ----------
 const thumbLoading = new Set<string>()
-function loadThumb(id: string) {
-  if (thumbLoading.has(id)) return
-  thumbLoading.add(id)
-  imageUrl(world.access, id, 'thumb')
-    .then((u) => { thumbUrls.value = { ...thumbUrls.value, [id]: u } })
-    .catch(() => { thumbUrls.value = { ...thumbUrls.value, [id]: '' } })
+function loadThumb(id: string, variant: 'thumb' | 'full') {
+  const key = `${id}@${variant}`
+  if (thumbLoading.has(key)) return
+  thumbLoading.add(key)
+  imageUrl(world.access, id, variant)
+    .then((u) => { thumbUrls.value = { ...thumbUrls.value, [key]: u } })
+    .catch(() => { thumbUrls.value = { ...thumbUrls.value, [key]: '' } })
 }
 
 /** Blob URL of the linked entity's picture for "entity picture" pins (null while loading / none). */
 function thumbOf(m: MapMarker, entity = world.get(m.entityId)): string | null {
   if (m.shape !== 'marker' || resolveIcon(m.icon).kind !== 'entity' || !entity?.imageId) return null
-  if (!(entity.imageId in thumbUrls.value)) loadThumb(entity.imageId)
-  return thumbUrls.value[entity.imageId] || null
+  const variant = isZoomedCrop(cropOf(entity)) ? 'full' : 'thumb'
+  const key = `${entity.imageId}@${variant}`
+  if (!(key in thumbUrls.value)) loadThumb(entity.imageId, variant)
+  return thumbUrls.value[key] || thumbUrls.value[`${entity.imageId}@thumb`] || null
 }
 
 function ctxOf(m: MapMarker): Ctx {
@@ -458,7 +462,7 @@ function buildLayer(m: MapMarker, c: Ctx): L.Layer {
   }
   const spec = m.shape === 'label'
     ? labelSpec({ text: title, colour: m.colour, fontColour: m.fontColour, size: m.size })
-    : pinSpec({ colour: m.colour, fontColour: m.fontColour, size: m.size, icon: m.icon, imageUrl: c.thumb })
+    : pinSpec({ colour: m.colour, fontColour: m.fontColour, size: m.size, icon: m.icon, imageUrl: c.thumb, crop: cropOf(c.entity) })
   const mk = L.marker([m.lat, m.lng], {
     icon: L.divIcon({ html: spec.html, className: 'dw-icon' + (c.active ? ' is-active' : ''), iconSize: spec.size, iconAnchor: spec.anchor }),
     draggable: c.editable, autoPan: true, keyboard: false, riseOnHover: true, opacity: Math.max(0.15, m.opacity),
@@ -481,7 +485,7 @@ function syncMarkers() {
   for (const mk of want.values()) {
     const c = ctxOf(mk)
     const sig = JSON.stringify([mk.shape, mk.lat, mk.lng, mk.points, mk.radius, mk.icon, mk.colour, mk.fontColour, mk.opacity, mk.size, mk.name,
-      c.entity?.name ?? '', c.thumb, c.editable, c.active])
+      c.entity?.name ?? '', c.thumb, cropOf(c.entity), c.editable, c.active])
     const rec = markerLayers.get(mk.id)
     if (rec?.sig === sig) continue
     rec?.layer.remove()
@@ -844,8 +848,15 @@ async function onBasePick(id: string) {
     busy.value = false
   }
 }
-function onBaseUrl() {
-  toast.error('Для карты загрузите файл или выберите изображение из галереи')
+async function clearBaseImage() {
+  if (markers.value.length && !window.confirm('Убрать изображение карты? Метки останутся и снова появятся, когда вы выберете новое изображение.')) return
+  const f = { ...(props.entity.fields ?? {}) }
+  delete f.mapImageId
+  delete f.mapDimsFor
+  const patch: Partial<Entity> = { fields: f }
+  if (props.entity.imageId && props.entity.imageId === mainImageId.value && !props.entity.fields?.mapImageId) patch.imageId = null
+  await world.updateEntity(props.entity.id, patch)
+  imageDialog.value = false
 }
 
 /** Make an image the map's base; its natural size becomes the coordinate space. */
@@ -1089,8 +1100,20 @@ onBeforeUnmount(() => {
       <MarkerPopup v-if="activeMarker" :marker="activeMarker" :map-id="entity.id" :editing="isEditing" @edit="openEditor" />
     </Teleport>
 
-    <ImageDialog v-if="imageDialog" title="Изображение карты" :multiple="false"
-      @close="imageDialog = false" @files="onBaseFiles" @pick="onBasePick" @url="onBaseUrl" />
+    <ImageModal
+      v-if="imageDialog"
+      title="Изображение карты"
+      :image-id="mainImageId"
+      :has-image="!!mainImageId"
+      :allow-crop="false"
+      :allow-url="false"
+      :allow-delete="!!mainImageId"
+      remove-label="Убрать изображение карты"
+      @close="imageDialog = false"
+      @files="onBaseFiles"
+      @pick="onBasePick"
+      @remove="clearBaseImage"
+    />
     <MapManageModal v-if="manageTab" :entity="entity" :layers="layers" :groups="groups" :markers="markers" :tab="manageTab" @close="manageTab = null" />
   </div>
 </template>

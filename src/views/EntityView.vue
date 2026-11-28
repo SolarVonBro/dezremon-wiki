@@ -6,7 +6,9 @@ import { typeDef } from '@/model/entityTypes'
 import { cache } from '@/data/cache'
 import { useAutosave } from '@/composables/useAutosave'
 import { relativeTime } from '@/data/util'
+import { cropOf } from '@/data/crop'
 import Icon from '@/components/common/Icon.vue'
+import Thumb from '@/components/common/Thumb.vue'
 import { RichEditor, type RichEditorInstance } from '@/components/editor/lazy'
 import RichView from '@/components/viewer/RichView.vue'
 import type { Heading } from '@/components/viewer/types'
@@ -190,7 +192,13 @@ watch(() => entity.value?.name, (n) => { if (n) document.title = `${n} — ${wor
     <button v-if="raw?.deleted && world.isMaster" class="btn btn-primary" @click="world.restoreEntity(raw.id)">Восстановить</button>
   </div>
 
-  <div v-else class="content">
+  <div v-else class="content" :class="{ 'has-bg': !!entity.backgroundImageId }">
+    <!-- the page background: behind the page only (not the menus), blurred and dimmed -->
+    <div v-if="entity.backgroundImageId" class="page-bg no-print" aria-hidden="true">
+      <div class="page-bg-inner">
+        <Thumb :id="entity.backgroundImageId" variant="full" :crop="cropOf(entity, 'backgroundCrop')" />
+      </div>
+    </div>
     <EntityHero :entity="entity" :editing="editing" :can-edit="canEdit" @toggle-edit="toggleEdit" />
 
     <div class="tabs no-print">

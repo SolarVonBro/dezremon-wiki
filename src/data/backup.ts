@@ -539,7 +539,8 @@ export async function restoreWorld(
       // Restored docs keep their original updatedAt, so delta-syncing clients must do a full resync: bump aclVersion.
       await writer.update(doc(db, 'worlds', wid), {
         name: worldData.name ?? report.worldName, description: worldData.description ?? '', isPublic: !!worldData.isPublic,
-        imageId: worldData.imageId ?? null, headerImageId: worldData.headerImageId ?? null, settings: worldData.settings ?? {},
+        imageId: worldData.imageId ?? null, headerImageId: worldData.headerImageId ?? null,
+        imageCrop: worldData.imageCrop ?? null, headerCrop: worldData.headerCrop ?? null, settings: worldData.settings ?? {},
         aclVersion: increment(1), updatedAt: now(),
       })
       await writer.flush()

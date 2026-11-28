@@ -12,6 +12,7 @@ import { campaignTagColour, campaignTagName, isCampaignTag, isQuotedName, plainC
 import { plural } from './util'
 import { createRoom, updateRoom } from './rooms'
 import { ensureImageAccess, uploadImage } from './images'
+import type { ImageCrop } from './crop'
 import type { Campaign, CampaignFormat, CampaignStatus, Entity } from '@/model/types'
 
 type UserLike = { uid: string; displayName: string | null; email: string | null; photoURL: string | null }
@@ -90,7 +91,7 @@ export async function syncCampaignTag(c: Campaign, change: { name?: string; stat
  * is used as it is; either becomes visible to all members (the game's players are members of the world). The cover
  * also keeps a small copy for lists that do not read the world. null removes it. Returns the image id.
  */
-export async function setCampaignImage(cid: string, which: 'cover' | 'background', pick: { file?: File; imageId?: string } | null): Promise<string | null> {
+export async function setCampaignImage(cid: string, which: 'cover' | 'background', pick: { file?: File | null; imageId?: string | null; crop?: ImageCrop | null } | null): Promise<string | null> {
   const world = useWorld()
   if (!pick) {
     await updateCampaign(cid, which === 'cover' ? { coverImageId: null, coverCrop: null, cover: null } : { backgroundImageId: null, backgroundCrop: null })
@@ -109,7 +110,8 @@ export async function setCampaignImage(cid: string, which: 'cover' | 'background
     thumb = (s?.data()?.thumb as string | undefined) ?? null
   }
   if (!id) return null
-  await updateCampaign(cid, which === 'cover' ? { coverImageId: id, cover: thumb, coverCrop: null } : { backgroundImageId: id, backgroundCrop: null })
+  const crop = pick.crop ?? null
+  await updateCampaign(cid, which === 'cover' ? { coverImageId: id, cover: thumb, coverCrop: crop } : { backgroundImageId: id, backgroundCrop: crop })
   return id
 }
 

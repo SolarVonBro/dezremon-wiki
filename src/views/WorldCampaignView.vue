@@ -3,13 +3,14 @@ import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue
 import { useRoute, useRouter } from 'vue-router'
 import { useWorld } from '@/stores/world'
 import { currentCharacters, watchCampaign, watchParticipants, watchSessions, removeParticipant, updateCampaign, FORMAT_LABELS, STATUS_LABELS, ROLE_LABELS } from '@/data/campaigns'
+import { setCampaignImage } from '@/data/worldCampaigns'
 import { formatDate, untilTime, plural, errorText } from '@/data/util'
 import { cropOf } from '@/data/crop'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import CampaignCover from '@/components/campaign/CampaignCover.vue'
 import RichView from '@/components/viewer/RichView.vue'
-import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import { openLightbox } from '@/components/viewer/lightbox'
 import { imageUrl } from '@/data/images'
 import { toast } from '@/components/common/toast'
@@ -65,9 +66,25 @@ async function openCover() {
   const src = c.coverImageId ? await imageUrl(world.access, c.coverImageId, 'full').catch(() => c.cover) : c.cover
   if (src) openLightbox([{ src, caption: c.name }])
 }
-const framingCover = ref(false)
-function saveCoverFrame(crop: { x: number; y: number; zoom: number } | null) {
-  void updateCampaign(cid, { coverCrop: crop }).catch((e) => toast.error('Не удалось сохранить кадр: ' + errorText(e)))
+const editingCover = ref(false)
+const coverBusy = ref(false)
+async function saveCover(payload: ImageSavePayload) {
+  coverBusy.value = true
+  try {
+    if (payload.changed) {
+      await setCampaignImage(cid, 'cover', { file: payload.file, imageId: payload.imageId, crop: payload.crop })
+    } else {
+      await updateCampaign(cid, { coverCrop: payload.crop })
+    }
+    editingCover.value = false
+  } catch (e: any) { toast.error('Не удалось сохранить обложку: ' + errorText(e)) } finally { coverBusy.value = false }
+}
+async function removeCover() {
+  coverBusy.value = true
+  try {
+    await setCampaignImage(cid, 'cover', null)
+    editingCover.value = false
+  } catch (e: any) { toast.error('Не удалось убрать обложку: ' + errorText(e)) } finally { coverBusy.value = false }
 }
 const charsOf = (p: CampaignParticipant) => (campaign.value ? currentCharacters(campaign.value, p).map((id) => world.get(id)).filter((e) => !!e) : [])
 const tag = computed(() => (campaign.value?.tagId ? world.get(campaign.value.tagId) ?? null : null))
@@ -97,8 +114,10 @@ async function leave() {
   </Teleport>
   <div class="content" :class="{ 'has-bg': !!campaign?.backgroundImageId }">
     <!-- the page background: behind the page only (not the menus), blurred and dimmed -->
-    <div v-if="campaign?.backgroundImageId" class="c-bg" aria-hidden="true">
-      <Thumb :id="campaign.backgroundImageId" variant="full" :crop="campaign.backgroundCrop ?? null" />
+    <div v-if="campaign?.backgroundImageId" class="page-bg c-bg no-print" aria-hidden="true">
+      <div class="page-bg-inner">
+        <Thumb :id="campaign.backgroundImageId" variant="full" :crop="campaign.backgroundCrop ?? null" />
+      </div>
     </div>
     <div v-if="campaign === undefined" class="empty"><Icon name="refresh-cw" class="spin" :size="26" /></div>
     <div v-else-if="campaign === null" class="card empty" style="max-width: 560px; margin: 40px auto">
@@ -111,8 +130,8 @@ async function leave() {
       <section class="c-hero">
         <div class="c-cover-wrap">
           <CampaignCover :campaign="campaign" hires class="c-cover" :class="{ zoomable: !!(campaign.cover || campaign.coverImageId) }" :title="campaign.cover || campaign.coverImageId ? 'Открыть обложку' : undefined" @click="openCover" />
-          <button v-if="isGM && (campaign.cover || campaign.coverImageId)" type="button" class="c-crop-btn" title="Кадр обложки: центрирование и масштаб" @click="framingCover = true"><Icon name="crosshair" :size="15" /></button>
-          <button v-if="isGM && campaign.cover && !campaign.coverImageId" type="button" class="c-lowres" title="Обложка хранится маленькой копией (загружена до обновления). Загрузите её заново в настройках — будет чёткой." @click="setTab('settings')"><Icon name="triangle-alert" :size="13" /> низкое качество</button>
+          <button v-if="isGM" type="button" class="c-crop-btn" :title="campaign.cover || campaign.coverImageId ? 'Изменить обложку и фокус' : 'Добавить обложку'" @click="editingCover = true"><Icon name="pencil" :size="15" /></button>
+          <button v-if="isGM && campaign.cover && !campaign.coverImageId" type="button" class="c-lowres" title="Обложка хранится маленькой копией (загружена до обновления). Загрузите её заново — будет чёткой." @click="editingCover = true"><Icon name="triangle-alert" :size="13" /> низкое качество</button>
         </div>
         <div class="c-hero-text">
           <div class="row gap-sm wrap">
@@ -204,8 +223,20 @@ async function leave() {
         <CampaignMembersAdmin :campaign="campaign" :participants="participants" />
         <CampaignSettings :campaign="campaign" :is-owner="isOwner" />
       </div>
-      <ImageCropModal v-if="framingCover" :image-id="campaign.coverImageId" :src="campaign.cover" :initial="campaign.coverCrop ?? null" kind="cover"
-        title="Кадр обложки игры" @save="saveCoverFrame" @close="framingCover = false" />
+      <ImageModal
+        v-if="editingCover"
+        title="Обложка игры"
+        :image-id="campaign.coverImageId ?? null"
+        :src="campaign.cover"
+        :initial-crop="campaign.coverCrop ?? null"
+        kind="cover"
+        remove-label="Убрать обложку"
+        :busy="coverBusy"
+        :hint="campaign.cover && !campaign.coverImageId ? 'Эта обложка загружена раньше и хранится маленькой копией. Загрузите её заново во вкладке «Загрузить новое» — будет чёткой.' : ''"
+        @save="saveCover"
+        @remove="removeCover"
+        @close="editingCover = false"
+      />
     </template>
   </div>
 </template>
@@ -221,12 +252,6 @@ async function leave() {
 .c-crop-btn:hover { background: rgb(0 0 0 / 75%); }
 .c-lowres { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgb(0 0 0 / 62%); color: #ffd98a; }
 .c-lowres:hover { background: rgb(0 0 0 / 80%); }
-/* the page background: fixed under the page area only (the app bar and the sidebar keep their own), blurred, dimmed */
-.content.has-bg { position: relative; isolation: isolate; }
-.c-bg { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: 0; bottom: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.c-bg :deep(img), .c-bg :deep(.thumb-empty) { width: 100%; height: 100%; object-fit: cover; filter: blur(7px) saturate(.85) brightness(.7); transform: scale(1.06); }
-.c-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 55%, transparent), color-mix(in srgb, var(--bg) 78%, transparent)); }
-@media (max-width: 860px) { .c-bg { left: 0; } }
 .c-cover { width: 260px; height: 146px; border-radius: 14px; flex-shrink: 0; box-shadow: var(--shadow); }
 .c-hero-text { min-width: 0; flex: 1; }
 .c-hero h1 { margin: 6px 0 6px; font-size: 40px; line-height: 1.05; overflow-wrap: break-word; }

@@ -3,13 +3,14 @@
 import { computed, ref } from 'vue'
 import { useWorld } from '@/stores/world'
 import { useGallery } from '@/stores/gallery'
-import { ensureImageAccess } from '@/data/images'
+import { ensureImageAccess, imageUrl } from '@/data/images'
 import { toast } from '@/components/common/toast'
+import { openLightbox } from '@/components/viewer/lightbox'
 import Modal from '@/components/common/Modal.vue'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import VisibilitySelect from '@/components/common/VisibilitySelect.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal from '@/components/common/ImageModal.vue'
 import { inheritVisibility } from './mapUtils'
 import type { Entity, MapGroup, MapLayer, MapMarker, Visibility } from '@/model/types'
 
@@ -56,8 +57,17 @@ async function onFiles(files: File[]) {
 function onPick(imageId: string) {
   if (imageFor.value) void useImage(imageFor.value, imageId, gallery.images.get(imageId)?.name ?? '')
 }
-function onUrl() {
-  toast.error('Для слоя карты загрузите файл или выберите изображение из галереи')
+const editingLayer = computed(() => (imageFor.value && imageFor.value !== 'new' ? props.layers.find((l) => l.id === imageFor.value) ?? null : null))
+async function viewLayerImage(l: MapLayer) {
+  if (!l.imageId) { imageFor.value = l.id; return }
+  const src = await imageUrl(world.access, l.imageId, 'full').catch(() => null)
+  if (src) openLightbox([{ src, caption: l.name || 'Слой карты' }])
+}
+async function clearLayerImage() {
+  const layer = editingLayer.value
+  if (!layer) return
+  await world.saveRow('mapLayers', { id: layer.id, imageId: null })
+  imageFor.value = null
 }
 
 async function useImage(target: string, imageId: string, fileName: string) {
@@ -132,9 +142,12 @@ async function removeGroup(g: MapGroup) {
       </p>
       <div class="mm-list">
         <div v-for="(l, i) in sortedLayers" :key="l.id" class="mm-row">
-          <button type="button" class="mm-thumb" title="Заменить изображение" @click="imageFor = l.id">
-            <Thumb :id="l.imageId"><Icon name="image" :size="20" /></Thumb>
-          </button>
+          <div class="mm-thumb-wrap">
+            <button type="button" class="mm-thumb" :class="{ zoomable: !!l.imageId }" :title="l.imageId ? 'Открыть крупно' : 'Выбрать изображение'" @click="viewLayerImage(l)">
+              <Thumb :id="l.imageId"><Icon name="image" :size="20" /></Thumb>
+            </button>
+            <button type="button" class="mm-thumb-edit" :title="l.imageId ? 'Заменить или убрать изображение' : 'Выбрать изображение'" @click="imageFor = l.id"><Icon name="pencil" :size="11" /></button>
+          </div>
           <div class="mm-main">
             <div class="row gap-sm">
               <input class="input input-sm grow" :value="l.name" placeholder="Название слоя" @change="saveLayer(l, { name: ($event.target as HTMLInputElement).value.trim() })" />
@@ -193,8 +206,20 @@ async function removeGroup(g: MapGroup) {
       </form>
     </template>
 
-    <ImageDialog v-if="imageFor" :title="imageFor === 'new' ? 'Изображение слоя' : 'Заменить изображение слоя'" :multiple="false"
-      @close="imageFor = null" @files="onFiles" @pick="onPick" @url="onUrl" />
+    <ImageModal
+      v-if="imageFor"
+      :title="imageFor === 'new' ? 'Изображение слоя' : 'Изображение слоя'"
+      :image-id="editingLayer?.imageId ?? null"
+      :has-image="!!editingLayer?.imageId"
+      :allow-crop="false"
+      :allow-url="false"
+      :allow-delete="!!editingLayer?.imageId"
+      remove-label="Убрать изображение"
+      @close="imageFor = null"
+      @files="onFiles"
+      @pick="onPick"
+      @remove="clearLayerImage"
+    />
   </Modal>
 </template>
 
@@ -202,8 +227,12 @@ async function removeGroup(g: MapGroup) {
 .mm-intro { margin: -4px 0 12px; }
 .mm-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .mm-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
-.mm-thumb { width: 64px; height: 64px; flex: 0 0 64px; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
+.mm-thumb-wrap { position: relative; flex: 0 0 64px; }
+.mm-thumb { width: 64px; height: 64px; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
+.mm-thumb.zoomable { cursor: zoom-in; }
 .mm-thumb:hover { border-color: var(--accent); }
+.mm-thumb-edit { position: absolute; right: -5px; bottom: -5px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--surface-2); background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.mm-thumb-edit:hover { background: var(--accent-2); }
 .mm-thumb :deep(img) { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mm-thumb :deep(.thumb-empty) { width: 100%; height: 100%; }
 .mm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }

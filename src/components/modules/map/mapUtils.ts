@@ -5,6 +5,7 @@
 // `lat` = y measured from the bottom edge, `lng` = x from the left edge.
 import { h, render } from 'vue'
 import { ICONS, iconComponent } from '@/components/common/icons'
+import { cropCss, type ImageCrop } from '@/data/crop'
 import { escapeHtml, htmlToText } from '@/data/util'
 import type { Entity, LatLng, MapGroup, MapLayer, MapMarker, Visibility } from '@/model/types'
 
@@ -251,7 +252,7 @@ export function pinBox(size: number, avatar: boolean): { w: number; h: number } 
 
 const PIN_PATH = 'M16 1.2C8.2 1.2 1.8 7.4 1.8 15.2c0 10.6 14.2 25.6 14.2 25.6s14.2-15 14.2-25.6C30.2 7.4 23.8 1.2 16 1.2z'
 
-export function pinSpec(o: { colour: string; fontColour: string; size: number; icon: string; imageUrl?: string | null }): IconSpec {
+export function pinSpec(o: { colour: string; fontColour: string; size: number; icon: string; imageUrl?: string | null; crop?: ImageCrop | null }): IconSpec {
   const colour = safeColour(o.colour, DEFAULT_COLOUR)
   const fg = safeColour(o.fontColour, DEFAULT_FONT)
   const ic = resolveIcon(o.icon)
@@ -259,8 +260,9 @@ export function pinSpec(o: { colour: string; fontColour: string; size: number; i
   const { w, h: ht } = pinBox(o.size, avatar)
   let html: string
   if (avatar) {
+    const cs = cropCss(o.crop)
     html = `<div class="dw-pin dw-pin-avatar" style="width:${w}px;height:${ht}px;--pin:${colour}">` +
-      `<span class="dw-pin-img"><img src="${escapeHtml(o.imageUrl!)}" alt="" draggable="false"></span></div>`
+      `<span class="dw-pin-img"><img src="${escapeHtml(o.imageUrl!)}"${cs ? ` style="${cs}"` : ''} alt="" draggable="false"></span></div>`
   } else {
     const glyph = ic.kind === 'icon' ? iconSvg(ic.name) : '<i class="dw-pin-dot"></i>'
     html = `<div class="dw-pin" style="width:${w}px;height:${ht}px;--pin:${colour};--pin-fg:${fg}">` +

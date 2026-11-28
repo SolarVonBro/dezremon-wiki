@@ -4,7 +4,7 @@ import { useWorld } from '@/stores/world'
 import { typeDef } from '@/model/entityTypes'
 import { escapeHtml } from '@/data/util'
 import { imageUrl } from '@/data/images'
-import { cropCss, cropOf } from '@/data/crop'
+import { cropCss, cropOf, isZoomedCrop } from '@/data/crop'
 
 let card: HTMLDivElement | null = null
 let hideTimer: ReturnType<typeof setTimeout> | null = null
@@ -28,9 +28,10 @@ export function showPreview(anchor: HTMLElement, id: string) {
   const c = ensureCard()
   const pinned = (e.attributes ?? []).filter((a) => a.isPinned && a.kind !== 'section').slice(0, 5)
   const tags = (e.tagIds ?? []).map((tid) => world.get(tid)).filter(Boolean).slice(0, 4)
+  const crop = cropOf(e)
   c.innerHTML = `
     <div class="pc-head">
-      ${e.imageId ? `<div class="pc-img"><img alt="" style="${cropCss(cropOf(e))}"></div>` : ''}
+      ${e.imageId ? `<div class="pc-img"><img alt="" style="${cropCss(crop)}"></div>` : ''}
       <div>
         <div class="pc-type" style="color:${t.color}">${escapeHtml(t.label)}${e.kind ? ' · ' + escapeHtml(e.kind) : ''}</div>
         <div class="pc-name">${escapeHtml(e.name)}</div>
@@ -42,7 +43,7 @@ export function showPreview(anchor: HTMLElement, id: string) {
     ${tags.length ? `<div class="pc-tags">${tags.map((tg) => `<span class="tag-chip">${escapeHtml(tg!.name)}</span>`).join('')}</div>` : ''}
   `
   if (e.imageId) {
-    void imageUrl(world.access, e.imageId, 'thumb').then((u) => { const img = c.querySelector('img'); if (img) img.src = u }).catch(() => {})
+    void imageUrl(world.access, e.imageId, isZoomedCrop(crop) ? 'full' : 'thumb').then((u) => { const img = c.querySelector('img'); if (img) img.src = u }).catch(() => {})
   }
   c.style.display = 'block'
   void computePosition(anchor, c, { placement: 'bottom-start', strategy: 'fixed', middleware: [offset(8), flip(), shift({ padding: 10 })] })

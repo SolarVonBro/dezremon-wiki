@@ -10,14 +10,20 @@ import { sanitize } from '@/data/html'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import Dropdown from '@/components/common/Dropdown.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal, { type CropKind, type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import EntitySettingsModal from './EntitySettingsModal.vue'
-import ImageCropModal from './ImageCropModal.vue'
 import { cropOf, type CropField } from '@/data/crop'
 import { useGallery } from '@/stores/gallery'
 import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 import type { Entity } from '@/model/types'
+
+type ImageSlot = 'imageId' | 'headerImageId' | 'backgroundImageId'
+const SLOT_META: Record<ImageSlot, { title: string; cropField: CropField; kind: CropKind; removeLabel: string }> = {
+  imageId: { title: 'Изображение статьи', cropField: 'imageCrop', kind: 'entity', removeLabel: 'Убрать изображение' },
+  headerImageId: { title: 'Обложка статьи', cropField: 'headerCrop', kind: 'header', removeLabel: 'Убрать обложку' },
+  backgroundImageId: { title: 'Фон страницы', cropField: 'backgroundCrop', kind: 'background', removeLabel: 'Убрать фон' },
+}
 
 const props = defineProps<{ entity: Entity; editing: boolean; canEdit: boolean }>()
 const emit = defineEmits<{ 'toggle-edit': [] }>()
@@ -27,11 +33,12 @@ const router = useRouter()
 const def = computed(() => typeDef(props.entity.type))
 const name = ref(props.entity.name)
 watch(() => props.entity.name, (n) => { if (document.activeElement?.classList.contains('hero-name-input')) return; name.value = n })
-const imgDialog = ref<false | 'imageId' | 'headerImageId'>(false)
+const imgModal = ref<ImageSlot | null>(null)
+const imgBusy = ref(false)
 const settings = ref(false)
-const cropping = ref<CropField | null>(null)
 const isFav = computed(() => (world.member?.favorites ?? []).includes(props.entity.id))
 const tags = computed(() => props.entity.tagIds.map((id) => world.get(id)).filter(Boolean) as Entity[])
+const activeMeta = computed(() => (imgModal.value ? SLOT_META[imgModal.value] : null))
 
 const status = computed(() => {
   const f = props.entity.fields ?? {}
@@ -48,30 +55,55 @@ function saveName() {
   if (n && n !== props.entity.name) void world.updateEntity(props.entity.id, { name: n })
   else name.value = props.entity.name
 }
-async function setImage(field: 'imageId' | 'headerImageId', id: string | null) {
-  const cropField: CropField = field === 'imageId' ? 'imageCrop' : 'headerCrop'
-  // a new picture starts centred; the old framing belonged to the previous one
-  const fields = props.entity.fields?.[cropField] ? { fields: { ...props.entity.fields, [cropField]: null } } : {}
-  await world.updateEntity(props.entity.id, { [field]: id, ...fields })
-  if (id) cropping.value = cropField
+async function saveImage(payload: ImageSavePayload) {
+  const slot = imgModal.value
+  if (!slot) return
+  const { cropField } = SLOT_META[slot]
+  imgBusy.value = true
+  try {
+    let nextId = props.entity[slot] ?? null
+    if (payload.file) {
+      const [meta] = await gallery.upload([payload.file], { folder: props.entity.name, visibility: props.entity.visibility, allowedUids: props.entity.allowedUids })
+      nextId = meta.id
+    } else if (payload.changed) {
+      nextId = payload.imageId
+    }
+    const patch: Partial<Entity> = { fields: { ...props.entity.fields, [cropField]: payload.crop } }
+    if (nextId !== (props.entity[slot] ?? null)) patch[slot] = nextId
+    await world.updateEntity(props.entity.id, patch)
+    imgModal.value = null
+  } catch (e: any) {
+    toast.error('Не удалось сохранить изображение: ' + (e?.message ?? e))
+  } finally { imgBusy.value = false }
 }
-async function onFiles(files: File[]) {
-  const field = imgDialog.value
-  if (!field) return
-  const [meta] = await gallery.upload(files.slice(0, 1), { folder: props.entity.name, visibility: props.entity.visibility, allowedUids: props.entity.allowedUids })
-  await setImage(field, meta.id)
+async function removeImage() {
+  const slot = imgModal.value
+  if (!slot) return
+  const { cropField } = SLOT_META[slot]
+  imgBusy.value = true
+  try {
+    const fields = props.entity.fields?.[cropField] ? { fields: { ...props.entity.fields, [cropField]: null } } : {}
+    await world.updateEntity(props.entity.id, { [slot]: null, ...fields })
+    imgModal.value = null
+  } catch (e: any) {
+    toast.error('Не удалось убрать изображение: ' + (e?.message ?? e))
+  } finally { imgBusy.value = false }
 }
-async function zoomAvatar() {
-  if (props.editing) { imgDialog.value = 'imageId'; return }
-  if (!props.entity.imageId) return
-  openLightbox([{ src: await imageUrl(world.access, props.entity.imageId, 'full'), caption: props.entity.name }])
+// Clicking the portrait always opens the full-size viewer when a picture is set (both in view and edit modes).
+async function onAvatarClick() {
+  if (props.entity.imageId) {
+    openLightbox([{ src: await imageUrl(world.access, props.entity.imageId, 'full'), caption: props.entity.name }])
+  } else if (props.editing) {
+    imgModal.value = 'imageId'
+  }
 }
 async function duplicate() {
   const e = props.entity
   const html = await world.loadText(e.id)
   const id = await world.createEntity(e.type, `${e.name} (копия)`, {
-    kind: e.kind, parentId: e.parentId, imageId: e.imageId, headerImageId: e.headerImageId, tagIds: [...e.tagIds], aliases: [...e.aliases],
-    fields: JSON.parse(JSON.stringify(e.fields)), attributes: JSON.parse(JSON.stringify(e.attributes)), links: [...e.links], visibility: e.visibility, allowedUids: [...e.allowedUids],
+    kind: e.kind, parentId: e.parentId, imageId: e.imageId, headerImageId: e.headerImageId, backgroundImageId: e.backgroundImageId ?? null,
+    tagIds: [...e.tagIds], aliases: [...e.aliases], fields: JSON.parse(JSON.stringify(e.fields)),
+    attributes: JSON.parse(JSON.stringify(e.attributes)), links: [...e.links], visibility: e.visibility, allowedUids: [...e.allowedUids],
   }, html)
   void router.push({ name: 'entity', params: { wid: world.wid!, eid: id } })
 }
@@ -97,10 +129,12 @@ async function remove() {
     <div v-if="entity.headerImageId" class="hero-img"><Thumb :id="entity.headerImageId" variant="full" :crop="cropOf(entity, 'headerCrop')" /></div>
     <div class="hero-body">
       <div v-if="entity.imageId || editing" class="hero-avatar-wrap">
-        <button type="button" class="hero-avatar" :title="editing ? 'Сменить изображение' : 'Открыть изображение'" @click="zoomAvatar">
+        <button type="button" class="hero-avatar" :class="{ zoomable: !!entity.imageId }" :title="entity.imageId ? 'Открыть изображение' : 'Добавить изображение'" @click="onAvatarClick">
           <Thumb :id="entity.imageId" variant="full" :crop="cropOf(entity)"><Icon :name="editing ? 'image' : def.icon" :size="34" /></Thumb>
         </button>
-        <button v-if="editing && entity.imageId" type="button" class="hero-crop-btn" title="Кадр: центрирование и масштаб" @click="cropping = 'imageCrop'"><Icon name="crosshair" :size="15" /></button>
+        <button v-if="editing" type="button" class="hero-img-btn" :title="entity.imageId ? 'Изменить изображение и фокус' : 'Добавить изображение'" @click="imgModal = 'imageId'">
+          <Icon name="pencil" :size="15" />
+        </button>
       </div>
       <div class="hero-text">
         <div class="hero-type" :style="{ color: def.color }">
@@ -131,12 +165,9 @@ async function remove() {
           <div class="menu">
             <template v-if="canEdit">
               <button class="menu-item" @click="settings = true"><Icon name="shield" :size="15" /> Доступ и настройки</button>
-              <button class="menu-item" @click="imgDialog = 'imageId'"><Icon name="image" :size="15" /> {{ entity.imageId ? 'Сменить' : 'Добавить' }} изображение</button>
-              <button class="menu-item" @click="imgDialog = 'headerImageId'"><Icon name="panel-right-open" :size="15" /> {{ entity.headerImageId ? 'Сменить' : 'Добавить' }} обложку</button>
-              <button v-if="entity.imageId" class="menu-item" @click="cropping = 'imageCrop'"><Icon name="crosshair" :size="15" /> Кадр изображения…</button>
-              <button v-if="entity.headerImageId" class="menu-item" @click="cropping = 'headerCrop'"><Icon name="crosshair" :size="15" /> Кадр обложки…</button>
-              <button v-if="entity.imageId" class="menu-item" @click="setImage('imageId', null)"><Icon name="x" :size="15" /> Убрать изображение</button>
-              <button v-if="entity.headerImageId" class="menu-item" @click="setImage('headerImageId', null)"><Icon name="x" :size="15" /> Убрать обложку</button>
+              <button class="menu-item" @click="imgModal = 'imageId'"><Icon name="image" :size="15" /> Изображение…</button>
+              <button class="menu-item" @click="imgModal = 'headerImageId'"><Icon name="panel-right-open" :size="15" /> Обложка…</button>
+              <button class="menu-item" @click="imgModal = 'backgroundImageId'"><Icon name="layers" :size="15" /> Фон страницы…</button>
               <div class="menu-sep" />
             </template>
             <button v-if="world.canCreate(entity.type)" class="menu-item" @click="duplicate"><Icon name="copy" :size="15" /> Дублировать</button>
@@ -151,9 +182,18 @@ async function remove() {
         </Dropdown>
       </div>
     </div>
-    <ImageDialog v-if="imgDialog" :title="imgDialog === 'imageId' ? 'Изображение статьи' : 'Обложка статьи'" :multiple="false"
-      @close="imgDialog = false" @files="onFiles" @pick="(id) => setImage(imgDialog as any, id)" @url="() => toast.info('Для изображения статьи загрузите файл или выберите из галереи')" />
+    <ImageModal
+      v-if="imgModal && activeMeta"
+      :title="activeMeta.title"
+      :image-id="entity[imgModal] ?? null"
+      :initial-crop="cropOf(entity, activeMeta.cropField)"
+      :kind="activeMeta.kind"
+      :remove-label="activeMeta.removeLabel"
+      :busy="imgBusy"
+      @save="saveImage"
+      @remove="removeImage"
+      @close="imgModal = null"
+    />
     <EntitySettingsModal v-if="settings" :entity="entity" @close="settings = false" />
-    <ImageCropModal v-if="cropping" :entity="entity" :field="cropping" @close="cropping = null" />
   </section>
 </template>

@@ -129,7 +129,7 @@ async function loadCharNames(wid: string, ids: string[]) {
           <div class="world-grid">
             <article v-for="w in owned" :key="w.id" class="wcard">
               <RouterLink class="wcard-img" :to="{ name: 'dashboard', params: { wid: w.id } }">
-                <WorldImage :wid="w.id" :image-id="w.headerImageId || w.imageId" :uid="session.user.uid" :role="w.role"><Icon name="castle" :size="40" /></WorldImage>
+                <WorldImage :wid="w.id" :image-id="w.headerImageId || w.imageId" :crop="w.headerImageId ? (w.headerCrop ?? null) : (w.imageCrop ?? null)" :uid="session.user.uid" :role="w.role"><Icon name="castle" :size="40" /></WorldImage>
               </RouterLink>
               <div class="wcard-body">
                 <RouterLink class="wcard-name" :to="{ name: 'dashboard', params: { wid: w.id } }">{{ w.name }}</RouterLink>
@@ -155,7 +155,7 @@ async function loadCharNames(wid: string, ids: string[]) {
           <div class="world-grid">
             <article v-for="w in joined" :key="w.id" class="wcard">
               <RouterLink class="wcard-img" :to="{ name: 'dashboard', params: { wid: w.id } }">
-                <WorldImage :wid="w.id" :image-id="w.headerImageId || w.imageId" :uid="session.user.uid" :role="w.role"><Icon name="castle" :size="40" /></WorldImage>
+                <WorldImage :wid="w.id" :image-id="w.headerImageId || w.imageId" :crop="w.headerImageId ? (w.headerCrop ?? null) : (w.imageCrop ?? null)" :uid="session.user.uid" :role="w.role"><Icon name="castle" :size="40" /></WorldImage>
               </RouterLink>
               <div class="wcard-body">
                 <RouterLink class="wcard-name" :to="{ name: 'dashboard', params: { wid: w.id } }">{{ w.name }}</RouterLink>

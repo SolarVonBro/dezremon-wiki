@@ -6,13 +6,15 @@ import { db } from '@/firebase'
 import { characterIdsOf, docRef } from './access'
 import { myWorlds } from '@/stores/world'
 import { readProfile } from './profileCard'
+import { cropOf, type ImageCrop } from './crop'
 import type { CampaignParticipant, CampaignRole, CampaignStatus, Entity, Member, PublicProfile, Role } from '@/model/types'
 
-export interface PageCharacter { id: string; name: string; kind: string; imageId: string | null }
+export interface PageCharacter { id: string; name: string; kind: string; imageId: string | null; imageCrop: ImageCrop | null }
 export interface PageWorld {
   id: string
   name: string
   imageId: string | null
+  imageCrop: ImageCrop | null
   /** the viewer's role (for loading images with the viewer's access) */
   viewerRole: Role
   member: Member
@@ -33,7 +35,7 @@ async function characters(wid: string, m: Member): Promise<PageCharacter[]> {
   await Promise.all(characterIdsOf(m).map(async (id) => {
     const s = await getDoc(docRef(wid, 'entities', id)).catch(() => null)
     const e = s?.exists() ? (s.data() as Entity) : null
-    if (e && !e.deleted) out.push({ id, name: e.name, kind: e.kind ?? '', imageId: e.imageId ?? null })
+    if (e && !e.deleted) out.push({ id, name: e.name, kind: e.kind ?? '', imageId: e.imageId ?? null, imageCrop: cropOf(e) })
   }))
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -50,7 +52,7 @@ export async function loadUserPage(target: string, viewer: string | null): Promi
         const s = await getDoc(docRef(w.id, 'members', target)).catch(() => null)
         m = s?.exists() ? (s.data() as Member) : null
       }
-      if (m) worlds.push({ id: w.id, name: w.name, imageId: w.imageId ?? null, viewerRole: w.role, member: m, characters: await characters(w.id, m) })
+      if (m) worlds.push({ id: w.id, name: w.name, imageId: w.imageId ?? null, imageCrop: w.imageCrop ?? null, viewerRole: w.role, member: m, characters: await characters(w.id, m) })
     }))
     worlds.sort((a, b) => a.name.localeCompare(b.name))
     const cs = await getDocs(query(collection(db, 'campaigns'), where('memberUids', 'array-contains', viewer))).catch(() => null)

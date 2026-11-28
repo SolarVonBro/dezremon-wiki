@@ -92,6 +92,15 @@ export async function uploadImage(a: Access, file: Blob, opts: { name?: string; 
   return meta
 }
 
+/** Synchronous memory cache lookup (no IndexedDB / network). */
+export function peekImageUrl(wid: string, id: string, variant: 'full' | 'thumb' = 'full'): string | null {
+  if (pendingImages.has(id)) return pendingImages.get(id)!
+  const full = urlCache.get(`${wid}/${id}@full`)
+  if (full) return full
+  if (variant === 'thumb') return urlCache.get(`${wid}/${id}@thumb`) ?? null
+  return null
+}
+
 /** Rebuild an image from its chunks (or local caches). `thumb` returns the small preview only. */
 export function imageUrl(a: Access, id: string, variant: 'full' | 'thumb' = 'full'): Promise<string> {
   if (pendingImages.has(id)) return Promise.resolve(pendingImages.get(id)!)

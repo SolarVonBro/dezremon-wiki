@@ -8,6 +8,8 @@ import { formatDate, plural, relativeTime } from '@/data/util'
 import Icon from '@/components/common/Icon.vue'
 import WorldImage from '@/components/common/WorldImage.vue'
 import AccountSettings from '@/components/account/AccountSettings.vue'
+import AvatarModal from '@/components/account/AvatarModal.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import type { Role } from '@/model/types'
 
 // A user's page. For somebody else: the public card and what the viewer shares with them — worlds (role, characters)
@@ -45,6 +47,12 @@ function setTab(t: Tab) { void router.replace({ query: t === 'overview' ? {} : {
 const name = computed(() => (own.value ? session.displayName() : page.value?.name) || 'Без имени')
 const photo = computed(() => (own.value ? session.photo : page.value?.photoURL) ?? null)
 const since = computed(() => page.value?.profile?.since ?? (own.value && session.user?.metadata.creationTime ? Date.parse(session.user.metadata.creationTime) : 0))
+const editingAvatar = ref(false)
+async function viewPhoto() {
+  if (!photo.value) return
+  const src = own.value && session.avatar ? ((await session.avatarSource())?.source ?? photo.value) : photo.value
+  openLightbox([{ src, caption: name.value }])
+}
 </script>
 
 <template>
@@ -57,8 +65,10 @@ const since = computed(() => page.value?.profile?.since ?? (own.value && session
     <template v-else-if="page || own">
       <div class="card card-pad u-head">
         <span class="u-ava-wrap">
-          <span class="avatar round u-ava"><img v-if="photo" :src="photo" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="30" /></span>
-          <button v-if="own" type="button" class="u-ava-btn" title="Сменить фото" @click="setTab('profile')"><Icon name="camera" :size="14" /></button>
+          <button type="button" class="avatar round u-ava" :class="{ zoomable: !!photo }" :title="photo ? 'Открыть фото' : undefined" :disabled="!photo" @click="viewPhoto">
+            <img v-if="photo" :src="photo" alt="" referrerpolicy="no-referrer" /><Icon v-else name="user" :size="30" />
+          </button>
+          <button v-if="own" type="button" class="u-ava-btn" title="Настроить фото" @click="editingAvatar = true"><Icon name="pencil" :size="14" /></button>
         </span>
         <div class="grow">
           <h1 class="u-name">{{ name }} <span v-if="own" class="badge badge-public">это вы</span></h1>
@@ -88,7 +98,7 @@ const since = computed(() => page.value?.profile?.since ?? (own.value && session
         <div v-if="!characters.length" class="faint small u-empty">{{ own ? 'За вами пока не закреплён ни один персонаж.' : 'В общих мирах персонажей нет.' }}</div>
         <div v-else class="u-grid">
           <RouterLink v-for="c in characters" :key="c.world.id + c.id" class="card u-char" :to="{ name: 'entity', params: { wid: c.world.id, eid: c.id } }">
-            <span class="avatar round u-char-ava"><WorldImage :wid="c.world.id" :image-id="c.imageId" :uid="me" :role="c.world.viewerRole"><Icon name="user" :size="18" /></WorldImage></span>
+            <span class="avatar round u-char-ava"><WorldImage :wid="c.world.id" :image-id="c.imageId" :crop="c.imageCrop" :uid="me" :role="c.world.viewerRole"><Icon name="user" :size="18" /></WorldImage></span>
             <span class="grow" style="min-width: 0">
               <span class="u-char-name ellipsis">{{ c.name }}</span>
               <span class="faint small ellipsis">{{ c.kind ? c.kind + ' · ' : '' }}{{ c.world.name }}</span>
@@ -100,7 +110,7 @@ const since = computed(() => page.value?.profile?.since ?? (own.value && session
         <div v-if="!page.worlds.length" class="faint small u-empty">{{ own ? 'Вы пока не состоите ни в одном мире.' : 'Общих миров нет.' }}</div>
         <div v-else class="stack-sm">
           <RouterLink v-for="w in page.worlds" :key="w.id" class="card u-world" :to="{ name: 'dashboard', params: { wid: w.id } }">
-            <span class="u-world-img"><WorldImage :wid="w.id" :image-id="w.imageId" :uid="me" :role="w.viewerRole"><Icon name="castle" :size="20" /></WorldImage></span>
+            <span class="u-world-img"><WorldImage :wid="w.id" :image-id="w.imageId" :crop="w.imageCrop" :uid="me" :role="w.viewerRole"><Icon name="castle" :size="20" /></WorldImage></span>
             <span class="grow" style="min-width: 0">
               <span class="u-world-name ellipsis">{{ w.name }}</span>
               <span class="faint small">
@@ -126,6 +136,7 @@ const since = computed(() => page.value?.profile?.since ?? (own.value && session
         </template>
       </template>
     </template>
+    <AvatarModal v-if="editingAvatar" @close="editingAvatar = false" />
   </div>
 </template>
 
@@ -133,7 +144,8 @@ const since = computed(() => page.value?.profile?.since ?? (own.value && session
 .user-page { max-width: 980px; margin: 0 auto; padding: 22px 24px 60px; }
 @media (max-width: 640px) { .user-page { padding: 16px 16px 48px; } }
 .u-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-.u-ava { width: 72px; height: 72px; }
+.u-ava { width: 72px; height: 72px; border: 0; padding: 0; }
+.u-ava.zoomable { cursor: zoom-in; }
 .u-ava-wrap { position: relative; flex: none; }
 .u-ava-btn {
   position: absolute; right: -2px; bottom: -2px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); cursor: pointer;

@@ -7,10 +7,12 @@ import { BUILTIN_TYPES, allTypes, typeDef } from '@/model/entityTypes'
 import { formatDate, randomId, relativeTime } from '@/data/util'
 import { VISIBILITY_LABELS } from '@/data/access'
 import { ICON_NAMES } from '@/components/common/icons'
+import { imageUrl } from '@/data/images'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
 import Modal from '@/components/common/Modal.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 import type { CustomType, Invite, Role, Visibility } from '@/model/types'
 
@@ -32,12 +34,40 @@ const name = ref(world.world?.name ?? '')
 const description = ref(world.world?.description ?? '')
 watch(() => world.world, (w) => { if (w) { name.value = w.name; description.value = w.description } })
 const imgDialog = ref<false | 'imageId' | 'headerImageId'>(false)
+const imgBusy = ref(false)
 async function saveGeneral() { await world.updateWorld({ name: name.value.trim() || 'Мир', description: description.value.trim() }); toast.success('Сохранено') }
-async function onFiles(files: File[]) {
+async function saveWorldImage(payload: ImageSavePayload) {
+  const field = imgDialog.value
+  if (!field || !world.world) return
+  const cropField = field === 'imageId' ? 'imageCrop' : 'headerCrop'
+  imgBusy.value = true
+  try {
+    let nextId = world.world[field] ?? null
+    if (payload.file) {
+      const [m] = await gallery.upload([payload.file], { folder: 'Мир', visibility: 'public' })
+      nextId = m.id
+    } else if (payload.changed) {
+      nextId = payload.imageId
+    }
+    await world.updateWorld({ [field]: nextId, [cropField]: payload.crop })
+    imgDialog.value = false
+  } catch (e: any) { toast.error('Не удалось сохранить изображение: ' + (e?.message ?? e)) } finally { imgBusy.value = false }
+}
+async function removeWorldImage() {
   const field = imgDialog.value
   if (!field) return
-  const [m] = await gallery.upload(files.slice(0, 1), { folder: 'Мир', visibility: 'public' })
-  await world.updateWorld({ [field]: m.id })
+  const cropField = field === 'imageId' ? 'imageCrop' : 'headerCrop'
+  imgBusy.value = true
+  try {
+    await world.updateWorld({ [field]: null, [cropField]: null })
+    imgDialog.value = false
+  } finally { imgBusy.value = false }
+}
+async function viewWorldImage(field: 'imageId' | 'headerImageId') {
+  const id = world.world?.[field]
+  if (!id) { imgDialog.value = field; return }
+  const src = await imageUrl(world.access, id, 'full').catch(() => null)
+  if (src) openLightbox([{ src, caption: field === 'imageId' ? (world.world?.name ?? 'Эмблема') : `${world.world?.name ?? 'Мир'} — обложка` }])
 }
 async function togglePublic() {
   const next = !world.world?.isPublic
@@ -159,12 +189,24 @@ async function publishAll(to: 'public' | 'members') {
       </section>
       <section class="card card-pad stack">
         <h3 class="panel-title"><Icon name="image" /> Оформление</h3>
-        <div class="row gap wrap">
-          <div class="stack-sm"><span class="field-label">Эмблема</span>
-            <button class="avatar avatar-lg" style="border: 1px dashed var(--border-strong); cursor: pointer" @click="imgDialog = 'imageId'"><Thumb :id="world.world?.imageId"><Icon name="castle" /></Thumb></button>
+        <div class="row gap wrap" style="align-items: flex-start">
+          <div class="stack-sm">
+            <span class="field-label">Эмблема</span>
+            <div class="set-img-wrap">
+              <button type="button" class="avatar avatar-lg set-img-box" :class="{ zoomable: !!world.world?.imageId }" :title="world.world?.imageId ? 'Открыть крупно' : 'Выбрать эмблему'" @click="viewWorldImage('imageId')">
+                <Thumb :id="world.world?.imageId" variant="full" :crop="world.world?.imageCrop ?? null"><Icon name="castle" /></Thumb>
+              </button>
+              <button type="button" class="set-img-edit" :title="world.world?.imageId ? 'Изменить эмблему и фокус' : 'Выбрать эмблему'" @click="imgDialog = 'imageId'"><Icon name="pencil" :size="13" /></button>
+            </div>
           </div>
-          <div class="stack-sm grow"><span class="field-label">Обложка главной</span>
-            <button style="height: 90px; border-radius: 10px; overflow: hidden; border: 1px dashed var(--border-strong); background: var(--surface-2); cursor: pointer; padding: 0" @click="imgDialog = 'headerImageId'"><Thumb :id="world.world?.headerImageId" variant="full" style="width: 100%; height: 100%; object-fit: cover">Выбрать изображение</Thumb></button>
+          <div class="stack-sm grow">
+            <span class="field-label">Обложка главной</span>
+            <div class="set-img-wrap set-cover-wrap">
+              <button type="button" class="set-cover-box" :class="{ zoomable: !!world.world?.headerImageId }" :title="world.world?.headerImageId ? 'Открыть крупно' : 'Выбрать обложку'" @click="viewWorldImage('headerImageId')">
+                <Thumb :id="world.world?.headerImageId" variant="full" :crop="world.world?.headerCrop ?? null">Выбрать изображение</Thumb>
+              </button>
+              <button type="button" class="set-img-edit" :title="world.world?.headerImageId ? 'Изменить обложку и фокус' : 'Выбрать обложку'" @click="imgDialog = 'headerImageId'"><Icon name="pencil" :size="13" /></button>
+            </div>
           </div>
         </div>
       </section>
@@ -217,7 +259,18 @@ async function publishAll(to: 'public' | 'members') {
           <button class="btn btn-danger" :disabled="deleteName.trim() !== world.world?.name || !!deleteProgress" @click="deleteWorld">Удалить навсегда</button>
         </template>
       </Modal>
-      <ImageDialog v-if="imgDialog" :multiple="false" @close="imgDialog = false" @files="onFiles" @pick="(id) => world.updateWorld({ [imgDialog as string]: id })" />
+      <ImageModal
+        v-if="imgDialog"
+        :title="imgDialog === 'imageId' ? 'Эмблема мира' : 'Обложка главной'"
+        :image-id="world.world?.[imgDialog] ?? null"
+        :initial-crop="imgDialog === 'imageId' ? (world.world?.imageCrop ?? null) : (world.world?.headerCrop ?? null)"
+        :kind="imgDialog === 'imageId' ? 'emblem' : 'header'"
+        :remove-label="imgDialog === 'imageId' ? 'Убрать эмблему' : 'Убрать обложку'"
+        :busy="imgBusy"
+        @save="saveWorldImage"
+        @remove="removeWorldImage"
+        @close="imgDialog = false"
+      />
     </div>
 
     <MembersAdmin v-else-if="tab === 'members'" />
@@ -270,4 +323,12 @@ async function publishAll(to: 'public' | 'members') {
 
 <style scoped>
 .danger-zone { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.set-img-wrap { position: relative; display: inline-flex; }
+.set-cover-wrap { display: flex; width: 100%; }
+.set-img-box { border: 1px dashed var(--border-strong); cursor: pointer; }
+.set-cover-box { width: 100%; height: 90px; border-radius: 10px; overflow: hidden; border: 1px dashed var(--border-strong); background: var(--surface-2); cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
+.set-cover-box :deep(img) { width: 100%; height: 100%; object-fit: cover; }
+.set-img-box.zoomable, .set-cover-box.zoomable { cursor: zoom-in; border-style: solid; border-color: var(--border); }
+.set-img-edit { position: absolute; right: -6px; bottom: -6px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; box-shadow: var(--shadow); }
+.set-img-edit:hover { background: var(--accent-2); }
 </style>

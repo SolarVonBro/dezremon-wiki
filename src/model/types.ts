@@ -27,6 +27,8 @@ export interface World {
   isPublic: boolean
   imageId: string | null
   headerImageId: string | null
+  imageCrop?: { x: number; y: number; zoom: number } | null
+  headerCrop?: { x: number; y: number; zoom: number } | null
   /** Bumped whenever a master narrows visibility of something: clients then do a full resync. */
   aclVersion: number
   settings: WorldSettings
@@ -104,6 +106,7 @@ export interface DashBlock {
   html?: string
   /** image */
   imageId?: string | null
+  imageCrop?: { x: number; y: number; zoom: number } | null
   caption?: string
   fit?: 'cover' | 'contain'
   /** links: buttons to articles or web pages */
@@ -190,6 +193,8 @@ export interface Entity extends Visible, Stamped {
   parentId: string | null
   imageId: string | null
   headerImageId: string | null
+  /** A picture behind the whole article page (blurred and dimmed), an image of the world's gallery. */
+  backgroundImageId?: string | null
   tagIds: string[]
   aliases: string[]
   /** Type specific fields (see entityTypes.ts). */

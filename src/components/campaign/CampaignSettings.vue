@@ -4,17 +4,17 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { updateCampaign, FORMAT_HINTS, FORMAT_LABELS, STATUS_LABELS, cleanIntro } from '@/data/campaigns'
 import { deleteWorldCampaign, setCampaignImage, syncCampaignTag } from '@/data/worldCampaigns'
+import { imageUrl } from '@/data/images'
 import { useWorld } from '@/stores/world'
 import { toLocalInput, fromLocalInput } from './dates'
 import Icon from '@/components/common/Icon.vue'
 import Thumb from '@/components/common/Thumb.vue'
 import CampaignCover from './CampaignCover.vue'
 import CampaignIntroEditor from './CampaignIntroEditor.vue'
-import ImageDialog from '@/components/editor/ImageDialog.vue'
-import ImageCropModal from '@/components/entity/ImageCropModal.vue'
+import ImageModal, { type ImageSavePayload } from '@/components/common/ImageModal.vue'
+import { openLightbox } from '@/components/viewer/lightbox'
 import { toast } from '@/components/common/toast'
 import type { Campaign, CampaignFormat, CampaignStatus } from '@/model/types'
-import type { ImageCrop } from '@/data/crop'
 
 const props = defineProps<{ campaign: Campaign; isOwner: boolean }>()
 const router = useRouter()
@@ -45,18 +45,40 @@ async function save() {
   } catch (e: any) { toast.error('Не удалось сохранить: ' + errorText(e)) } finally { busy.value = false }
 }
 
-// ---------- pictures: the cover and the page background (saved at once, framed like article pictures) ----------
-const choosing = ref<false | 'cover' | 'background'>(false)
-const framing = ref<false | 'cover' | 'background'>(false)
-async function setPicture(which: 'cover' | 'background', pick: { file?: File; imageId?: string } | null) {
+// ---------- pictures: the cover and the page background (unified modal: upload/gallery + focus/zoom + remove) ----------
+const editingPic = ref<false | 'cover' | 'background'>(false)
+async function savePicture(payload: ImageSavePayload) {
+  const which = editingPic.value
+  if (!which) return
   busy.value = true
   try {
-    const id = await setCampaignImage(c.id, which, pick)
-    if (id) framing.value = which // a new picture starts centred: offer to frame it right away
+    if (payload.changed) {
+      await setCampaignImage(c.id, which, { file: payload.file, imageId: payload.imageId, crop: payload.crop })
+    } else {
+      await updateCampaign(c.id, which === 'cover' ? { coverCrop: payload.crop } : { backgroundCrop: payload.crop })
+    }
+    editingPic.value = false
   } catch (e: any) { toast.error('Не удалось сохранить картинку: ' + errorText(e)) } finally { busy.value = false }
 }
-async function saveFrame(which: 'cover' | 'background', crop: ImageCrop | null) {
-  await updateCampaign(c.id, which === 'cover' ? { coverCrop: crop } : { backgroundCrop: crop }).catch((e) => toast.error('Не удалось сохранить кадр: ' + errorText(e)))
+async function removePicture() {
+  const which = editingPic.value
+  if (!which) return
+  busy.value = true
+  try {
+    await setCampaignImage(c.id, which, null)
+    editingPic.value = false
+  } catch (e: any) { toast.error('Не удалось убрать картинку: ' + errorText(e)) } finally { busy.value = false }
+}
+async function viewPicture(which: 'cover' | 'background') {
+  const cur = props.campaign
+  if (which === 'cover') {
+    if (!cur.coverImageId && !cur.cover) return
+    const src = cur.coverImageId ? await imageUrl(world.access, cur.coverImageId, 'full').catch(() => cur.cover) : cur.cover
+    if (src) openLightbox([{ src, caption: cur.name }])
+  } else if (cur.backgroundImageId) {
+    const src = await imageUrl(world.access, cur.backgroundImageId, 'full').catch(() => null)
+    if (src) openLightbox([{ src, caption: `${cur.name} — фон` }])
+  }
 }
 
 const confirmName = ref('')
@@ -97,20 +119,20 @@ async function remove() {
     <section class="card card-pad stack pictures">
       <h3 class="panel-title" style="margin: 0"><Icon name="image" /> Оформление</h3>
       <div class="pic-row">
-        <CampaignCover :campaign="campaign" hires class="pic-prev" />
+        <CampaignCover :campaign="campaign" hires class="pic-prev" :class="{ zoomable: !!(campaign.cover || campaign.coverImageId) }" :title="campaign.cover || campaign.coverImageId ? 'Открыть крупно' : undefined" @click="viewPicture('cover')" />
         <div class="grow stack-sm">
           <b>Обложка</b>
           <span class="faint small">На странице игры и в списках игр. По щелчку открывается на весь экран.</span>
-          <span v-if="campaign.cover && !campaign.coverImageId" class="small old-cover"><Icon name="triangle-alert" :size="13" /> Эта обложка загружена раньше и хранится только маленькой копией, поэтому выглядит размыто. Загрузите её заново («Заменить») — будет чёткой и откроется в полном размере.</span>
+          <span v-if="campaign.cover && !campaign.coverImageId" class="small old-cover"><Icon name="triangle-alert" :size="13" /> Эта обложка загружена раньше и хранится только маленькой копией, поэтому выглядит размыто. Загрузите её заново — будет чёткой и откроется в полном размере.</span>
           <div class="row gap-sm wrap">
-            <button class="btn btn-sm" :disabled="busy" @click="choosing = 'cover'"><Icon name="image" :size="14" /> {{ campaign.cover || campaign.coverImageId ? 'Заменить' : 'Выбрать картинку' }}</button>
-            <button v-if="campaign.cover || campaign.coverImageId" class="btn btn-sm" :disabled="busy" title="Центрирование и масштаб" @click="framing = 'cover'"><Icon name="crosshair" :size="14" /> Кадр</button>
-            <button v-if="campaign.cover || campaign.coverImageId" class="btn btn-sm btn-ghost" :disabled="busy" @click="setPicture('cover', null)">Убрать</button>
+            <button class="btn btn-sm" :disabled="busy" @click="editingPic = 'cover'">
+              <Icon :name="campaign.cover || campaign.coverImageId ? 'pencil' : 'image'" :size="14" /> {{ campaign.cover || campaign.coverImageId ? 'Настроить' : 'Выбрать картинку' }}
+            </button>
           </div>
         </div>
       </div>
       <div class="pic-row">
-        <div class="pic-prev pic-bg">
+        <div class="pic-prev pic-bg" :class="{ zoomable: !!campaign.backgroundImageId }" :title="campaign.backgroundImageId ? 'Открыть крупно' : undefined" @click="viewPicture('background')">
           <Thumb v-if="campaign.backgroundImageId" :id="campaign.backgroundImageId" variant="full" :crop="campaign.backgroundCrop ?? null" />
           <Icon v-else name="image" :size="22" />
         </div>
@@ -118,9 +140,9 @@ async function remove() {
           <b>Фон страницы</b>
           <span class="faint small">Лежит под всей страницей игры (меню не затрагивает), слегка размыт и притемнён, чтобы не мешать читать.</span>
           <div class="row gap-sm wrap">
-            <button class="btn btn-sm" :disabled="busy" @click="choosing = 'background'"><Icon name="image" :size="14" /> {{ campaign.backgroundImageId ? 'Заменить' : 'Выбрать картинку' }}</button>
-            <button v-if="campaign.backgroundImageId" class="btn btn-sm" :disabled="busy" title="Какая часть картинки видна" @click="framing = 'background'"><Icon name="crosshair" :size="14" /> Кадр</button>
-            <button v-if="campaign.backgroundImageId" class="btn btn-sm btn-ghost" :disabled="busy" @click="setPicture('background', null)">Убрать</button>
+            <button class="btn btn-sm" :disabled="busy" @click="editingPic = 'background'">
+              <Icon :name="campaign.backgroundImageId ? 'pencil' : 'image'" :size="14" /> {{ campaign.backgroundImageId ? 'Настроить' : 'Выбрать картинку' }}
+            </button>
           </div>
         </div>
       </div>
@@ -135,13 +157,20 @@ async function remove() {
       </div>
     </section>
 
-    <ImageDialog v-if="choosing" :title="choosing === 'cover' ? 'Обложка игры' : 'Фон страницы игры'" :multiple="false"
-      @close="choosing = false" @files="(f) => setPicture(choosing as 'cover' | 'background', { file: f[0] })"
-      @pick="(id) => setPicture(choosing as 'cover' | 'background', { imageId: id })" @url="() => toast.info('Загрузите файл или выберите картинку из галереи')" />
-    <ImageCropModal v-if="framing" :image-id="framing === 'cover' ? campaign.coverImageId : campaign.backgroundImageId"
-      :src="framing === 'cover' ? campaign.cover : null" :initial="framing === 'cover' ? campaign.coverCrop ?? null : campaign.backgroundCrop ?? null"
-      :kind="framing" :title="framing === 'cover' ? 'Кадр обложки игры' : 'Кадр фона страницы'"
-      @save="(crop) => saveFrame(framing as 'cover' | 'background', crop)" @close="framing = false" />
+    <ImageModal
+      v-if="editingPic"
+      :title="editingPic === 'cover' ? 'Обложка игры' : 'Фон страницы игры'"
+      :image-id="editingPic === 'cover' ? campaign.coverImageId ?? null : campaign.backgroundImageId ?? null"
+      :src="editingPic === 'cover' ? campaign.cover : null"
+      :initial-crop="editingPic === 'cover' ? campaign.coverCrop ?? null : campaign.backgroundCrop ?? null"
+      :kind="editingPic"
+      :remove-label="editingPic === 'cover' ? 'Убрать обложку' : 'Убрать фон'"
+      :busy="busy"
+      :hint="editingPic === 'cover' && campaign.cover && !campaign.coverImageId ? 'Эта обложка загружена раньше и хранится маленькой копией. Загрузите её заново во вкладке «Загрузить новое».' : ''"
+      @save="savePicture"
+      @remove="removePicture"
+      @close="editingPic = false"
+    />
   </div>
 </template>
 
@@ -150,6 +179,7 @@ async function remove() {
 .pic-row { display: flex; gap: 14px; align-items: flex-start; }
 .pic-row + .pic-row { border-top: 1px solid var(--border); padding-top: 12px; }
 .pic-prev { width: 160px; height: 90px; border-radius: 10px; flex: none; overflow: hidden; }
+.pic-prev.zoomable { cursor: zoom-in; }
 .old-cover { color: var(--text); display: flex; gap: 6px; align-items: flex-start; }
 .old-cover > .icon { color: var(--warning); flex: none; margin-top: 2px; }
 .pic-bg { background: var(--surface-3); display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
